@@ -1,3 +1,5 @@
+For work in `resources/views/**` or `resources/css/**`, read and follow `UI_GUIDE.md`; new views must use the shared UI components rather than one-off styling.
+
 <laravel-boost-guidelines>
 === foundation rules ===
 

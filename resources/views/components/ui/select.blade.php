@@ -1,0 +1,2 @@
+@props(['name', 'label' => null, 'hint' => null])
+<div class="space-y-1.5"><label for="{{ $name }}" class="block text-sm font-medium text-slate-700">{{ $label ?? $slot }}</label><select id="{{ $name }}" name="{{ $name }}" {{ $attributes->class(['block w-full rounded-control border bg-white px-3 py-2.5 text-slate-900', 'border-danger' => $errors->has($name), 'border-slate-300' => ! $errors->has($name)]) }}>{{ $slot }}</select>@if($hint)<p class="text-xs text-muted">{{ $hint }}</p>@endif @error($name)<p class="text-xs text-danger">{{ $message }}</p>@enderror</div>
