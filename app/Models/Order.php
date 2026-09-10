@@ -1,0 +1,1 @@
+<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class Order extends Model { protected $guarded=[]; public function items(){return $this->hasMany(OrderItem::class);} public function supplier(){return $this->belongsTo(Organization::class,'supplier_organization_id');} public function buyer(){return $this->belongsTo(Organization::class,'buyer_organization_id');} }

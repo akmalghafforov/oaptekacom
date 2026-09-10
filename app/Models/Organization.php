@@ -1,0 +1,1 @@
+<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class Organization extends Model { protected $guarded=[]; protected $casts=['subscription_until'=>'datetime']; public function users(){return $this->hasMany(User::class);} public function offers(){return $this->hasMany(Offer::class);} }

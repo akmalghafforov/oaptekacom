@@ -1,0 +1,1 @@
+@extends('layouts.app') @section('content')<h1>Заказы</h1><table><tr><th>№</th><th>Поставщик</th><th>Статус</th><th>Сумма</th></tr>@foreach($orders as $o)<tr><td><a href="{{route('orders.show',$o)}}">{{$o->id}}</a></td><td>{{$o->supplier->name}}</td><td>{{$o->status}}</td><td>{{$o->total}} TJS</td></tr>@endforeach</table>{{$orders->links()}}@endsection

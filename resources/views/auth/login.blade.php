@@ -1,0 +1,1 @@
+@extends('layouts.app') @section('content')<h1>Вход</h1><form method="post" class="card">@csrf<label>Email<br><input type="email" name="email" required></label><br><br><label>Пароль<br><input type="password" name="password" required></label><br><br><button>Войти</button></form>@endsection
