@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Middleware\EnsureAccountIsActive;
+use App\Http\Middleware\EnsureModuleIsEnabled;
+use App\Http\Middleware\EnsureRole;
+use App\Http\Middleware\EnsureTwoFactorConfirmed;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -12,7 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->alias(['active' => \App\Http\Middleware\EnsureAccountIsActive::class, 'role' => \App\Http\Middleware\EnsureRole::class]);
+        $middleware->alias(['active' => EnsureAccountIsActive::class, 'role' => EnsureRole::class, 'module' => EnsureModuleIsEnabled::class, 'two-factor-confirmed' => EnsureTwoFactorConfirmed::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
