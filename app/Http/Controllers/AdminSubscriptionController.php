@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\PaymentMethod;
 use App\Enums\SubscriptionPlan;
 use App\Enums\SubscriptionTerm;
 use App\Http\Requests\GrantSubscriptionRequest;
+use App\Http\Requests\ReviewPaymentRequest;
+use App\Http\Requests\UpdatePaymentMethodsRequest;
 use App\Http\Requests\UpdateSubscriptionPlanPricesRequest;
+use App\Models\PaymentMethodSetting;
+use App\Models\PaymentRequest;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlanPrice;
 use App\Models\User;
@@ -34,15 +39,42 @@ class AdminSubscriptionController extends Controller
         return redirect()->route('admin.subscriptions.index')->with('success', 'Подписка выдана и сохранена в истории.');
     }
 
-    public function activate(Subscription $subscription, SubscriptionService $subscriptions): RedirectResponse
+    public function paymentRequests(): View
     {
+        return view('admin.subscriptions.payments', ['paymentRequests' => PaymentRequest::query()->with(['organization', 'user', 'reviewer'])->latest()->paginate(30), 'methods' => PaymentMethodSetting::query()->get()->keyBy(fn (PaymentMethodSetting $method): string => $method->method->value), 'paymentMethodCases' => PaymentMethod::cases()]);
+    }
+
+    public function reviewPayment(PaymentRequest $paymentRequest, ReviewPaymentRequest $request, SubscriptionService $subscriptions): RedirectResponse
+    {
+        $data = $request->validated();
         try {
-            $subscriptions->activate($subscription, request()->user());
+            if ($data['decision'] === 'approve') {
+                $subscriptions->approvePayment($paymentRequest, $request->user(), $data['verified_amount'], $data['verified_reference']);
+
+                return back()->with('success', 'Оплата подтверждена, подписка активирована.');
+            }
+            $subscriptions->rejectPayment($paymentRequest, $request->user(), $data['rejection_reason']);
         } catch (InvalidArgumentException $exception) {
-            return back()->withErrors(['subscription' => $exception->getMessage()]);
+            return back()->withErrors(['payment_request' => $exception->getMessage()]);
         }
 
-        return back()->with('success', 'Подписка активирована.');
+        return back()->with('success', 'Заявка на оплату отклонена.');
+    }
+
+    public function updatePaymentMethods(UpdatePaymentMethodsRequest $request, AuditLogger $audit): RedirectResponse
+    {
+        foreach ($request->validated('methods') as $method) {
+            $isEnabled = (bool) ($method['is_enabled'] ?? false);
+            if ($isEnabled && (! filled($method['wallet_number'] ?? null) || ! filled($method['instructions'] ?? null))) {
+                return back()->withInput()->withErrors(['methods' => 'Для включённого способа укажите кошелёк и инструкции на русском языке.']);
+            }
+            $setting = PaymentMethodSetting::query()->firstOrNew(['method' => $method['method']]);
+            $before = $setting->exists ? $setting->only(['is_enabled', 'wallet_number', 'instructions']) : [];
+            $setting->fill(['is_enabled' => $isEnabled, 'wallet_number' => $method['wallet_number'] ?? null, 'instructions' => $method['instructions'] ?? null])->save();
+            $audit->log('payment_method.updated', $setting, $before, $setting->only(['is_enabled', 'wallet_number', 'instructions']));
+        }
+
+        return back()->with('success', 'Способы оплаты сохранены.');
     }
 
     public function cancel(Subscription $subscription, SubscriptionService $subscriptions): RedirectResponse

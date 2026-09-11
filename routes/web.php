@@ -7,6 +7,7 @@ use App\Http\Controllers\CartController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\PaymentReceiptController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SubscriptionRequestController;
@@ -54,6 +55,7 @@ Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->n
 Route::middleware('auth')->group(function () {
     Route::get('/subscription', [SubscriptionController::class, 'create'])->name('subscription.create');
     Route::post('/subscription/requests', [SubscriptionRequestController::class, 'store'])->name('subscription.requests.store');
+    Route::get('/payment-requests/{paymentRequest}/receipt', [PaymentReceiptController::class, 'show'])->name('payment-requests.receipt');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::post('/profile/phone', [ProfileController::class, 'sendPhoneChange'])->name('profile.phone.send');
@@ -86,9 +88,11 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::patch('/modules/{module}', [AdminController::class, 'updateModule'])->name('admin.modules.update');
         Route::get('/subscriptions', [AdminSubscriptionController::class, 'index'])->name('admin.subscriptions.index');
         Route::post('/subscriptions', [AdminSubscriptionController::class, 'store'])->name('admin.subscriptions.store');
-        Route::post('/subscriptions/{subscription}/activate', [AdminSubscriptionController::class, 'activate'])->name('admin.subscriptions.activate');
         Route::post('/subscriptions/{subscription}/cancel', [AdminSubscriptionController::class, 'cancel'])->name('admin.subscriptions.cancel');
         Route::get('/subscription-prices', [AdminSubscriptionController::class, 'prices'])->name('admin.subscription-prices.edit');
         Route::patch('/subscription-prices', [AdminSubscriptionController::class, 'updatePrices'])->name('admin.subscription-prices.update');
+        Route::get('/subscription-payments', [AdminSubscriptionController::class, 'paymentRequests'])->name('admin.subscription-payments.index');
+        Route::patch('/subscription-payments/methods', [AdminSubscriptionController::class, 'updatePaymentMethods'])->name('admin.subscription-payments.methods.update');
+        Route::post('/subscription-payments/{paymentRequest}/review', [AdminSubscriptionController::class, 'reviewPayment'])->name('admin.subscription-payments.review');
     });
 });

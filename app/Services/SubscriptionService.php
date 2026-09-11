@@ -6,11 +6,13 @@ use App\Enums\SubscriptionPlan;
 use App\Enums\SubscriptionStatus;
 use App\Enums\SubscriptionTerm;
 use App\Models\AuditEvent;
+use App\Models\PaymentMethodSetting;
 use App\Models\PaymentRequest;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlanPrice;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -43,27 +45,38 @@ class SubscriptionService
         });
     }
 
-    public function request(User $user, SubscriptionPlan $plan, SubscriptionTerm $term): Subscription
+    public function request(User $user, SubscriptionPlan $plan, SubscriptionTerm $term, PaymentMethodSetting $paymentMethod, string $transferReference, string $transferredOn, UploadedFile $receipt): Subscription
     {
         if (! $user->isCustomer() || ! $user->organization || $user->organization->status !== 'active' || ! $plan->isPaid() || $term === SubscriptionTerm::Custom) {
             throw new InvalidArgumentException('Заявку может подать только подтверждённая аптека на платный тариф.');
+        }
+
+        if (! $paymentMethod->isConfigured()) {
+            throw new InvalidArgumentException('Выбранный способ оплаты сейчас недоступен.');
         }
 
         $price = $this->priceFor($plan);
         [$startsOn, $endsOn] = $this->period($term, null);
         $totalPrice = $this->totalPrice($price, $startsOn, $endsOn);
 
-        return DB::transaction(function () use ($user, $plan, $term, $price, $startsOn, $endsOn, $totalPrice): Subscription {
+        return DB::transaction(function () use ($user, $plan, $term, $paymentMethod, $price, $startsOn, $endsOn, $totalPrice, $transferReference, $transferredOn, $receipt): Subscription {
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
             if ($lockedUser->subscriptions()->where('status', SubscriptionStatus::Pending->value)->exists()) {
                 throw new InvalidArgumentException('У этой аптеки уже есть заявка, ожидающая оплаты или проверки.');
             }
 
+            $receiptPath = $receipt->store('payment-receipts', 'local');
             $paymentRequest = PaymentRequest::create([
                 'organization_id' => $lockedUser->organization_id,
                 'user_id' => $lockedUser->id,
                 'days' => $startsOn->diffInDays($endsOn) + 1,
                 'amount' => $totalPrice,
+                'payment_method' => $paymentMethod->method,
+                'recipient_wallet' => $paymentMethod->wallet_number,
+                'payment_instructions' => $paymentMethod->instructions,
+                'transfer_reference' => $transferReference,
+                'transferred_on' => $transferredOn,
+                'receipt_path' => $receiptPath,
                 'status' => 'pending',
             ]);
             $subscription = Subscription::create([
@@ -75,30 +88,49 @@ class SubscriptionService
                 'total_price' => $totalPrice,
                 'status' => SubscriptionStatus::Pending,
             ]);
-            AuditEvent::create(['user_id' => $lockedUser->id, 'event' => 'subscription.requested', 'subject_type' => Subscription::class, 'subject_id' => $subscription->id, 'before' => [], 'after' => ['plan' => $plan->value, 'term' => $term->value, 'total_price' => $totalPrice], 'ip' => request()?->ip()]);
+            AuditEvent::create(['user_id' => $lockedUser->id, 'event' => 'subscription.requested', 'subject_type' => Subscription::class, 'subject_id' => $subscription->id, 'before' => [], 'after' => ['plan' => $plan->value, 'term' => $term->value, 'days' => $paymentRequest->days, 'total_price' => $totalPrice, 'payment_method' => $paymentMethod->method->value], 'ip' => request()?->ip()]);
 
             return $subscription;
         });
     }
 
-    public function activate(Subscription $subscription, User $assignedBy): Subscription
+    public function approvePayment(PaymentRequest $paymentRequest, User $reviewer, string $verifiedAmount, string $verifiedReference): Subscription
     {
-        return DB::transaction(function () use ($subscription, $assignedBy): Subscription {
-            $lockedSubscription = Subscription::query()->lockForUpdate()->with('user')->findOrFail($subscription->id);
-            if ($lockedSubscription->status !== SubscriptionStatus::Pending) {
-                throw new InvalidArgumentException('Активировать можно только ожидающую подписку.');
+        return DB::transaction(function () use ($paymentRequest, $reviewer, $verifiedAmount, $verifiedReference): Subscription {
+            $lockedRequest = PaymentRequest::query()->lockForUpdate()->findOrFail($paymentRequest->id);
+            if ($lockedRequest->status !== 'pending') {
+                throw new InvalidArgumentException('Проверить можно только заявку, ожидающую проверки.');
             }
+            if (bccomp($verifiedAmount, (string) $lockedRequest->amount, 2) !== 0) {
+                throw new InvalidArgumentException('Подтверждённая сумма должна точно совпадать с суммой заявки.');
+            }
+            $lockedSubscription = Subscription::query()->lockForUpdate()->where('payment_request_id', $lockedRequest->id)->firstOrFail();
             $lockedUser = User::query()->lockForUpdate()->findOrFail($lockedSubscription->user_id);
-            [$startsOn, $endsOn] = $this->period($lockedSubscription->term, null);
-            $totalPrice = $this->totalPriceFromDailyPrice((string) $lockedSubscription->daily_price, $startsOn, $endsOn);
+            $startsOn = CarbonImmutable::now(self::TIMEZONE)->startOfDay();
+            $endsOn = $startsOn->addDays($lockedRequest->days - 1);
 
             Subscription::query()->whereBelongsTo($lockedUser)->where('status', SubscriptionStatus::Active)->update(['status' => SubscriptionStatus::Superseded, 'actual_ended_at' => now()]);
-            $lockedSubscription->update(['assigned_by' => $assignedBy->id, 'starts_on' => $startsOn, 'ends_on' => $endsOn, 'total_price' => $totalPrice, 'status' => SubscriptionStatus::Active]);
-            $lockedSubscription->paymentRequest?->update(['status' => 'approved', 'reviewed_by' => $assignedBy->id]);
+            $lockedSubscription->update(['assigned_by' => $reviewer->id, 'starts_on' => $startsOn, 'ends_on' => $endsOn, 'status' => SubscriptionStatus::Active]);
+            $lockedRequest->update(['status' => 'approved', 'reviewed_by' => $reviewer->id, 'reviewed_at' => now(), 'verified_amount' => $verifiedAmount, 'verified_reference' => $verifiedReference]);
             $lockedUser->forceFill(['subscription_plan' => $lockedSubscription->plan])->save();
-            AuditEvent::create(['user_id' => $assignedBy->id, 'event' => 'subscription.activated', 'subject_type' => Subscription::class, 'subject_id' => $lockedSubscription->id, 'before' => ['status' => SubscriptionStatus::Pending->value], 'after' => ['status' => SubscriptionStatus::Active->value], 'ip' => request()?->ip()]);
+            AuditEvent::create(['user_id' => $reviewer->id, 'event' => 'payment_request.approved', 'subject_type' => PaymentRequest::class, 'subject_id' => $lockedRequest->id, 'before' => ['status' => 'pending'], 'after' => ['status' => 'approved', 'verified_amount' => $verifiedAmount, 'verified_reference' => $verifiedReference], 'ip' => request()?->ip()]);
+            AuditEvent::create(['user_id' => $reviewer->id, 'event' => 'subscription.activated', 'subject_type' => Subscription::class, 'subject_id' => $lockedSubscription->id, 'before' => ['status' => SubscriptionStatus::Pending->value], 'after' => ['status' => SubscriptionStatus::Active->value], 'ip' => request()?->ip()]);
 
             return $lockedSubscription;
+        });
+    }
+
+    public function rejectPayment(PaymentRequest $paymentRequest, User $reviewer, string $reason): void
+    {
+        DB::transaction(function () use ($paymentRequest, $reviewer, $reason): void {
+            $lockedRequest = PaymentRequest::query()->lockForUpdate()->findOrFail($paymentRequest->id);
+            if ($lockedRequest->status !== 'pending') {
+                throw new InvalidArgumentException('Проверить можно только заявку, ожидающую проверки.');
+            }
+            $subscription = Subscription::query()->lockForUpdate()->where('payment_request_id', $lockedRequest->id)->firstOrFail();
+            $lockedRequest->update(['status' => 'rejected', 'reviewed_by' => $reviewer->id, 'reviewed_at' => now(), 'rejection_reason' => $reason]);
+            $subscription->update(['status' => SubscriptionStatus::Rejected]);
+            AuditEvent::create(['user_id' => $reviewer->id, 'event' => 'payment_request.rejected', 'subject_type' => PaymentRequest::class, 'subject_id' => $lockedRequest->id, 'before' => ['status' => 'pending'], 'after' => ['status' => 'rejected', 'rejection_reason' => $reason], 'ip' => request()?->ip()]);
         });
     }
 
@@ -106,11 +138,10 @@ class SubscriptionService
     {
         return DB::transaction(function () use ($subscription, $assignedBy): Subscription {
             $lockedSubscription = Subscription::query()->lockForUpdate()->findOrFail($subscription->id);
-            if (! in_array($lockedSubscription->status, [SubscriptionStatus::Pending, SubscriptionStatus::Active], true)) {
-                throw new InvalidArgumentException('Отменить можно только ожидающую или активную подписку.');
+            if ($lockedSubscription->status !== SubscriptionStatus::Active) {
+                throw new InvalidArgumentException('Отменить можно только активную подписку.');
             }
             $lockedSubscription->update(['status' => SubscriptionStatus::Cancelled, 'actual_ended_at' => now()]);
-            $lockedSubscription->paymentRequest?->update(['status' => 'cancelled', 'reviewed_by' => $assignedBy->id]);
             if ($lockedSubscription->user->subscription_plan === $lockedSubscription->plan) {
                 $lockedSubscription->user->update(['subscription_plan' => SubscriptionPlan::Free]);
             }

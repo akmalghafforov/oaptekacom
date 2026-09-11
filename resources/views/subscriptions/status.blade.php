@@ -1,26 +1,19 @@
 @extends('layouts.app')
 @section('content')
-<x-ui.page-header title="Статус аккаунта" description="Доступ аптеки открывается после проверки организации и активации платной подписки." />
-<x-ui.card>
-    <p class="text-sm text-muted">Текущий тариф</p>
-    @if($user->isWholesaler())<p class="mt-1 text-lg font-semibold">Проверка поставщика</p>@else<p class="mt-1 text-lg font-semibold">{{ $user->subscription_plan->label() }}</p>@endif
-    @if($subscription?->status === \App\Enums\SubscriptionStatus::Active)
-        <p class="mt-2 text-sm text-muted">Подписка действует по {{ $subscription->ends_on->format('d.m.Y') }} включительно.</p>
-    @elseif($subscription?->status === \App\Enums\SubscriptionStatus::Pending)
-        <x-ui.alert type="warning" class="mt-4">Заявка на оплату ожидает проверки администратора. Доступ к платформе откроется после активации.</x-ui.alert>
-    @elseif($user->organization?->status === 'pending')
-        <p class="mt-2 text-sm text-muted">Ваша организация ожидает подтверждения администратора.</p>
-    @else
-        <x-ui.alert type="warning" class="mt-4">Требуется активная платная подписка. Выберите тариф и отправьте заявку на оплату.</x-ui.alert>
-    @endif
-</x-ui.card>
+<x-ui.page-header title="Подписка" description="Выберите тариф, переведите точную сумму и приложите квитанцию для ручной проверки." />
+<x-ui.card><p class="text-sm text-muted">Текущий тариф</p><p class="mt-1 text-lg font-semibold">{{ $user->subscription_plan->label() }}</p>
+@if($subscription?->status === \App\Enums\SubscriptionStatus::Active)<p class="mt-2 text-sm text-muted">Подписка действует по {{ $subscription->ends_on->format('d.m.Y') }} включительно.</p>
+@elseif($subscription?->status === \App\Enums\SubscriptionStatus::Pending)<x-ui.alert type="warning" class="mt-4">Квитанция принята и ожидает проверки администратора. Доступ откроется после подтверждения оплаты.</x-ui.alert>
+@elseif($subscription?->status === \App\Enums\SubscriptionStatus::Rejected)<x-ui.alert type="danger" class="mt-4">Предыдущая заявка отклонена: {{ $subscription->paymentRequest?->rejection_reason }}. Исправьте данные и отправьте новую заявку.</x-ui.alert>
+@elseif($user->organization?->status === 'pending')<p class="mt-2 text-sm text-muted">Ваша организация ожидает подтверждения администратора.</p>
+@else<x-ui.alert type="warning" class="mt-4">Требуется активная платная подписка.</x-ui.alert>@endif</x-ui.card>
 @if($user->isCustomer() && $user->organization?->status === 'active' && $subscription?->status !== \App\Enums\SubscriptionStatus::Pending)
-<x-ui.card class="mt-5">
-    <form method="post" action="{{ route('subscription.requests.store') }}" class="grid gap-4 md:grid-cols-2">@csrf
-        <x-ui.select name="plan" label="Платный тариф" required><option value="">Выберите тариф</option>@foreach($plans as $plan)<option value="{{ $plan->plan->value }}">{{ $plan->plan->label() }} · {{ $plan->daily_price }} TJS/день</option>@endforeach</x-ui.select>
-        <x-ui.select name="term" label="Срок" required><option value="">Выберите срок</option>@foreach($terms as $term)<option value="{{ $term->value }}">{{ $term->label() }}</option>@endforeach</x-ui.select>
-        <div class="md:col-span-2"><x-ui.button>Отправить заявку на оплату</x-ui.button></div>
-    </form>
-</x-ui.card>
+<x-ui.card class="mt-5"><h2 class="text-lg font-semibold">Фиксированные предложения</h2><div class="table-wrap mt-4"><table class="data-table"><thead><tr><th>Тариф</th><th>Срок</th><th>Оплачиваемых дней</th><th>Точная сумма</th></tr></thead><tbody>@forelse($quotes as $quote)<tr><td>{{ $quote['plan']->label() }}</td><td>{{ $quote['term']->label() }}</td><td>{{ $quote['days'] }}</td><td>{{ $quote['amount'] }} TJS</td></tr>@empty<tr><td colspan="4"><x-ui.empty-state title="Доступных платных тарифов пока нет" /></td></tr>@endforelse</tbody></table></div>
+@if($paymentMethods->isNotEmpty())<div class="mt-4 grid gap-3 md:grid-cols-3">@foreach($paymentMethods as $method)<div class="rounded-control border border-slate-200 p-3"><p class="font-semibold">{{ $method->method->label() }}</p><p class="mt-1 text-sm">{{ $method->wallet_number }}</p><p class="mt-2 text-xs text-muted">{{ $method->instructions }}</p></div>@endforeach</div>@endif
+@if($plans->isNotEmpty() && $paymentMethods->isNotEmpty())<form method="post" action="{{ route('subscription.requests.store') }}" enctype="multipart/form-data" class="mt-5 grid gap-4 md:grid-cols-2">@csrf
+<x-ui.select name="plan" label="Тариф" required><option value="">Выберите тариф</option>@foreach($plans as $plan)<option value="{{ $plan->plan->value }}" @selected(old('plan') === $plan->plan->value)>{{ $plan->plan->label() }} · {{ $plan->daily_price }} TJS/день</option>@endforeach</x-ui.select><x-ui.select name="term" label="Срок" required><option value="">Выберите срок</option>@foreach($terms as $term)<option value="{{ $term->value }}" @selected(old('term') === $term->value)>{{ $term->label() }}</option>@endforeach</x-ui.select>
+<x-ui.select name="payment_method" label="Способ перевода" required><option value="">Выберите способ</option>@foreach($paymentMethods as $method)<option value="{{ $method->method->value }}" @selected(old('payment_method') === $method->method->value)>{{ $method->method->label() }} · {{ $method->wallet_number }}</option>@endforeach</x-ui.select><x-ui.input name="transfer_reference" label="Номер операции" value="{{ old('transfer_reference') }}" required /><x-ui.input name="transferred_on" type="date" label="Дата перевода" value="{{ old('transferred_on') }}" max="{{ now()->toDateString() }}" required /><x-ui.input name="receipt" type="file" label="Квитанция" accept="image/jpeg,image/png,image/webp,application/pdf" hint="JPEG, PNG, WebP или PDF, до 10 МБ." required />
+<div class="md:col-span-2"><x-ui.alert type="warning">Переводите сумму из таблицы для выбранного тарифа и срока. Реквизиты и инструкция фиксируются вместе с заявкой.</x-ui.alert></div><div class="md:col-span-2"><x-ui.button>Отправить квитанцию на проверку</x-ui.button></div></form>
+@else<x-ui.alert type="warning" class="mt-4">Администратор ещё не настроил доступный способ оплаты.</x-ui.alert>@endif</x-ui.card>
 @endif
 @endsection

@@ -8,11 +8,15 @@
         $navigationItems = [
             ['label' => 'Операционный центр', 'route' => 'admin.index', 'active' => ['admin.index']],
             ['label' => 'Пользователи', 'route' => 'admin.users', 'active' => ['admin.users']],
-            ['label' => 'Подписки', 'route' => 'admin.subscriptions.index', 'active' => ['admin.subscriptions.*', 'admin.subscription-prices.*']],
+            ['label' => 'Подписки', 'route' => 'admin.subscriptions.index', 'active' => ['admin.subscriptions.*', 'admin.subscription-prices.*', 'admin.subscription-payments.*']],
             ['label' => 'Модули', 'route' => 'admin.modules', 'active' => ['admin.modules.*']],
         ];
     } else {
         $navigationItems[] = ['label' => 'Обзор', 'route' => 'dashboard', 'active' => ['dashboard']];
+
+        if ($user->isCustomer()) {
+            $navigationItems[] = ['label' => 'Подписка', 'route' => 'subscription.create', 'active' => ['subscription.*', 'payment-requests.*']];
+        }
 
         if ($modules->available($user, \App\Enums\ModuleKey::Catalog)) {
             $navigationItems[] = ['label' => 'Каталог', 'route' => 'catalog', 'active' => ['catalog']];
