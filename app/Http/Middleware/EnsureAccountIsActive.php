@@ -15,9 +15,14 @@ class EnsureAccountIsActive
             auth()->logout();
 
             return redirect()->route('login')->withErrors(['email' => 'Учётная запись заблокирована.']);
-        } if (! $u?->isCustomer() && $u?->password_change_required && ! $request->routeIs('profile.*')) {
+        }
+        if ($request->routeIs('admin.*')) {
+            return $next($request);
+        }
+        if (! $u?->isCustomer() && $u?->password_change_required && ! $request->routeIs('profile.*')) {
             return redirect()->route('profile.edit')->with('warning', 'Перед продолжением смените временный пароль.');
-        } if (! $u?->hasActiveSubscription()) {
+        }
+        if (! $u?->hasActiveSubscription()) {
             return redirect()->route('subscription.create')->with('warning', 'Требуется активная подписка или подтверждение организации.');
         }
 

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\SubscriptionPlan;
+use App\Enums\SubscriptionStatus;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use Database\Factories\UserFactory;
@@ -69,7 +70,16 @@ class User extends Authenticatable
             return false;
         }
 
-        return true;
+        if ($this->isWholesaler()) {
+            return true;
+        }
+
+        return $this->subscriptions()
+            ->where('status', SubscriptionStatus::Active)
+            ->whereIn('plan', [SubscriptionPlan::Base, SubscriptionPlan::Premium])
+            ->whereDate('starts_on', '<=', now('Asia/Dushanbe')->toDateString())
+            ->whereDate('ends_on', '>=', now('Asia/Dushanbe')->toDateString())
+            ->exists();
     }
 
     /**

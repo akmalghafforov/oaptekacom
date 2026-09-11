@@ -34,6 +34,28 @@ class AdminSubscriptionController extends Controller
         return redirect()->route('admin.subscriptions.index')->with('success', 'Подписка выдана и сохранена в истории.');
     }
 
+    public function activate(Subscription $subscription, SubscriptionService $subscriptions): RedirectResponse
+    {
+        try {
+            $subscriptions->activate($subscription, request()->user());
+        } catch (InvalidArgumentException $exception) {
+            return back()->withErrors(['subscription' => $exception->getMessage()]);
+        }
+
+        return back()->with('success', 'Подписка активирована.');
+    }
+
+    public function cancel(Subscription $subscription, SubscriptionService $subscriptions): RedirectResponse
+    {
+        try {
+            $subscriptions->cancel($subscription, request()->user());
+        } catch (InvalidArgumentException $exception) {
+            return back()->withErrors(['subscription' => $exception->getMessage()]);
+        }
+
+        return back()->with('success', 'Подписка отменена.');
+    }
+
     public function prices(): View
     {
         return view('admin.subscriptions.prices', ['prices' => SubscriptionPlanPrice::query()->get()->keyBy(fn (SubscriptionPlanPrice $price): string => $price->plan->value)]);

@@ -11,12 +11,13 @@ class SubscriptionAccessTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_active_pharmacy_on_free_plan_can_access_the_platform(): void
+    public function test_active_pharmacy_without_a_paid_subscription_is_restricted_to_the_subscription_page(): void
     {
         $organization = Organization::factory()->pharmacy()->create(['subscription_until' => now()->subDay()]);
         $user = User::factory()->pharmacy($organization)->create();
 
-        $this->actingAs($user)->get(route('dashboard'))->assertOk();
+        $this->actingAs($user)->get(route('dashboard'))->assertRedirect(route('subscription.create'));
+        $this->actingAs($user)->get(route('subscription.create'))->assertOk();
     }
 
     public function test_non_admin_cannot_manage_subscriptions(): void

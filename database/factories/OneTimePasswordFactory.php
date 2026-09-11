@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\UserRole;
 use App\Models\OneTimePassword;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -17,6 +18,6 @@ class OneTimePasswordFactory extends Factory
      */
     public function definition(): array
     {
-        return ['purpose' => 'login', 'phone' => '+992900000001', 'code_hash' => bcrypt('123456'), 'transaction_id' => fake()->uuid(), 'status' => 'sent', 'sent_at' => now(), 'expires_at' => now()->addMinutes(5), 'attempts' => 0];
+        return ['purpose' => 'login', 'account_type' => UserRole::Pharmacy, 'phone' => '+992900000001', 'code_hash' => bcrypt('123456'), 'transaction_id' => fake()->uuid(), 'status' => 'sent', 'sent_at' => now(), 'expires_at' => now()->addMinutes(5), 'attempts' => 0];
     }
 }

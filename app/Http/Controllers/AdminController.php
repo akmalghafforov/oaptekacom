@@ -77,7 +77,7 @@ class AdminController extends Controller
         if (! $phone) {
             return back()->withErrors(['phone' => 'Введите номер Таджикистана в формате +992XXXXXXXXX.']);
         }
-        if (User::where('phone', $phone)->whereKeyNot($user->id)->exists()) {
+        if (User::where('phone', $phone)->where('role', $user->role)->whereKeyNot($user->id)->exists()) {
             return back()->withErrors(['phone' => 'Этот номер уже используется.']);
         }
         $before = $user->only('phone', 'is_blocked');

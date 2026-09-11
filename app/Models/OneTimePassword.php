@@ -11,7 +11,7 @@ class OneTimePassword extends Model
     /** @use HasFactory<OneTimePasswordFactory> */
     use HasFactory;
 
-    protected $fillable = ['purpose', 'phone', 'code_hash', 'transaction_id', 'provider_transaction_id', 'provider_message_id', 'status', 'sent_at', 'expires_at', 'consumed_at', 'attempts'];
+    protected $fillable = ['purpose', 'account_type', 'phone', 'code_hash', 'transaction_id', 'provider_transaction_id', 'provider_message_id', 'status', 'sent_at', 'expires_at', 'consumed_at', 'attempts'];
 
     protected function casts(): array
     {

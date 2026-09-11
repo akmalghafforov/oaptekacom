@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\SubscriptionPlan;
+use App\Enums\UserRole;
 use App\Models\OneTimePassword;
 use App\Models\Organization;
 use App\Models\User;
@@ -271,7 +272,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $provider = User::factory()->wholesaler()->create(['phone' => '+992901234567', 'password' => null]);
         $admin = User::factory()->admin()->create(['email' => 'admin@example.com', 'password' => 'password']);
         $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234568']);
-        OneTimePassword::factory()->create(['phone' => $provider->phone, 'code_hash' => Hash::make('123456')]);
+        OneTimePassword::factory()->create(['account_type' => UserRole::Wholesaler, 'phone' => $provider->phone, 'code_hash' => Hash::make('123456')]);
 
         $this->withSession(['phone_otp.supplier_login' => $provider->phone])
             ->post(route('provider.otp.verify'), ['phone' => $provider->phone, 'code' => '123456'])

@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['user_id', 'assigned_by', 'plan', 'term', 'starts_on', 'ends_on', 'daily_price', 'total_price', 'status', 'actual_ended_at'])]
+#[Fillable(['user_id', 'payment_request_id', 'assigned_by', 'plan', 'term', 'starts_on', 'ends_on', 'daily_price', 'total_price', 'status', 'actual_ended_at'])]
 class Subscription extends Model
 {
     /** @use HasFactory<SubscriptionFactory> */
@@ -25,6 +25,11 @@ class Subscription extends Model
     public function assignedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'assigned_by');
+    }
+
+    public function paymentRequest(): BelongsTo
+    {
+        return $this->belongsTo(PaymentRequest::class);
     }
 
     protected function casts(): array

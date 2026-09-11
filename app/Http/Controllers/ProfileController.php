@@ -38,10 +38,10 @@ class ProfileController extends Controller
     {
         abort_unless(! $request->user()->isAdmin(), 403);
         $phone = $request->validated('phone');
-        if (User::where('phone', $phone)->whereKeyNot($request->user()->id)->exists()) {
+        if (User::where('phone', $phone)->where('role', $request->user()->role)->whereKeyNot($request->user()->id)->exists()) {
             return back()->withErrors(['phone' => 'Этот номер уже используется.']);
         }
-        if (! $otpService->send('phone_change', $phone)) {
+        if (! $otpService->send('phone_change', $phone, $request->user()->role)) {
             return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
         }
         $request->session()->put('phone_otp.change_phone', $phone);
@@ -60,10 +60,10 @@ class ProfileController extends Controller
     {
         abort_unless(! $request->user()->isAdmin(), 403);
         $phone = $request->validated('phone');
-        if ($phone !== $request->session()->get('phone_otp.change_phone') || ! $otpService->consume('phone_change', $phone, $request->validated('code'))) {
+        if ($phone !== $request->session()->get('phone_otp.change_phone') || ! $otpService->consume('phone_change', $phone, $request->user()->role, $request->validated('code'))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
-        if (User::where('phone', $phone)->whereKeyNot($request->user()->id)->exists()) {
+        if (User::where('phone', $phone)->where('role', $request->user()->role)->whereKeyNot($request->user()->id)->exists()) {
             return back()->withErrors(['phone' => 'Этот номер уже используется.']);
         }
         $user = $request->user();
