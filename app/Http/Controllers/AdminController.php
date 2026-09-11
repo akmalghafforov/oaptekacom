@@ -3,35 +3,55 @@
 namespace App\Http\Controllers;
 
 use App\Enums\OrganizationType;
+use App\Enums\SubscriptionPlan;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use App\Http\Requests\ProvisionWholesalerRequest;
-use App\Models\ActivationHistory;
 use App\Models\ModuleSetting;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Support\PhoneNormalizer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AdminController extends Controller
 {
     public function index()
     {
-        return view('admin.index', ['pending' => Organization::where('status', 'pending')->get()]);
+        return view('admin.index', [
+            'pending' => Organization::query()
+                ->where('status', 'pending')
+                ->with(['users' => fn ($query) => $query->where('role', UserRole::Pharmacy)])
+                ->get(),
+        ]);
     }
 
     public function approve(Organization $organization)
     {
-        abort_unless($organization->status === 'pending', 422);
-        $before = $organization->only('status');
-        $history = ActivationHistory::where('phone', $organization->phone)->first();
-        if (! $history?->demo_used_at) {
-            $history?->update(['demo_used_at' => now()]);
-        }
-        $organization->update(['status' => 'active']);
-        $organization->users()->update(['approved_at' => now()]);
-        app(AuditLogger::class)->log('organization.approved', $organization, $before, $organization->only('status'));
+        $organization = DB::transaction(function () use ($organization): Organization {
+            $pendingOrganization = Organization::query()
+                ->lockForUpdate()
+                ->findOrFail($organization->id);
+            abort_unless($pendingOrganization->status === 'pending', 422);
+
+            $pharmacyUser = $pendingOrganization->users()
+                ->where('role', UserRole::Pharmacy)
+                ->whereNotNull('phone_verified_at')
+                ->lockForUpdate()
+                ->first();
+            abort_unless($pharmacyUser, 422);
+
+            $before = $pendingOrganization->only('status');
+            $pendingOrganization->update(['status' => 'active']);
+            $pharmacyUser->forceFill([
+                'approved_at' => now(),
+                'subscription_plan' => SubscriptionPlan::Free,
+            ])->save();
+            app(AuditLogger::class)->log('organization.approved', $pendingOrganization, $before, $pendingOrganization->only('status'));
+
+            return $pendingOrganization;
+        });
 
         return back()->with('success', 'Организация одобрена.');
     }

@@ -29,7 +29,9 @@ Route::middleware('guest')->group(function () {
     Route::get('/provider/login', [AuthController::class, 'providerLoginForm'])->name('provider.login');
     Route::post('/provider/login', [AuthController::class, 'providerLogin'])->middleware('throttle:5,1')->name('provider.login.authenticate');
     Route::get('/register', [AuthController::class, 'registerForm'])->name('register');
-    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/register', [AuthController::class, 'register'])->name('register.phone');
+    Route::get('/register/name', [AuthController::class, 'registrationDetailsForm'])->name('register.details.form');
+    Route::post('/register/name', [AuthController::class, 'storeRegistrationDetails'])->name('register.details.store');
     Route::get('/register/verify', [AuthController::class, 'registerOtpForm'])->name('register.otp.form');
     Route::post('/register/verify', [AuthController::class, 'verifyRegistrationOtp'])->name('register.otp.verify');
     Route::post('/register/resend', fn (Request $request, AuthController $controller, PhoneOtpService $otpService) => $controller->resend($request, $otpService, 'registration'))->name('register.otp.resend');

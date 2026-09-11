@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\SubscriptionPlan;
 use App\Enums\SubscriptionStatus;
 use App\Enums\SubscriptionTerm;
+use App\Models\Organization;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlanPrice;
 use App\Models\User;
@@ -31,6 +32,33 @@ class SubscriptionLifecycleTest extends TestCase
         $user->refresh();
 
         $this->assertSame(SubscriptionPlan::Free, $user->subscription_plan);
+    }
+
+    public function test_admin_cannot_approve_an_unverified_pending_pharmacy(): void
+    {
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $organization = Organization::factory()->pending()->create();
+        $pharmacy = User::factory()->pharmacy($organization)->create(['phone_verified_at' => null, 'subscription_plan' => SubscriptionPlan::Base]);
+
+        $this->actingAs($admin)->post(route('admin.approve', $organization))->assertUnprocessable();
+
+        $this->assertSame('pending', $organization->fresh()->status);
+        $this->assertNull($pharmacy->fresh()->approved_at);
+        $this->assertSame(SubscriptionPlan::Base, $pharmacy->fresh()->subscription_plan);
+    }
+
+    public function test_admin_approval_activates_a_verified_pending_pharmacy_and_assigns_the_free_plan(): void
+    {
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $organization = Organization::factory()->pending()->create();
+        $pharmacy = User::factory()->pharmacy($organization)->create(['phone_verified_at' => now(), 'subscription_plan' => SubscriptionPlan::Premium]);
+
+        $this->actingAs($admin)->post(route('admin.approve', $organization))->assertRedirect();
+
+        $this->assertSame('active', $organization->fresh()->status);
+        $this->assertNotNull($pharmacy->fresh()->approved_at);
+        $this->assertSame(SubscriptionPlan::Free, $pharmacy->fresh()->subscription_plan);
+        $this->assertDatabaseCount('subscriptions', 0);
     }
 
     public function test_admin_can_set_paid_plan_prices_and_zero_price_is_unavailable(): void

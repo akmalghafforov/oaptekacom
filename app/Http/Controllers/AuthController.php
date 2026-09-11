@@ -7,12 +7,11 @@ use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use App\Http\Requests\SendPhoneOtpRequest;
 use App\Http\Requests\VerifyPhoneOtpRequest;
-use App\Models\ActivationHistory;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\PhoneOtpService;
-use App\Support\PhoneNormalizer;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -72,6 +71,18 @@ class AuthController extends Controller
     public function sendLoginOtp(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
         $phone = $request->validated('phone');
+
+        if (! $this->phoneLoginUser($phone)) {
+            $request->session()->put('phone_otp.registration', ['phone' => $phone]);
+
+            return redirect()->route('register.details.form');
+        }
+
+        return $this->sendLoginOtpForPhone($request, $otpService, $phone);
+    }
+
+    private function sendLoginOtpForPhone(Request $request, PhoneOtpService $otpService, string $phone): RedirectResponse
+    {
         if (! $this->canSend($request, $phone)) {
             return back()->withErrors(['phone' => 'Попробуйте отправить код позже.']);
         }
@@ -154,22 +165,77 @@ class AuthController extends Controller
         return view('auth.register');
     }
 
-    public function register(Request $request, PhoneOtpService $otpService): RedirectResponse
+    public function register(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
-        $data = $request->validate(['pharmacy_name' => ['required', 'string', 'max:255'], 'phone' => ['required', 'string', 'max:30']]);
-        $phone = PhoneNormalizer::normalize($data['phone']);
-        if (! $phone) {
-            return back()->withErrors(['phone' => 'Введите номер Таджикистана в формате +992XXXXXXXXX.'])->withInput();
-        }
-        if (User::where('phone', $phone)->exists()) {
-            return back()->withErrors(['phone' => 'Этот номер уже используется.'])->withInput();
-        }
-        if (! $this->canSend($request, $phone) || ! $otpService->send('registration', $phone)) {
-            return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.'])->withInput();
-        }
-        $request->session()->put('phone_otp.registration', ['phone' => $phone, 'pharmacy_name' => $data['pharmacy_name']]);
+        $phone = $request->validated('phone');
+        $user = $this->phoneLoginUser($phone);
 
-        return redirect()->route('register.otp.form');
+        if (! $user) {
+            $request->session()->put('phone_otp.registration', ['phone' => $phone]);
+
+            return redirect()->route('register.details.form');
+        }
+
+        if ($user->organization?->status === 'pending' && ! $user->phone_verified_at) {
+            $request->session()->put('phone_otp.registration', ['phone' => $phone, 'user_id' => $user->id]);
+
+            return $this->sendRegistrationOtp($request, $otpService, $phone);
+        }
+
+        return $this->sendLoginOtpForPhone($request, $otpService, $phone);
+    }
+
+    public function registrationDetailsForm(): View
+    {
+        abort_unless(session()->has('phone_otp.registration.phone'), 404);
+
+        return view('auth.register-name', ['phone' => session('phone_otp.registration.phone')]);
+    }
+
+    public function storeRegistrationDetails(Request $request, PhoneOtpService $otpService): RedirectResponse
+    {
+        $registration = $request->session()->get('phone_otp.registration');
+        abort_unless(is_array($registration) && isset($registration['phone']), 404);
+
+        $data = $request->validate(['pharmacy_name' => ['required', 'string', 'max:255']]);
+        $phone = $registration['phone'];
+
+        try {
+            $user = DB::transaction(function () use ($phone, $data): User {
+                $existingUser = $this->phoneLoginUser($phone);
+                if ($existingUser) {
+                    return $existingUser;
+                }
+
+                $organization = Organization::create([
+                    'name' => $data['pharmacy_name'],
+                    'phone' => $phone,
+                    'type' => OrganizationType::Pharmacy,
+                    'status' => 'pending',
+                ]);
+                $user = new User(['name' => $data['pharmacy_name'], 'phone' => $phone]);
+                $user->forceFill([
+                    'organization_id' => $organization->id,
+                    'role' => UserRole::Pharmacy,
+                    'active_trade_mode' => TradeMode::Buyer,
+                ])->save();
+
+                return $user;
+            });
+        } catch (QueryException $exception) {
+            $user = $this->phoneLoginUser($phone);
+            if (! $user) {
+                throw $exception;
+            }
+        }
+
+        if ($user->organization?->status !== 'pending' || $user->phone_verified_at) {
+            return $this->sendLoginOtpForPhone($request, $otpService, $phone);
+        }
+
+        $request->session()->put('phone_otp.registration', ['phone' => $phone, 'user_id' => $user->id]);
+
+        return $this->sendRegistrationOtp($request, $otpService, $phone);
     }
 
     public function registerOtpForm()
@@ -183,19 +249,31 @@ class AuthController extends Controller
     {
         $registration = $request->session()->get('phone_otp.registration');
         $phone = $request->validated('phone');
-        if (! $registration || $phone !== $registration['phone'] || ! $otpService->consume('registration', $phone, $request->validated('code'))) {
+        $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
+        $userId = is_array($registration) ? $registration['user_id'] ?? null : null;
+        $user = is_numeric($userId)
+            ? User::whereKey($userId)->where('phone', $phone)->where('role', UserRole::Pharmacy)->whereNull('phone_verified_at')->whereHas('organization', fn ($query) => $query->where('status', 'pending'))->first()
+            : null;
+        if (! $registration || $phone !== $registration['phone'] || ! $user || (! $usesDevelopmentCode && ! $otpService->consume('registration', $phone, $request->validated('code')))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
-        if (User::where('phone', $phone)->exists()) {
-            return back()->withErrors(['phone' => 'Этот номер уже используется.']);
-        }
-        $organization = Organization::create(['name' => $registration['pharmacy_name'], 'phone' => $phone, 'type' => OrganizationType::Pharmacy, 'status' => 'pending']);
-        $user = new User(['name' => $registration['pharmacy_name'], 'phone' => $phone]);
-        $user->forceFill(['organization_id' => $organization->id, 'role' => UserRole::Pharmacy, 'active_trade_mode' => TradeMode::Buyer])->save();
-        ActivationHistory::firstOrCreate(['phone' => $phone], ['organization_id' => $organization->id]);
-        $request->session()->forget('phone_otp.registration');
 
-        return redirect()->route('login')->with('success', 'Заявка принята. После проверки администратора будет включён демо-доступ.');
+        $user = DB::transaction(function () use ($user): User {
+            $pendingUser = User::query()
+                ->lockForUpdate()
+                ->whereKey($user->id)
+                ->whereNull('phone_verified_at')
+                ->whereHas('organization', fn ($query) => $query->where('status', 'pending'))
+                ->firstOrFail();
+            $pendingUser->forceFill(['phone_verified_at' => now()])->save();
+
+            return $pendingUser;
+        });
+        $request->session()->forget('phone_otp.registration');
+        Auth::login($user);
+        $request->session()->regenerate();
+
+        return redirect()->route('subscription.create')->with('success', 'Телефон подтверждён. Заявка ожидает проверки администратора.');
     }
 
     public function resend(Request $request, PhoneOtpService $otpService, string $purpose): RedirectResponse
@@ -207,6 +285,15 @@ class AuthController extends Controller
         }
 
         return back()->with('success', 'Новый код отправлен.');
+    }
+
+    private function sendRegistrationOtp(Request $request, PhoneOtpService $otpService, string $phone): RedirectResponse
+    {
+        if (! $this->canSend($request, $phone) || (! $this->usesDevelopmentOtp() && ! $otpService->send('registration', $phone))) {
+            return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
+        }
+
+        return redirect()->route('register.otp.form');
     }
 
     private function canSend(Request $request, string $phone): bool
