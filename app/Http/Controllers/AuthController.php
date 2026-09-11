@@ -34,17 +34,17 @@ class AuthController extends Controller
 
     public function providerLoginForm(): View
     {
-        return view('auth.provider-login');
+        return view('auth.provider-login', ['registration' => false]);
+    }
+
+    public function supplierRegisterForm(): View
+    {
+        return view('auth.provider-login', ['registration' => true]);
     }
 
     public function adminLogin(Request $request): RedirectResponse
     {
         return $this->loginAsRole($request, UserRole::Admin);
-    }
-
-    public function providerLogin(Request $request): RedirectResponse
-    {
-        return $this->loginAsRole($request, UserRole::Wholesaler);
     }
 
     private function loginAsRole(Request $request, UserRole $role): RedirectResponse
@@ -70,66 +70,108 @@ class AuthController extends Controller
 
     public function sendLoginOtp(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
-        $phone = $request->validated('phone');
-
-        if (! $this->phoneLoginUser($phone)) {
-            $request->session()->put('phone_otp.registration', ['phone' => $phone]);
-
-            return redirect()->route('register.details.form');
-        }
-
-        return $this->sendLoginOtpForPhone($request, $otpService, $phone);
+        return $this->sendLoginOtpForRole($request, $otpService, UserRole::Pharmacy);
     }
 
-    private function sendLoginOtpForPhone(Request $request, PhoneOtpService $otpService, string $phone): RedirectResponse
+    public function sendSupplierLoginOtp(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
+    {
+        return $this->sendLoginOtpForRole($request, $otpService, UserRole::Wholesaler);
+    }
+
+    private function sendLoginOtpForRole(Request $request, PhoneOtpService $otpService, UserRole $role): RedirectResponse
+    {
+        $phone = $request->validated('phone');
+        if (! $this->phoneLoginUser($phone, true, $role)) {
+            $request->session()->put($this->registrationSessionKey($role), ['phone' => $phone]);
+
+            return redirect()->route($this->registrationDetailsRoute($role));
+        }
+
+        return $this->sendLoginOtpForPhone($request, $otpService, $phone, $role);
+    }
+
+    private function sendLoginOtpForPhone(Request $request, PhoneOtpService $otpService, string $phone, UserRole $role = UserRole::Pharmacy): RedirectResponse
     {
         if (! $this->canSend($request, $phone)) {
             return back()->withErrors(['phone' => 'Попробуйте отправить код позже.']);
         }
-        $user = $this->phoneLoginUser($phone);
+        $user = $this->phoneLoginUser($phone, true, $role);
         if ($user && ! $user->is_blocked && ! $this->usesDevelopmentOtp()) {
             $otpService->send('login', $phone);
         }
-        $request->session()->put('phone_otp.login', $phone);
+        $request->session()->put($this->loginSessionKey($role), $phone);
 
-        return redirect()->route('login.otp.form')->with('success', 'Если номер доступен для входа, код отправлен.');
+        return redirect()->route($this->loginOtpFormRoute($role))->with('success', 'Если номер доступен для входа, код отправлен.');
     }
 
     public function loginOtpForm()
     {
-        abort_unless(session()->has('phone_otp.login'), 404);
+        return $this->loginOtpFormForRole(UserRole::Pharmacy);
+    }
 
-        return view('auth.phone-otp', ['title' => 'Вход по телефону', 'route' => 'login.otp.verify', 'resend_route' => 'login.otp.resend', 'phone' => session('phone_otp.login')]);
+    public function supplierLoginOtpForm(): View
+    {
+        return $this->loginOtpFormForRole(UserRole::Wholesaler);
+    }
+
+    private function loginOtpFormForRole(UserRole $role): View
+    {
+        abort_unless(session()->has($this->loginSessionKey($role)), 404);
+
+        return view('auth.phone-otp', ['title' => 'Вход поставщика по телефону', 'route' => $this->loginOtpVerifyRoute($role), 'resend_route' => $this->loginOtpResendRoute($role), 'phone' => session($this->loginSessionKey($role))]);
     }
 
     public function verifyLoginOtp(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
+        return $this->verifyLoginOtpForRole($request, $otpService, UserRole::Pharmacy);
+    }
+
+    public function verifySupplierLoginOtp(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
+    {
+        return $this->verifyLoginOtpForRole($request, $otpService, UserRole::Wholesaler);
+    }
+
+    private function verifyLoginOtpForRole(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService, UserRole $role): RedirectResponse
+    {
         $phone = $request->validated('phone');
         $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
 
-        if ($phone !== $request->session()->get('phone_otp.login') || (! $usesDevelopmentCode && ! $otpService->consume('login', $phone, $request->validated('code')))) {
+        if ($phone !== $request->session()->get($this->loginSessionKey($role)) || (! $usesDevelopmentCode && ! $otpService->consume('login', $phone, $request->validated('code')))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
-        $user = $this->phoneLoginUser($phone, false);
+        $user = $this->phoneLoginUser($phone, false, $role);
         if (! $user) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
+        if ($role === UserRole::Wholesaler && ! $user->phone_verified_at) {
+            $user->forceFill(['phone_verified_at' => now()])->save();
+        }
         if ($this->activeSessionsFor($user)->isNotEmpty()) {
-            $request->session()->put('phone_otp.pending_login_user_id', $user->id);
-            $request->session()->forget('phone_otp.login');
+            $request->session()->put($this->pendingLoginSessionKey($role), $user->id);
+            $request->session()->forget($this->loginSessionKey($role));
 
-            return redirect()->route('login.session.confirmation');
+            return redirect()->route($this->sessionConfirmationRoute($role));
         }
         Auth::login($user);
         $request->session()->regenerate();
-        $request->session()->forget('phone_otp.login');
+        $request->session()->forget($this->loginSessionKey($role));
 
         return redirect()->intended(route('dashboard'));
     }
 
     public function sessionConfirmationForm(Request $request): View
     {
-        $user = $this->pendingPharmacyUser($request);
+        return $this->sessionConfirmationFormForRole($request, UserRole::Pharmacy);
+    }
+
+    public function supplierSessionConfirmationForm(Request $request): View
+    {
+        return $this->sessionConfirmationFormForRole($request, UserRole::Wholesaler);
+    }
+
+    private function sessionConfirmationFormForRole(Request $request, UserRole $role): View
+    {
+        $user = $this->pendingPhoneUser($request, $role);
         $session = $this->activeSessionsFor($user)->first();
 
         abort_unless($session, 404);
@@ -142,22 +184,42 @@ class AuthController extends Controller
 
     public function confirmSessionReplacement(Request $request): RedirectResponse
     {
-        $user = $this->pendingPharmacyUser($request);
+        return $this->confirmSessionReplacementForRole($request, UserRole::Pharmacy);
+    }
+
+    public function confirmSupplierSessionReplacement(Request $request): RedirectResponse
+    {
+        return $this->confirmSessionReplacementForRole($request, UserRole::Wholesaler);
+    }
+
+    private function confirmSessionReplacementForRole(Request $request, UserRole $role): RedirectResponse
+    {
+        $user = $this->pendingPhoneUser($request, $role);
 
         $this->sessionQuery()->where('user_id', $user->id)->delete();
         Auth::login($user);
         $request->session()->regenerate();
-        $request->session()->forget(['phone_otp.login', 'phone_otp.pending_login_user_id']);
+        $request->session()->forget([$this->loginSessionKey($role), $this->pendingLoginSessionKey($role)]);
 
         return redirect()->intended(route('dashboard'));
     }
 
     public function cancelSessionReplacement(Request $request): RedirectResponse
     {
-        $this->pendingPharmacyUser($request);
-        $request->session()->forget(['phone_otp.login', 'phone_otp.pending_login_user_id']);
+        return $this->cancelSessionReplacementForRole($request, UserRole::Pharmacy);
+    }
 
-        return redirect()->route('login')->with('warning', 'Вход отменён. Активный сеанс на другом устройстве сохранён.');
+    public function cancelSupplierSessionReplacement(Request $request): RedirectResponse
+    {
+        return $this->cancelSessionReplacementForRole($request, UserRole::Wholesaler);
+    }
+
+    private function cancelSessionReplacementForRole(Request $request, UserRole $role): RedirectResponse
+    {
+        $this->pendingPhoneUser($request, $role);
+        $request->session()->forget([$this->loginSessionKey($role), $this->pendingLoginSessionKey($role)]);
+
+        return redirect()->route($role === UserRole::Pharmacy ? 'login' : 'provider.login')->with('warning', 'Вход отменён. Активный сеанс на другом устройстве сохранён.');
     }
 
     public function registerForm()
@@ -167,92 +229,151 @@ class AuthController extends Controller
 
     public function register(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
+        return $this->registerForRole($request, $otpService, UserRole::Pharmacy);
+    }
+
+    public function supplierRegister(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
+    {
+        return $this->registerForRole($request, $otpService, UserRole::Wholesaler);
+    }
+
+    private function registerForRole(Request $request, PhoneOtpService $otpService, UserRole $role): RedirectResponse
+    {
         $phone = $request->validated('phone');
-        $user = $this->phoneLoginUser($phone);
+        $user = $this->phoneLoginUser($phone, true, $role);
 
         if (! $user) {
-            $request->session()->put('phone_otp.registration', ['phone' => $phone]);
+            $request->session()->put($this->registrationSessionKey($role), ['phone' => $phone]);
 
-            return redirect()->route('register.details.form');
+            return redirect()->route($this->registrationDetailsRoute($role));
         }
 
         if ($user->organization?->status === 'pending' && ! $user->phone_verified_at) {
-            $request->session()->put('phone_otp.registration', ['phone' => $phone, 'user_id' => $user->id]);
+            $request->session()->put($this->registrationSessionKey($role), ['phone' => $phone, 'user_id' => $user->id]);
 
-            return $this->sendRegistrationOtp($request, $otpService, $phone);
+            return $this->sendRegistrationOtp($request, $otpService, $phone, $role);
         }
 
-        return $this->sendLoginOtpForPhone($request, $otpService, $phone);
+        return $this->sendLoginOtpForPhone($request, $otpService, $phone, $role);
     }
 
     public function registrationDetailsForm(): View
     {
-        abort_unless(session()->has('phone_otp.registration.phone'), 404);
+        return $this->registrationDetailsFormForRole(UserRole::Pharmacy);
+    }
 
-        return view('auth.register-name', ['phone' => session('phone_otp.registration.phone')]);
+    public function supplierRegistrationDetailsForm(): View
+    {
+        return $this->registrationDetailsFormForRole(UserRole::Wholesaler);
+    }
+
+    private function registrationDetailsFormForRole(UserRole $role): View
+    {
+        abort_unless(session()->has($this->registrationSessionKey($role).'.phone'), 404);
+
+        return view('auth.register-name', [
+            'phone' => session($this->registrationSessionKey($role).'.phone'),
+            'title' => $role === UserRole::Pharmacy ? 'Название аптеки' : 'Название поставщика',
+            'description' => $role === UserRole::Pharmacy ? 'Укажите название для новой заявки.' : 'Укажите название компании для новой заявки.',
+            'field' => $role === UserRole::Pharmacy ? 'pharmacy_name' : 'supplier_name',
+            'label' => $role === UserRole::Pharmacy ? 'Название аптеки' : 'Название компании',
+            'route' => $role === UserRole::Pharmacy ? 'register.details.store' : 'provider.register.details.store',
+        ]);
     }
 
     public function storeRegistrationDetails(Request $request, PhoneOtpService $otpService): RedirectResponse
     {
-        $registration = $request->session()->get('phone_otp.registration');
+        return $this->storeRegistrationDetailsForRole($request, $otpService, UserRole::Pharmacy);
+    }
+
+    public function storeSupplierRegistrationDetails(Request $request, PhoneOtpService $otpService): RedirectResponse
+    {
+        return $this->storeRegistrationDetailsForRole($request, $otpService, UserRole::Wholesaler);
+    }
+
+    private function storeRegistrationDetailsForRole(Request $request, PhoneOtpService $otpService, UserRole $role): RedirectResponse
+    {
+        $registration = $request->session()->get($this->registrationSessionKey($role));
         abort_unless(is_array($registration) && isset($registration['phone']), 404);
 
-        $data = $request->validate(['pharmacy_name' => ['required', 'string', 'max:255']]);
+        $nameField = $role === UserRole::Pharmacy ? 'pharmacy_name' : 'supplier_name';
+        $data = $request->validate([$nameField => ['required', 'string', 'max:255']]);
         $phone = $registration['phone'];
 
         try {
-            $user = DB::transaction(function () use ($phone, $data): User {
-                $existingUser = $this->phoneLoginUser($phone);
+            $user = DB::transaction(function () use ($phone, $data, $nameField, $role): User {
+                $existingUser = $this->phoneLoginUser($phone, true, $role);
                 if ($existingUser) {
                     return $existingUser;
                 }
 
                 $organization = Organization::create([
-                    'name' => $data['pharmacy_name'],
+                    'name' => $data[$nameField],
                     'phone' => $phone,
-                    'type' => OrganizationType::Pharmacy,
+                    'type' => $role === UserRole::Pharmacy ? OrganizationType::Pharmacy : OrganizationType::Wholesaler,
+                    'supplier_mode' => $role === UserRole::Wholesaler ? TradeMode::Supplier->value : 'both',
                     'status' => 'pending',
                 ]);
-                $user = new User(['name' => $data['pharmacy_name'], 'phone' => $phone]);
+                $user = new User(['name' => $data[$nameField], 'phone' => $phone]);
                 $user->forceFill([
                     'organization_id' => $organization->id,
-                    'role' => UserRole::Pharmacy,
-                    'active_trade_mode' => TradeMode::Buyer,
+                    'role' => $role,
+                    'active_trade_mode' => $role === UserRole::Pharmacy ? TradeMode::Buyer : TradeMode::Supplier,
                 ])->save();
 
                 return $user;
             });
         } catch (QueryException $exception) {
-            $user = $this->phoneLoginUser($phone);
+            $user = $this->phoneLoginUser($phone, true, $role);
             if (! $user) {
                 throw $exception;
             }
         }
 
         if ($user->organization?->status !== 'pending' || $user->phone_verified_at) {
-            return $this->sendLoginOtpForPhone($request, $otpService, $phone);
+            return $this->sendLoginOtpForPhone($request, $otpService, $phone, $role);
         }
 
-        $request->session()->put('phone_otp.registration', ['phone' => $phone, 'user_id' => $user->id]);
+        $request->session()->put($this->registrationSessionKey($role), ['phone' => $phone, 'user_id' => $user->id]);
 
-        return $this->sendRegistrationOtp($request, $otpService, $phone);
+        return $this->sendRegistrationOtp($request, $otpService, $phone, $role);
     }
 
     public function registerOtpForm()
     {
-        abort_unless(session()->has('phone_otp.registration'), 404);
+        return $this->registerOtpFormForRole(UserRole::Pharmacy);
+    }
 
-        return view('auth.phone-otp', ['title' => 'Подтвердите телефон', 'route' => 'register.otp.verify', 'resend_route' => 'register.otp.resend', 'phone' => session('phone_otp.registration.phone')]);
+    public function supplierRegisterOtpForm(): View
+    {
+        return $this->registerOtpFormForRole(UserRole::Wholesaler);
+    }
+
+    private function registerOtpFormForRole(UserRole $role): View
+    {
+        abort_unless(session()->has($this->registrationSessionKey($role)), 404);
+
+        return view('auth.phone-otp', ['title' => 'Подтвердите телефон', 'route' => $role === UserRole::Pharmacy ? 'register.otp.verify' : 'provider.register.otp.verify', 'resend_route' => $role === UserRole::Pharmacy ? 'register.otp.resend' : 'provider.register.otp.resend', 'phone' => session($this->registrationSessionKey($role).'.phone')]);
     }
 
     public function verifyRegistrationOtp(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
-        $registration = $request->session()->get('phone_otp.registration');
+        return $this->verifyRegistrationOtpForRole($request, $otpService, UserRole::Pharmacy);
+    }
+
+    public function verifySupplierRegistrationOtp(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
+    {
+        return $this->verifyRegistrationOtpForRole($request, $otpService, UserRole::Wholesaler);
+    }
+
+    private function verifyRegistrationOtpForRole(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService, UserRole $role): RedirectResponse
+    {
+        $registration = $request->session()->get($this->registrationSessionKey($role));
         $phone = $request->validated('phone');
         $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
         $userId = is_array($registration) ? $registration['user_id'] ?? null : null;
         $user = is_numeric($userId)
-            ? User::whereKey($userId)->where('phone', $phone)->where('role', UserRole::Pharmacy)->whereNull('phone_verified_at')->whereHas('organization', fn ($query) => $query->where('status', 'pending'))->first()
+            ? User::whereKey($userId)->where('phone', $phone)->where('role', $role)->whereNull('phone_verified_at')->whereHas('organization', fn ($query) => $query->where('status', 'pending'))->first()
             : null;
         if (! $registration || $phone !== $registration['phone'] || ! $user || (! $usesDevelopmentCode && ! $otpService->consume('registration', $phone, $request->validated('code')))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
@@ -269,7 +390,7 @@ class AuthController extends Controller
 
             return $pendingUser;
         });
-        $request->session()->forget('phone_otp.registration');
+        $request->session()->forget($this->registrationSessionKey($role));
         Auth::login($user);
         $request->session()->regenerate();
 
@@ -287,13 +408,25 @@ class AuthController extends Controller
         return back()->with('success', 'Новый код отправлен.');
     }
 
-    private function sendRegistrationOtp(Request $request, PhoneOtpService $otpService, string $phone): RedirectResponse
+    public function resendSupplier(Request $request, PhoneOtpService $otpService, string $purpose): RedirectResponse
+    {
+        $key = $purpose === 'login' ? $this->loginSessionKey(UserRole::Wholesaler) : $this->registrationSessionKey(UserRole::Wholesaler);
+        $state = $request->session()->get($key);
+        $phone = is_array($state) ? $state['phone'] : $state;
+        if (! $phone || ! $this->canSend($request, $phone) || ! $otpService->send($purpose === 'login' ? 'login' : 'registration', $phone)) {
+            return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
+        }
+
+        return back()->with('success', 'Новый код отправлен.');
+    }
+
+    private function sendRegistrationOtp(Request $request, PhoneOtpService $otpService, string $phone, UserRole $role = UserRole::Pharmacy): RedirectResponse
     {
         if (! $this->canSend($request, $phone) || (! $this->usesDevelopmentOtp() && ! $otpService->send('registration', $phone))) {
             return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
         }
 
-        return redirect()->route('register.otp.form');
+        return redirect()->route($role === UserRole::Pharmacy ? 'register.otp.form' : 'provider.register.otp.form');
     }
 
     private function canSend(Request $request, string $phone): bool
@@ -323,10 +456,10 @@ class AuthController extends Controller
         return app()->environment(['local', 'testing']) && filled(config('auth.development_otp_code'));
     }
 
-    private function phoneLoginUser(string $phone, bool $includeBlocked = true): ?User
+    private function phoneLoginUser(string $phone, bool $includeBlocked = true, UserRole $role = UserRole::Pharmacy): ?User
     {
         $query = User::where('phone', $phone);
-        $query->where('role', UserRole::Pharmacy);
+        $query->where('role', $role);
         if (! $includeBlocked) {
             $query->where('is_blocked', false);
         }
@@ -334,16 +467,56 @@ class AuthController extends Controller
         return $query->first();
     }
 
-    private function pendingPharmacyUser(Request $request): User
+    private function pendingPhoneUser(Request $request, UserRole $role): User
     {
-        $userId = $request->session()->get('phone_otp.pending_login_user_id');
+        $userId = $request->session()->get($this->pendingLoginSessionKey($role));
         $user = is_numeric($userId)
-            ? User::whereKey($userId)->where('role', UserRole::Pharmacy)->first()
+            ? User::whereKey($userId)->where('role', $role)->first()
             : null;
 
         abort_unless($user, 404);
 
         return $user;
+    }
+
+    private function loginSessionKey(UserRole $role): string
+    {
+        return $role === UserRole::Pharmacy ? 'phone_otp.login' : 'phone_otp.supplier_login';
+    }
+
+    private function registrationSessionKey(UserRole $role): string
+    {
+        return $role === UserRole::Pharmacy ? 'phone_otp.registration' : 'phone_otp.supplier_registration';
+    }
+
+    private function pendingLoginSessionKey(UserRole $role): string
+    {
+        return $role === UserRole::Pharmacy ? 'phone_otp.pending_login_user_id' : 'phone_otp.pending_supplier_login_user_id';
+    }
+
+    private function loginOtpFormRoute(UserRole $role): string
+    {
+        return $role === UserRole::Pharmacy ? 'login.otp.form' : 'provider.otp.form';
+    }
+
+    private function loginOtpVerifyRoute(UserRole $role): string
+    {
+        return $role === UserRole::Pharmacy ? 'login.otp.verify' : 'provider.otp.verify';
+    }
+
+    private function loginOtpResendRoute(UserRole $role): string
+    {
+        return $role === UserRole::Pharmacy ? 'login.otp.resend' : 'provider.otp.resend';
+    }
+
+    private function registrationDetailsRoute(UserRole $role): string
+    {
+        return $role === UserRole::Pharmacy ? 'register.details.form' : 'provider.register.details.form';
+    }
+
+    private function sessionConfirmationRoute(UserRole $role): string
+    {
+        return $role === UserRole::Pharmacy ? 'login.session.confirmation' : 'provider.session.confirmation';
     }
 
     private function activeSessionsFor(User $user): Collection

@@ -10,7 +10,7 @@ class UpdateProfileRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
-        if (! $this->user()?->isCustomer() && $this->filled('phone')) {
+        if ($this->user()?->isAdmin() && $this->filled('phone')) {
             $this->merge(['phone' => PhoneNormalizer::normalize($this->input('phone'))]);
         }
     }
@@ -22,7 +22,7 @@ class UpdateProfileRequest extends FormRequest
 
     public function rules(): array
     {
-        if ($this->user()->isCustomer()) {
+        if (! $this->user()->isAdmin()) {
             return ['name' => ['required', 'string', 'max:255'], 'theme' => ['required', Rule::in(['light', 'dark'])]];
         }
 

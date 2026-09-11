@@ -4,9 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\OrganizationType;
 use App\Enums\SubscriptionPlan;
-use App\Enums\TradeMode;
 use App\Enums\UserRole;
-use App\Http\Requests\ProvisionWholesalerRequest;
 use App\Models\ModuleSetting;
 use App\Models\Organization;
 use App\Models\User;
@@ -22,7 +20,7 @@ class AdminController extends Controller
         return view('admin.index', [
             'pending' => Organization::query()
                 ->where('status', 'pending')
-                ->with(['users' => fn ($query) => $query->where('role', UserRole::Pharmacy)])
+                ->with(['users' => fn ($query) => $query->whereIn('role', [UserRole::Pharmacy, UserRole::Wholesaler])])
                 ->get(),
         ]);
     }
@@ -35,19 +33,19 @@ class AdminController extends Controller
                 ->findOrFail($organization->id);
             abort_unless($pendingOrganization->status === 'pending', 422);
 
-            $pharmacyUser = $pendingOrganization->users()
-                ->where('role', UserRole::Pharmacy)
+            $organizationUser = $pendingOrganization->users()
+                ->where('role', $pendingOrganization->type === OrganizationType::Wholesaler ? UserRole::Wholesaler : UserRole::Pharmacy)
                 ->whereNotNull('phone_verified_at')
                 ->lockForUpdate()
                 ->first();
-            abort_unless($pharmacyUser, 422);
+            abort_unless($organizationUser, 422);
 
             $before = $pendingOrganization->only('status');
             $pendingOrganization->update(['status' => 'active']);
-            $pharmacyUser->forceFill([
+            $organizationUser->forceFill(array_filter([
                 'approved_at' => now(),
-                'subscription_plan' => SubscriptionPlan::Free,
-            ])->save();
+                'subscription_plan' => $organizationUser->isCustomer() ? SubscriptionPlan::Free : null,
+            ], fn (mixed $value): bool => $value !== null))->save();
             app(AuditLogger::class)->log('organization.approved', $pendingOrganization, $before, $pendingOrganization->only('status'));
 
             return $pendingOrganization;
@@ -71,9 +69,9 @@ class AdminController extends Controller
         return back();
     }
 
-    public function remediatePharmacyPhone(User $user, Request $request)
+    public function remediatePhone(User $user, Request $request)
     {
-        abort_unless($user->isCustomer(), 422);
+        abort_unless($user->isCustomer() || $user->isWholesaler(), 422);
         $request->validate(['phone' => ['required', 'string', 'max:30']]);
         $phone = PhoneNormalizer::normalize($request->string('phone')->toString());
         if (! $phone) {
@@ -85,7 +83,7 @@ class AdminController extends Controller
         $before = $user->only('phone', 'is_blocked');
         $user->forceFill(['phone' => $phone, 'is_blocked' => false, 'password' => null, 'password_change_required' => false])->save();
         $user->organization?->update(['phone' => $phone]);
-        app(AuditLogger::class)->log('pharmacy.phone_remediated', $user, $before, $user->only('phone', 'is_blocked'));
+        app(AuditLogger::class)->log('user.phone_remediated', $user, $before, $user->only('phone', 'is_blocked'));
 
         return back()->with('success', 'Телефон подтверждён администратором, доступ разблокирован.');
     }
@@ -102,17 +100,5 @@ class AdminController extends Controller
         app(AuditLogger::class)->log('module.updated', $module, $before, $module->only('enabled'));
 
         return back()->with('success', 'Настройка модуля сохранена.');
-    }
-
-    public function provisionWholesaler(ProvisionWholesalerRequest $request)
-    {
-        $data = $request->validated();
-        $temporaryPassword = str()->password(16);
-        $organization = Organization::create(['name' => $data['organization_name'], 'phone' => $data['phone'], 'type' => OrganizationType::Wholesaler, 'supplier_mode' => $data['supplier_mode'], 'status' => 'active']);
-        $user = new User(['name' => $data['name'], 'email' => $data['email'], 'phone' => $data['phone'], 'password' => $temporaryPassword]);
-        $user->forceFill(['organization_id' => $organization->id, 'role' => UserRole::Wholesaler, 'active_trade_mode' => $organization->permitsMode(TradeMode::Supplier) ? TradeMode::Supplier : TradeMode::Buyer, 'password_change_required' => true])->save();
-        app(AuditLogger::class)->log('wholesaler.provisioned', $organization, [], ['name' => $organization->name]);
-
-        return back()->with('success', "Оптовик создан. Временный пароль: {$temporaryPassword}");
     }
 }

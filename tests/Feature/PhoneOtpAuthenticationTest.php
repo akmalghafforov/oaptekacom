@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Enums\SubscriptionPlan;
-use App\Enums\UserRole;
 use App\Models\OneTimePassword;
 use App\Models\Organization;
 use App\Models\User;
@@ -267,17 +266,49 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->withSession(['phone_otp.login' => $otp->phone])->post(route('login.otp.verify'), ['phone' => $otp->phone, 'code' => '123456'])->assertSessionHasErrors('code');
     }
 
-    public function test_provider_and_admin_password_login_pages_only_authenticate_their_own_roles(): void
+    public function test_supplier_phone_login_authenticates_only_supplier_accounts(): void
     {
-        $provider = User::factory()->wholesaler()->create(['email' => 'provider@example.com', 'password' => 'password']);
+        $provider = User::factory()->wholesaler()->create(['phone' => '+992901234567', 'password' => null]);
         $admin = User::factory()->admin()->create(['email' => 'admin@example.com', 'password' => 'password']);
-        $pharmacy = User::factory()->create(['role' => UserRole::Pharmacy, 'email' => 'pharmacy@example.com', 'password' => 'password']);
+        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234568']);
+        OneTimePassword::factory()->create(['phone' => $provider->phone, 'code_hash' => Hash::make('123456')]);
 
-        $this->post(route('provider.login.authenticate'), ['email' => $provider->email, 'password' => 'password'])->assertRedirect(route('dashboard'));
+        $this->withSession(['phone_otp.supplier_login' => $provider->phone])
+            ->post(route('provider.otp.verify'), ['phone' => $provider->phone, 'code' => '123456'])
+            ->assertRedirect(route('dashboard'));
+        $this->assertNotNull($provider->fresh()->phone_verified_at);
         auth()->logout();
-        $this->post(route('admin.login.authenticate'), ['email' => $provider->email, 'password' => 'password'])->assertSessionHasErrors('email');
-        $this->post(route('provider.login.authenticate'), ['email' => $pharmacy->email, 'password' => 'password'])->assertSessionHasErrors('email');
+        $this->withSession(['phone_otp.supplier_login' => $pharmacy->phone])
+            ->post(route('provider.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '123456'])
+            ->assertSessionHasErrors('code');
         $this->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])->assertRedirect(route('two-factor.enroll'));
+    }
+
+    public function test_unknown_supplier_phone_creates_a_pending_supplier_after_company_name_is_provided(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(['https://api.osonsms.com/sendsms_v1.php*' => Http::response(['status' => 'success', 'transaction_id' => 'supplier-1'])]);
+
+        $this->post(route('provider.register.phone'), ['phone' => '901234567'])
+            ->assertRedirect(route('provider.register.details.form'));
+        $this->post(route('provider.register.details.store'), ['supplier_name' => 'Поставщик Тест'])
+            ->assertRedirect(route('provider.register.otp.form'));
+
+        $this->assertDatabaseHas('organizations', ['name' => 'Поставщик Тест', 'phone' => '+992901234567', 'type' => 'wholesaler', 'supplier_mode' => 'supplier', 'status' => 'pending']);
+        $this->assertDatabaseHas('users', ['name' => 'Поставщик Тест', 'phone' => '+992901234567', 'role' => 'wholesaler', 'password' => null]);
+    }
+
+    public function test_admin_approval_activates_verified_supplier_without_changing_subscription_plan(): void
+    {
+        $organization = Organization::factory()->wholesaler()->pending()->create();
+        $supplier = User::factory()->wholesaler($organization)->create(['phone_verified_at' => now(), 'subscription_plan' => SubscriptionPlan::Premium]);
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+
+        $this->actingAs($admin)->post(route('admin.approve', $organization))->assertRedirect();
+
+        $this->assertSame('active', $organization->fresh()->status);
+        $this->assertNotNull($supplier->fresh()->approved_at);
+        $this->assertSame(SubscriptionPlan::Premium, $supplier->fresh()->subscription_plan);
     }
 
     public function test_admin_password_login_bypasses_two_factor_in_the_local_environment(): void

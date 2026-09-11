@@ -23,8 +23,8 @@ class ProfileController extends Controller
     {
         $user = $request->user();
         $before = $user->only('name', 'email', 'phone', 'theme');
-        $data = $request->safe()->only($user->isCustomer() ? ['name', 'theme'] : ['name', 'email', 'phone', 'theme']);
-        if (! $user->isCustomer() && $request->filled('password')) {
+        $data = $request->safe()->only($user->isAdmin() ? ['name', 'email', 'theme'] : ['name', 'theme']);
+        if ($user->isAdmin() && $request->filled('password')) {
             $data['password'] = $request->string('password')->toString();
             $data['password_change_required'] = false;
         }
@@ -36,7 +36,7 @@ class ProfileController extends Controller
 
     public function sendPhoneChange(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
-        abort_unless($request->user()->isCustomer(), 403);
+        abort_unless(! $request->user()->isAdmin(), 403);
         $phone = $request->validated('phone');
         if (User::where('phone', $phone)->whereKeyNot($request->user()->id)->exists()) {
             return back()->withErrors(['phone' => 'Этот номер уже используется.']);
@@ -51,14 +51,14 @@ class ProfileController extends Controller
 
     public function phoneChangeForm()
     {
-        abort_unless(request()->user()->isCustomer() && session()->has('phone_otp.change_phone'), 404);
+        abort_unless(! request()->user()->isAdmin() && session()->has('phone_otp.change_phone'), 404);
 
         return view('auth.phone-otp', ['title' => 'Подтвердите новый телефон', 'route' => 'profile.phone.confirm', 'phone' => session('phone_otp.change_phone'), 'resend_route' => 'profile.phone.send']);
     }
 
     public function confirmPhoneChange(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
-        abort_unless($request->user()->isCustomer(), 403);
+        abort_unless(! $request->user()->isAdmin(), 403);
         $phone = $request->validated('phone');
         if ($phone !== $request->session()->get('phone_otp.change_phone') || ! $otpService->consume('phone_change', $phone, $request->validated('code'))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
@@ -67,7 +67,7 @@ class ProfileController extends Controller
             return back()->withErrors(['phone' => 'Этот номер уже используется.']);
         }
         $user = $request->user();
-        $user->update(['phone' => $phone]);
+        $user->update(['phone' => $phone, 'phone_verified_at' => now()]);
         $user->organization?->update(['phone' => $phone]);
         $request->session()->forget('phone_otp.change_phone');
 
@@ -80,7 +80,7 @@ class ProfileController extends Controller
         $organization = $user->organization;
         abort_unless($organization, 403);
         $before = $organization->only('name', 'city', 'phone', 'minimum_order', 'delivery_conditions');
-        $organization->update($request->safe()->only(['name', 'city', 'phone', 'minimum_order', 'delivery_conditions']));
+        $organization->update($request->safe()->only(['name', 'city', 'minimum_order', 'delivery_conditions']));
         if ($user->isWholesaler() && $request->filled('active_trade_mode')) {
             $mode = TradeMode::from($request->string('active_trade_mode')->toString());
             abort_unless($organization->permitsMode($mode), 422);
