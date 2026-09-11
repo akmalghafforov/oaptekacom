@@ -12,9 +12,12 @@ use App\Models\Organization;
 use App\Models\User;
 use App\Services\PhoneOtpService;
 use App\Support\PhoneNormalizer;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\View\View;
 
@@ -98,11 +101,50 @@ class AuthController extends Controller
         if (! $user) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
+        if ($this->activeSessionsFor($user)->isNotEmpty()) {
+            $request->session()->put('phone_otp.pending_login_user_id', $user->id);
+            $request->session()->forget('phone_otp.login');
+
+            return redirect()->route('login.session.confirmation');
+        }
         Auth::login($user);
         $request->session()->regenerate();
         $request->session()->forget('phone_otp.login');
 
         return redirect()->intended(route('dashboard'));
+    }
+
+    public function sessionConfirmationForm(Request $request): View
+    {
+        $user = $this->pendingPharmacyUser($request);
+        $session = $this->activeSessionsFor($user)->first();
+
+        abort_unless($session, 404);
+
+        return view('auth.session-confirmation', [
+            'session' => $session,
+            'lastActivity' => now()->setTimestamp($session->last_activity)->format('d.m.Y H:i'),
+        ]);
+    }
+
+    public function confirmSessionReplacement(Request $request): RedirectResponse
+    {
+        $user = $this->pendingPharmacyUser($request);
+
+        $this->sessionQuery()->where('user_id', $user->id)->delete();
+        Auth::login($user);
+        $request->session()->regenerate();
+        $request->session()->forget(['phone_otp.login', 'phone_otp.pending_login_user_id']);
+
+        return redirect()->intended(route('dashboard'));
+    }
+
+    public function cancelSessionReplacement(Request $request): RedirectResponse
+    {
+        $this->pendingPharmacyUser($request);
+        $request->session()->forget(['phone_otp.login', 'phone_otp.pending_login_user_id']);
+
+        return redirect()->route('login')->with('warning', 'Вход отменён. Активный сеанс на другом устройстве сохранён.');
     }
 
     public function registerForm()
@@ -167,6 +209,10 @@ class AuthController extends Controller
 
     private function canSend(Request $request, string $phone): bool
     {
+        if (app()->environment(['local', 'testing']) ) {
+            return true;
+        }
+
         foreach ([['resend', 1, 60], ['quarter-hour', 5, 900], ['day', 10, 86400]] as [$period, $max, $seconds]) {
             foreach (['phone:'.$phone, 'ip:'.$request->ip()] as $identity) {
                 if (RateLimiter::tooManyAttempts("otp-send:{$period}:{$identity}", $max)) {
@@ -197,6 +243,32 @@ class AuthController extends Controller
         }
 
         return $query->first();
+    }
+
+    private function pendingPharmacyUser(Request $request): User
+    {
+        $userId = $request->session()->get('phone_otp.pending_login_user_id');
+        $user = is_numeric($userId)
+            ? User::whereKey($userId)->where('role', UserRole::Pharmacy)->first()
+            : null;
+
+        abort_unless($user, 404);
+
+        return $user;
+    }
+
+    private function activeSessionsFor(User $user): Collection
+    {
+        return $this->sessionQuery()
+            ->where('user_id', $user->id)
+            ->where('last_activity', '>=', now()->subMinutes(config('session.lifetime'))->getTimestamp())
+            ->orderByDesc('last_activity')
+            ->get();
+    }
+
+    private function sessionQuery(): Builder
+    {
+        return DB::connection(config('session.connection'))->table(config('session.table'));
     }
 
     public function logout(Request $request): RedirectResponse

@@ -19,6 +19,9 @@ Route::middleware('guest')->group(function () {
     Route::post('/login/phone', [AuthController::class, 'sendLoginOtp'])->name('login.otp.send');
     Route::get('/login/phone/verify', [AuthController::class, 'loginOtpForm'])->name('login.otp.form');
     Route::post('/login/phone/verify', [AuthController::class, 'verifyLoginOtp'])->name('login.otp.verify');
+    Route::get('/login/phone/session-confirmation', [AuthController::class, 'sessionConfirmationForm'])->name('login.session.confirmation');
+    Route::post('/login/phone/session-confirmation', [AuthController::class, 'confirmSessionReplacement'])->name('login.session.confirm');
+    Route::post('/login/phone/session-confirmation/cancel', [AuthController::class, 'cancelSessionReplacement'])->name('login.session.cancel');
     Route::post('/login/phone/resend', fn (Request $request, AuthController $controller, PhoneOtpService $otpService) => $controller->resend($request, $otpService, 'login'))->name('login.otp.resend');
     Route::get('/admin/login', [AuthController::class, 'adminLoginForm'])->name('admin.login');
     Route::post('/admin/login', [AuthController::class, 'adminLogin'])->middleware('throttle:5,1')->name('admin.login.authenticate');

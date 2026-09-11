@@ -6,7 +6,10 @@ use App\Enums\UserRole;
 use App\Models\OneTimePassword;
 use App\Models\Organization;
 use App\Models\User;
+use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -63,6 +66,70 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->assertNotNull(OneTimePassword::first()->consumed_at);
     }
 
+    public function test_second_device_login_shows_confirmation_and_cancel_keeps_original_session(): void
+    {
+        $this->useDatabaseSessions();
+        $this->travelTo('2026-09-11 09:00:00');
+        $organization = Organization::factory()->pharmacy()->create();
+        $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => null, 'email' => null]);
+        OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
+        $this->createActiveSession($user, 'other-device-session', 'Firefox 143 / Ubuntu 24.04', '203.0.113.10', now()->subMinutes(10)->timestamp);
+
+        $response = $this->withSession(['phone_otp.login' => $user->phone])
+            ->post(route('login.otp.verify'), ['phone' => $user->phone, 'code' => '123456']);
+
+        $response->assertRedirectToRoute('login.session.confirmation');
+        $this->assertGuest();
+        $this->assertDatabaseHas('sessions', ['id' => 'other-device-session', 'user_id' => $user->id]);
+
+        $sessionId = $response->getCookie(config('session.cookie'), false)->getValue();
+        $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
+            ->get(route('login.session.confirmation'))
+            ->assertViewIs('auth.session-confirmation')
+            ->assertSee('Firefox 143 / Ubuntu 24.04')
+            ->assertSee('203.0.113.10')
+            ->assertSee('11.09.2026 08:50');
+        $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
+            ->post(route('login.session.cancel'))
+            ->assertRedirectToRoute('login')
+            ->assertSessionHas('warning');
+
+        $this->assertGuest();
+        $this->assertDatabaseHas('sessions', ['id' => 'other-device-session', 'user_id' => $user->id]);
+        $this->travelBack();
+    }
+
+    public function test_confirming_second_device_login_invalidates_existing_session_and_authenticates_current_device(): void
+    {
+        $this->useDatabaseSessions();
+        $this->travelTo('2026-09-11 09:00:00');
+        $organization = Organization::factory()->pharmacy()->create();
+        $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => null, 'email' => null]);
+        OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
+        $this->createActiveSession($user, 'other-device-session', 'Firefox 143 / Ubuntu 24.04', '203.0.113.10', now()->subMinutes(10)->timestamp);
+
+        $otpResponse = $this->withSession(['phone_otp.login' => $user->phone])
+            ->post(route('login.otp.verify'), ['phone' => $user->phone, 'code' => '123456']);
+        $otpResponse->assertRedirectToRoute('login.session.confirmation');
+        $sessionId = $otpResponse->getCookie(config('session.cookie'), false)->getValue();
+
+        $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
+            ->post(route('login.session.confirm'))
+            ->assertRedirectToRoute('dashboard');
+
+        $this->assertAuthenticatedAs($user);
+        $this->assertDatabaseMissing('sessions', ['id' => 'other-device-session']);
+        app()->forgetInstance('auth.driver');
+        app()->forgetInstance('auth');
+        app()->forgetInstance('session.store');
+        app()->forgetInstance('session');
+        Facade::clearResolvedInstances();
+        $this->withUnencryptedCookie(config('session.cookie'), $this->encryptedSessionCookie('other-device-session'))
+            ->get(route('dashboard'))
+            ->assertRedirectToRoute('login');
+        $this->travelBack();
+    }
+
     public function test_wrong_codes_are_limited_to_five_attempts(): void
     {
         $otp = OneTimePassword::factory()->create(['phone' => '+992901234567', 'code_hash' => Hash::make('123456')]);
@@ -106,5 +173,28 @@ class PhoneOtpAuthenticationTest extends TestCase
             ->assertSessionHasErrors('code');
 
         $this->assertGuest();
+    }
+
+    private function useDatabaseSessions(): void
+    {
+        config()->set('session.driver', 'database');
+        app('session')->forgetDrivers();
+    }
+
+    private function createActiveSession(User $user, string $sessionId, string $userAgent, string $ipAddress, int $lastActivity): void
+    {
+        DB::table(config('session.table'))->insert([
+            'id' => $sessionId,
+            'user_id' => $user->id,
+            'ip_address' => $ipAddress,
+            'user_agent' => $userAgent,
+            'payload' => base64_encode(serialize([auth()->guard()->getName() => $user->getAuthIdentifier()])),
+            'last_activity' => $lastActivity,
+        ]);
+    }
+
+    private function encryptedSessionCookie(string $sessionId): string
+    {
+        return encrypt(CookieValuePrefix::create(config('session.cookie'), app('encrypter')->getKey()).$sessionId, false);
     }
 }
