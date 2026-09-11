@@ -90,6 +90,7 @@ class AuthController extends Controller
     {
         $phone = $request->validated('phone');
         $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
+
         if ($phone !== $request->session()->get('phone_otp.login') || (! $usesDevelopmentCode && ! $otpService->consume('login', $phone, $request->validated('code')))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
