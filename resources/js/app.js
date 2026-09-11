@@ -108,3 +108,29 @@ document.querySelectorAll('[data-sms-code-mask]').forEach((input) => {
         input.value = input.value.replace(/\D/g, '');
     });
 });
+
+document.querySelectorAll('[data-subscription-calculator]').forEach((form) => {
+    const plan = form.querySelector('[data-subscription-plan]');
+    const amount = form.querySelector('[data-subscription-amount]');
+    const output = form.querySelector('[data-subscription-days]');
+    const updateDays = () => {
+        const dailyPrice = Number(plan.selectedOptions[0]?.dataset.dailyPrice);
+        const paymentAmount = Number(amount.value);
+        const days = paymentAmount / dailyPrice;
+
+        if (!dailyPrice || !paymentAmount) {
+            output.textContent = 'Выберите тариф и укажите сумму, чтобы увидеть срок подписки.';
+        } else if (!Number.isInteger(days)) {
+            output.textContent = 'Сумма должна быть кратна дневной стоимости тарифа.';
+        } else {
+            const lastTwoDigits = days % 100;
+            const lastDigit = days % 10;
+            const dayWord = lastTwoDigits >= 11 && lastTwoDigits <= 14 ? 'дней' : (lastDigit === 1 ? 'день' : (lastDigit >= 2 && lastDigit <= 4 ? 'дня' : 'дней'));
+            output.textContent = `Подписка будет действовать ${days} ${dayWord} с даты подтверждения оплаты.`;
+        }
+    };
+
+    plan.addEventListener('change', updateDays);
+    amount.addEventListener('input', updateDays);
+    updateDays();
+});

@@ -45,9 +45,9 @@ class SubscriptionService
         });
     }
 
-    public function request(User $user, SubscriptionPlan $plan, SubscriptionTerm $term, PaymentMethodSetting $paymentMethod, string $transferReference, string $transferredOn, UploadedFile $receipt): Subscription
+    public function request(User $user, SubscriptionPlan $plan, SubscriptionTerm $term, PaymentMethodSetting $paymentMethod, string $amount, ?string $senderWalletNumber, ?string $senderWalletOwnerName, string $transferredOn, UploadedFile $receipt): Subscription
     {
-        if (! $user->isCustomer() || ! $user->organization || $user->organization->status !== 'active' || ! $plan->isPaid() || $term === SubscriptionTerm::Custom) {
+        if (! $user->isCustomer() || ! $user->organization || $user->organization->status !== 'active' || ! $plan->isPaid()) {
             throw new InvalidArgumentException('Заявку может подать только подтверждённая аптека на платный тариф.');
         }
 
@@ -56,10 +56,13 @@ class SubscriptionService
         }
 
         $price = $this->priceFor($plan);
-        [$startsOn, $endsOn] = $this->period($term, null);
-        $totalPrice = $this->totalPrice($price, $startsOn, $endsOn);
+        $days = bcdiv($amount, (string) $price->daily_price, 0);
+        $totalPrice = bcmul($days, (string) $price->daily_price, 2);
+        if ($days === '0' || bccomp($totalPrice, $amount, 2) !== 0) {
+            throw new InvalidArgumentException('Сумма должна быть кратна дневной стоимости выбранного тарифа.');
+        }
 
-        return DB::transaction(function () use ($user, $plan, $term, $paymentMethod, $price, $startsOn, $endsOn, $totalPrice, $transferReference, $transferredOn, $receipt): Subscription {
+        return DB::transaction(function () use ($user, $plan, $term, $paymentMethod, $price, $days, $totalPrice, $senderWalletNumber, $senderWalletOwnerName, $transferredOn, $receipt): Subscription {
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
             if ($lockedUser->subscriptions()->where('status', SubscriptionStatus::Pending->value)->exists()) {
                 throw new InvalidArgumentException('У этой аптеки уже есть заявка, ожидающая оплаты или проверки.');
@@ -69,12 +72,13 @@ class SubscriptionService
             $paymentRequest = PaymentRequest::create([
                 'organization_id' => $lockedUser->organization_id,
                 'user_id' => $lockedUser->id,
-                'days' => $startsOn->diffInDays($endsOn) + 1,
+                'days' => $days,
                 'amount' => $totalPrice,
                 'payment_method' => $paymentMethod->method,
                 'recipient_wallet' => $paymentMethod->wallet_number,
-                'payment_instructions' => $paymentMethod->instructions,
-                'transfer_reference' => $transferReference,
+                'recipient_wallet_owner_name' => $paymentMethod->wallet_owner_name,
+                'sender_wallet_number' => $senderWalletNumber,
+                'sender_wallet_owner_name' => $senderWalletOwnerName,
                 'transferred_on' => $transferredOn,
                 'receipt_path' => $receiptPath,
                 'status' => 'pending',

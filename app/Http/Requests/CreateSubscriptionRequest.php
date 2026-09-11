@@ -4,7 +4,6 @@ namespace App\Http\Requests;
 
 use App\Enums\PaymentMethod;
 use App\Enums\SubscriptionPlan;
-use App\Enums\SubscriptionTerm;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -27,10 +26,11 @@ class CreateSubscriptionRequest extends FormRequest
     {
         return [
             'plan' => ['required', Rule::enum(SubscriptionPlan::class), Rule::notIn([SubscriptionPlan::Free->value])],
-            'term' => ['required', Rule::enum(SubscriptionTerm::class), Rule::notIn([SubscriptionTerm::Custom->value])],
+            'amount' => ['required', 'decimal:0,2', 'min:0.01'],
             'payment_method' => ['required', Rule::in(array_column(PaymentMethod::cases(), 'value'))],
-            'transfer_reference' => ['required', 'string', 'max:255'],
-            'transferred_on' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'sender_wallet_number' => ['nullable', 'string', 'regex:/^\\+992\\d{9}$/'],
+            'sender_wallet_owner_name' => ['nullable', 'string', 'max:255'],
+            'transferred_on' => ['required', 'date_format:d/m/Y', 'before_or_equal:today'],
             'receipt' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'],
         ];
     }

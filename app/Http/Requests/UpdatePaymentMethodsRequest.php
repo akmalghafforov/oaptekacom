@@ -27,8 +27,8 @@ class UpdatePaymentMethodsRequest extends FormRequest
             'methods' => ['required', 'array'],
             'methods.*.method' => ['required', Rule::in(array_column(PaymentMethod::cases(), 'value'))],
             'methods.*.is_enabled' => ['nullable', 'boolean'],
-            'methods.*.wallet_number' => ['nullable', 'string', 'max:255'],
-            'methods.*.instructions' => ['nullable', 'string', 'max:2000'],
+            'methods.*.wallet_number' => ['nullable', 'string', 'regex:/^\\+992\\d{9}$/'],
+            'methods.*.wallet_owner_name' => ['nullable', 'string', 'max:255'],
         ];
     }
 }

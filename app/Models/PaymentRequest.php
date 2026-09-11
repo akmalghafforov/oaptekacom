@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['organization_id', 'user_id', 'days', 'amount', 'payment_method', 'recipient_wallet', 'payment_instructions', 'receipt_path', 'transfer_reference', 'transferred_on', 'status', 'verified_amount', 'verified_reference', 'reviewed_by', 'reviewed_at', 'rejection_reason'])]
+#[Fillable(['organization_id', 'user_id', 'days', 'amount', 'payment_method', 'recipient_wallet', 'recipient_wallet_owner_name', 'sender_wallet_number', 'sender_wallet_owner_name', 'receipt_path', 'transferred_on', 'status', 'verified_amount', 'verified_reference', 'reviewed_by', 'reviewed_at', 'rejection_reason'])]
 class PaymentRequest extends Model
 {
     public function organization(): BelongsTo

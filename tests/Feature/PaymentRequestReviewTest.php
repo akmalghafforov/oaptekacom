@@ -27,15 +27,18 @@ class PaymentRequestReviewTest extends TestCase
         $pharmacy = User::factory()->pharmacy()->create();
         $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
         SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
-        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '12345', 'instructions' => 'Переведите сумму на кошелёк.']);
+        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
 
-        $this->actingAs($pharmacy)->post(route('subscription.requests.store'), ['plan' => 'base', 'term' => 'three_months', 'payment_method' => 'dc', 'transfer_reference' => 'TX-100', 'transferred_on' => '2026-09-01', 'receipt' => UploadedFile::fake()->image('receipt.jpg')])->assertRedirect(route('subscription.create'));
+        $this->actingAs($pharmacy)->post(route('subscription.requests.store'), ['plan' => 'base', 'amount' => '91.00', 'payment_method' => 'dc', 'sender_wallet_number' => '+992901234568', 'sender_wallet_owner_name' => 'Аптека Тест', 'transferred_on' => '01/09/2026', 'receipt' => UploadedFile::fake()->image('receipt.jpg')])->assertRedirect(route('subscription.create'));
 
         $payment = PaymentRequest::firstOrFail();
         $subscription = Subscription::firstOrFail();
         $this->assertSame('91.00', $payment->amount);
         $this->assertSame(91, $payment->days);
-        $this->assertSame('12345', $payment->recipient_wallet);
+        $this->assertSame('+992901234567', $payment->recipient_wallet);
+        $this->assertSame('Акмал Гаффоров', $payment->recipient_wallet_owner_name);
+        $this->assertSame('+992901234568', $payment->sender_wallet_number);
+        $this->assertSame('Аптека Тест', $payment->sender_wallet_owner_name);
         Storage::disk('local')->assertExists($payment->receipt_path);
 
         SubscriptionPlanPrice::query()->where('plan', 'base')->update(['daily_price' => '99.00']);
@@ -56,8 +59,8 @@ class PaymentRequestReviewTest extends TestCase
         $pharmacy = User::factory()->pharmacy()->create();
         $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
         SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
-        PaymentMethodSetting::create(['method' => PaymentMethod::Alif, 'is_enabled' => true, 'wallet_number' => '9988', 'instructions' => 'Переведите сумму.']);
-        $payload = ['plan' => 'base', 'term' => 'three_months', 'payment_method' => 'alif', 'transfer_reference' => 'TX-200', 'transferred_on' => now()->toDateString(), 'receipt' => UploadedFile::fake()->image('receipt.jpg')];
+        PaymentMethodSetting::create(['method' => PaymentMethod::Alif, 'is_enabled' => true, 'wallet_number' => '+992901234568', 'wallet_owner_name' => 'Акмал Гаффоров']);
+        $payload = ['plan' => 'base', 'amount' => '91.00', 'payment_method' => 'alif', 'sender_wallet_number' => '+992901234568', 'transferred_on' => now()->format('d/m/Y'), 'receipt' => UploadedFile::fake()->image('receipt.jpg')];
 
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), $payload)->assertRedirect();
         $payment = PaymentRequest::firstOrFail();
@@ -68,7 +71,6 @@ class PaymentRequestReviewTest extends TestCase
         $this->assertSame('rejected', $payment->refresh()->status);
         $this->assertSame(SubscriptionStatus::Rejected, Subscription::firstOrFail()->refresh()->status);
 
-        $payload['transfer_reference'] = 'TX-201';
         $payload['receipt'] = UploadedFile::fake()->image('receipt-2.jpg');
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), $payload)->assertRedirect();
         $this->assertDatabaseCount('payment_requests', 2);
@@ -92,17 +94,20 @@ class PaymentRequestReviewTest extends TestCase
     {
         $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
 
-        $this->actingAs($admin)->get(route('admin.subscription-payments.index'))->assertSee('Номер кошелька')->assertSee('Инструкция на русском');
+        $this->actingAs($admin)->get(route('admin.subscription-payments.index'))
+            ->assertSee('Номер таджикского кошелька')
+            ->assertDontSee('Инструкция на русском')
+            ->assertDontSee('wallet_number" />');
 
         $this->actingAs($admin)->patch(route('admin.subscription-payments.methods.update'), ['methods' => [
-            ['method' => 'dc', 'is_enabled' => '1', 'wallet_number' => '100', 'instructions' => 'Перевод на основной кошелёк.'],
-            ['method' => 'eskhata_online', 'is_enabled' => '0', 'wallet_number' => '', 'instructions' => ''],
-            ['method' => 'alif', 'is_enabled' => '0', 'wallet_number' => '', 'instructions' => ''],
+            ['method' => 'dc', 'is_enabled' => '1', 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров'],
+            ['method' => 'eskhata_online', 'is_enabled' => '0', 'wallet_number' => '', 'wallet_owner_name' => ''],
+            ['method' => 'alif', 'is_enabled' => '0', 'wallet_number' => '', 'wallet_owner_name' => ''],
         ]])->assertRedirect();
 
-        $this->assertDatabaseHas('payment_method_settings', ['method' => 'dc', 'is_enabled' => true, 'wallet_number' => '100']);
+        $this->assertDatabaseHas('payment_method_settings', ['method' => 'dc', 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
         $this->assertDatabaseHas('audit_events', ['event' => 'payment_method.updated']);
-        $this->actingAs($admin)->patch(route('admin.subscription-payments.methods.update'), ['methods' => [['method' => 'other', 'is_enabled' => '1', 'wallet_number' => '1', 'instructions' => 'Текст']]])->assertSessionHasErrors('methods.0.method');
+        $this->actingAs($admin)->patch(route('admin.subscription-payments.methods.update'), ['methods' => [['method' => 'other', 'is_enabled' => '1', 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']]])->assertSessionHasErrors('methods.0.method');
     }
 
     public function test_submission_rejects_unavailable_methods_and_oversized_receipts(): void
@@ -110,10 +115,10 @@ class PaymentRequestReviewTest extends TestCase
         Storage::fake('local');
         $pharmacy = User::factory()->pharmacy()->create();
         SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
-        $payload = ['plan' => 'base', 'term' => 'three_months', 'payment_method' => 'dc', 'transfer_reference' => 'TX-300', 'transferred_on' => now()->toDateString(), 'receipt' => UploadedFile::fake()->image('receipt.jpg')];
+        $payload = ['plan' => 'base', 'amount' => '91.00', 'payment_method' => 'dc', 'transferred_on' => now()->format('d/m/Y'), 'receipt' => UploadedFile::fake()->image('receipt.jpg')];
 
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), $payload)->assertSessionHasErrors('payment_method');
-        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '100', 'instructions' => 'Переведите сумму.']);
+        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
         $payload['receipt'] = UploadedFile::fake()->create('receipt.pdf', 10241, 'application/pdf');
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), $payload)->assertSessionHasErrors('receipt');
         $this->assertDatabaseCount('payment_requests', 0);

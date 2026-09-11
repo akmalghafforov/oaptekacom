@@ -7,6 +7,7 @@ use App\Enums\SubscriptionTerm;
 use App\Http\Requests\CreateSubscriptionRequest;
 use App\Models\PaymentMethodSetting;
 use App\Services\SubscriptionService;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use InvalidArgumentException;
 
@@ -22,10 +23,12 @@ class SubscriptionRequestController extends Controller
             $subscriptions->request(
                 $request->user(),
                 SubscriptionPlan::from($request->validated('plan')),
-                SubscriptionTerm::from($request->validated('term')),
+                SubscriptionTerm::Custom,
                 $paymentMethod,
-                $request->validated('transfer_reference'),
-                $request->validated('transferred_on'),
+                $request->validated('amount'),
+                $request->validated('sender_wallet_number'),
+                $request->validated('sender_wallet_owner_name'),
+                CarbonImmutable::createFromFormat('d/m/Y', $request->validated('transferred_on'))->toDateString(),
                 $request->file('receipt'),
             );
         } catch (InvalidArgumentException $exception) {

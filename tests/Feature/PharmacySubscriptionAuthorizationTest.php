@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Enums\PaymentMethod;
 use App\Enums\SubscriptionPlan;
 use App\Enums\SubscriptionStatus;
-use App\Enums\SubscriptionTerm;
 use App\Models\Organization;
 use App\Models\PaymentMethodSetting;
 use App\Models\Subscription;
@@ -26,10 +25,10 @@ class PharmacySubscriptionAuthorizationTest extends TestCase
         $pharmacy = User::factory()->pharmacy()->create();
         $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
         SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
-        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '123', 'instructions' => 'Переведите сумму.']);
+        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
 
         $this->actingAs($pharmacy)
-            ->post(route('subscription.requests.store'), ['plan' => SubscriptionPlan::Base->value, 'term' => SubscriptionTerm::ThreeMonths->value, 'payment_method' => 'dc', 'transfer_reference' => 'TX-1', 'transferred_on' => now()->toDateString(), 'receipt' => UploadedFile::fake()->image('receipt.jpg')])
+            ->post(route('subscription.requests.store'), ['plan' => SubscriptionPlan::Base->value, 'amount' => '91.00', 'payment_method' => 'dc', 'transferred_on' => now()->format('d/m/Y'), 'receipt' => UploadedFile::fake()->image('receipt.jpg')])
             ->assertRedirect(route('subscription.create'));
         $subscription = Subscription::firstOrFail();
         $this->assertSame(SubscriptionStatus::Pending, $subscription->status);

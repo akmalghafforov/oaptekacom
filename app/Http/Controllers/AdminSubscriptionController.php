@@ -65,13 +65,13 @@ class AdminSubscriptionController extends Controller
     {
         foreach ($request->validated('methods') as $method) {
             $isEnabled = (bool) ($method['is_enabled'] ?? false);
-            if ($isEnabled && (! filled($method['wallet_number'] ?? null) || ! filled($method['instructions'] ?? null))) {
-                return back()->withInput()->withErrors(['methods' => 'Для включённого способа укажите кошелёк и инструкции на русском языке.']);
+            if ($isEnabled && (! filled($method['wallet_number'] ?? null) || ! filled($method['wallet_owner_name'] ?? null))) {
+                return back()->withInput()->withErrors(['methods' => 'Для включённого способа укажите номер таджикского кошелька и имя владельца.']);
             }
             $setting = PaymentMethodSetting::query()->firstOrNew(['method' => $method['method']]);
-            $before = $setting->exists ? $setting->only(['is_enabled', 'wallet_number', 'instructions']) : [];
-            $setting->fill(['is_enabled' => $isEnabled, 'wallet_number' => $method['wallet_number'] ?? null, 'instructions' => $method['instructions'] ?? null])->save();
-            $audit->log('payment_method.updated', $setting, $before, $setting->only(['is_enabled', 'wallet_number', 'instructions']));
+            $before = $setting->exists ? $setting->only(['is_enabled', 'wallet_number', 'wallet_owner_name']) : [];
+            $setting->fill(['is_enabled' => $isEnabled, 'wallet_number' => $method['wallet_number'] ?? null, 'wallet_owner_name' => $method['wallet_owner_name'] ?? null])->save();
+            $audit->log('payment_method.updated', $setting, $before, $setting->only(['is_enabled', 'wallet_number', 'wallet_owner_name']));
         }
 
         return back()->with('success', 'Способы оплаты сохранены.');
