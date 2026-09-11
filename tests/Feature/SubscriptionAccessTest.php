@@ -4,8 +4,10 @@ namespace Tests\Feature;
 
 use App\Enums\PaymentMethod;
 use App\Enums\SubscriptionPlan;
+use App\Enums\SubscriptionStatus;
 use App\Models\Organization;
 use App\Models\PaymentMethodSetting;
+use App\Models\Subscription;
 use App\Models\SubscriptionPlanPrice;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -46,5 +48,21 @@ class SubscriptionAccessTest extends TestCase
             ->assertDontSee('Ваш кошелёк отправителя')
             ->assertDontSee('Имя владельца кошелька отправителя')
             ->assertDontSeeHtml('data-subscription-amount');
+    }
+
+    public function test_active_base_subscription_hides_the_purchase_form(): void
+    {
+        $user = User::factory()->pharmacy()->create(['subscription_plan' => SubscriptionPlan::Base]);
+        Subscription::factory()->for($user)->create([
+            'plan' => SubscriptionPlan::Base,
+            'status' => SubscriptionStatus::Active,
+            'starts_on' => now('Asia/Dushanbe')->subDay(),
+            'ends_on' => now('Asia/Dushanbe')->addDay(),
+        ]);
+
+        $this->actingAs($user)->get(route('subscription.create'))
+            ->assertSee('Подписка действует по')
+            ->assertDontSee('Оплата подписки')
+            ->assertDontSeeHtml('data-subscription-calculator');
     }
 }
