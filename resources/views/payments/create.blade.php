@@ -1,5 +1,0 @@
-@extends('layouts.app')
-@section('content')
-<x-ui.page-header title="Продление подписки" description="Стоимость — 1 TJS за день. После оплаты загрузите квитанцию, и администратор подтвердит продление." />
-<x-ui.card><form method="post" enctype="multipart/form-data" class="space-y-5">@csrf<x-ui.input name="days" type="number" label="Количество дней" value="30" min="1" max="365" required /><div class="space-y-1.5"><label for="receipt" class="block text-sm font-medium text-slate-700">Квитанция <span class="font-normal text-muted">(необязательно)</span></label><input id="receipt" class="block w-full rounded-control border border-slate-300 bg-white px-3 py-2 text-sm file:mr-3 file:rounded-control file:border-0 file:bg-brand-50 file:px-3 file:py-1.5 file:font-semibold file:text-brand-700" type="file" name="receipt" accept="image/*,.pdf"><p class="text-xs text-muted">Изображение или PDF, до 10 МБ.</p>@error('receipt')<p class="text-xs text-danger">{{ $message }}</p>@enderror</div><x-ui.button>Отправить запрос</x-ui.button></form></x-ui.card>
-@endsection

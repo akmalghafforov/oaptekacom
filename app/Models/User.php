@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\SubscriptionPlan;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use Database\Factories\UserFactory;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -19,9 +21,17 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
+    /** @var array<string, string> */
+    protected $attributes = ['subscription_plan' => 'free'];
+
     public function organization(): BelongsTo
     {
         return $this->belongsTo(Organization::class);
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
     }
 
     public function isAdmin(): bool
@@ -59,7 +69,7 @@ class User extends Authenticatable
             return false;
         }
 
-        return $this->isWholesaler() || $this->organization->subscription_until?->isFuture();
+        return true;
     }
 
     /**
@@ -73,6 +83,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
+            'subscription_plan' => SubscriptionPlan::class,
             'active_trade_mode' => TradeMode::class,
             'approved_at' => 'datetime',
             'two_factor_confirmed_at' => 'datetime',

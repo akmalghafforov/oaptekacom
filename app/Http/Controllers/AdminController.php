@@ -9,7 +9,6 @@ use App\Http\Requests\ProvisionWholesalerRequest;
 use App\Models\ActivationHistory;
 use App\Models\ModuleSetting;
 use App\Models\Organization;
-use App\Models\PaymentRequest;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Support\PhoneNormalizer;
@@ -19,36 +18,22 @@ class AdminController extends Controller
 {
     public function index()
     {
-        return view('admin.index', ['pending' => Organization::where('status', 'pending')->get(), 'payments' => PaymentRequest::with('organization')->where('status', 'pending')->get(), 'expiring' => Organization::where('subscription_until', '<', now()->addDays(7))->where('status', 'active')->get()]);
+        return view('admin.index', ['pending' => Organization::where('status', 'pending')->get()]);
     }
 
     public function approve(Organization $organization)
     {
         abort_unless($organization->status === 'pending', 422);
-        $before = $organization->only('status', 'subscription_until');
+        $before = $organization->only('status');
         $history = ActivationHistory::where('phone', $organization->phone)->first();
-        $until = $history?->demo_used_at?->copy()->addDay();
         if (! $history?->demo_used_at) {
             $history?->update(['demo_used_at' => now()]);
-            $until = now()->addDay();
-        } $organization->update(['status' => 'active', 'subscription_until' => $until]);
+        }
+        $organization->update(['status' => 'active']);
         $organization->users()->update(['approved_at' => now()]);
-        app(AuditLogger::class)->log('organization.approved', $organization, $before, $organization->only('status', 'subscription_until'));
+        app(AuditLogger::class)->log('organization.approved', $organization, $before, $organization->only('status'));
 
         return back()->with('success', 'Организация одобрена.');
-    }
-
-    public function payment(PaymentRequest $payment, Request $request)
-    {
-        $data = $request->validate(['action' => 'required|in:approve,reject', 'note' => 'nullable|string|max:1000']);
-        $before = $payment->only('status', 'admin_note');
-        $payment->update(['status' => $data['action'] === 'approve' ? 'approved' : 'rejected', 'admin_note' => $data['note'] ?? null, 'reviewed_by' => $request->user()->id]);
-        if ($data['action'] === 'approve') {
-            $organization = $payment->organization;
-            $organization->update(['subscription_until' => max(now(), $organization->subscription_until ?? now())->addDays($payment->days), 'status' => 'active']);
-        } app(AuditLogger::class)->log('payment.reviewed', $payment, $before, $payment->only('status', 'admin_note'));
-
-        return back()->with('success', 'Запрос обработан.');
     }
 
     public function users()

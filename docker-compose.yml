@@ -67,6 +67,30 @@ services:
         condition: service_healthy
     networks: [internal]
 
+  scheduler:
+    build:
+      context: .
+      target: development
+    restart: unless-stopped
+    working_dir: /var/www
+    command: >-
+      sh -c "until test -f vendor/autoload.php; do sleep 2; done; php artisan schedule:work"
+    volumes:
+      - ./:/var/www
+      - vendor:/var/www/vendor
+    environment:
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-oapteka}
+      DB_USERNAME: ${DB_USERNAME:-oapteka}
+      DB_PASSWORD: ${DB_PASSWORD:-secret}
+      CACHE_STORE: database
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped

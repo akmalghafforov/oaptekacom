@@ -2,25 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\PaymentRequest;
-use Illuminate\Http\Request;
+use App\Enums\SubscriptionStatus;
+use Illuminate\View\View;
 
 class SubscriptionController extends Controller
 {
-    public function create()
+    public function create(): View
     {
-        abort_unless(auth()->user()->can('create', PaymentRequest::class), 403);
+        $user = auth()->user();
 
-        return view('payments.create');
-    }
-
-    public function store(Request $r)
-    {
-        $this->authorize('create', PaymentRequest::class);
-        $d = $r->validate(['days' => 'required|integer|min:1|max:365', 'receipt' => 'nullable|file|max:10240']);
-        $path = $r->file('receipt')?->store('receipts', 'local');
-        PaymentRequest::create(['organization_id' => $r->user()->organization_id, 'user_id' => $r->user()->id, 'days' => $d['days'], 'amount' => $d['days'], 'receipt_path' => $path]);
-
-        return redirect()->route('dashboard')->with('success', 'Запрос на оплату отправлен.');
+        return view('subscriptions.status', ['user' => $user, 'subscription' => $user->subscriptions()->where('status', SubscriptionStatus::Active)->latest()->first()]);
     }
 }

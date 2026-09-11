@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\AdminSubscriptionController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CatalogController;
@@ -36,7 +37,6 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
 Route::middleware('auth')->group(function () {
     Route::get('/subscription', [SubscriptionController::class, 'create'])->name('subscription.create');
-    Route::post('/subscription', [SubscriptionController::class, 'store'])->name('subscription.store');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::post('/profile/phone', [ProfileController::class, 'sendPhoneChange'])->name('profile.phone.send');
@@ -62,12 +62,15 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::prefix('admin')->middleware('role:admin')->group(function () {
         Route::get('/', [AdminController::class, 'index'])->name('admin.index');
         Route::post('/organizations/{organization}/approve', [AdminController::class, 'approve'])->name('admin.approve');
-        Route::post('/payments/{payment}', [AdminController::class, 'payment'])->name('admin.payment');
         Route::get('/users', [AdminController::class, 'users'])->name('admin.users');
         Route::post('/users/{user}/block', [AdminController::class, 'toggleBlock'])->name('admin.block');
         Route::post('/users/{user}/phone', [AdminController::class, 'remediatePharmacyPhone'])->name('admin.pharmacy.phone.remediate');
         Route::get('/modules', [AdminController::class, 'modules'])->name('admin.modules');
         Route::patch('/modules/{module}', [AdminController::class, 'updateModule'])->name('admin.modules.update');
         Route::post('/wholesalers', [AdminController::class, 'provisionWholesaler'])->name('admin.wholesalers.store');
+        Route::get('/subscriptions', [AdminSubscriptionController::class, 'index'])->name('admin.subscriptions.index');
+        Route::post('/subscriptions', [AdminSubscriptionController::class, 'store'])->name('admin.subscriptions.store');
+        Route::get('/subscription-prices', [AdminSubscriptionController::class, 'prices'])->name('admin.subscription-prices.edit');
+        Route::patch('/subscription-prices', [AdminSubscriptionController::class, 'updatePrices'])->name('admin.subscription-prices.update');
     });
 });
