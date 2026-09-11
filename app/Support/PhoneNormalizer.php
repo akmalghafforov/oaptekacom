@@ -17,7 +17,7 @@ class PhoneNormalizer
 
         $digits = preg_replace('/\D/', '', $phone);
 
-        if (! preg_match('/^(?:992)?(9\d{8})$/', $digits, $matches)) {
+        if (! preg_match('/^(?:992)?(\d{9})$/', $digits, $matches)) {
             return null;
         }
 

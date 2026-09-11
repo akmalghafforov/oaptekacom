@@ -17,9 +17,22 @@ class PhoneOtpAuthenticationTest extends TestCase
 
     public function test_each_role_has_its_own_login_page(): void
     {
-        $this->get(route('login'))->assertViewIs('auth.login');
+        $this->get(route('login'))
+            ->assertViewIs('auth.login')
+            ->assertSee('data-phone-mask-default', false)
+            ->assertSee('value="+992"', false)
+            ->assertSee('+992 (00) 000-00-00', false);
         $this->get(route('admin.login'))->assertViewIs('auth.admin-login');
         $this->get(route('provider.login'))->assertViewIs('auth.provider-login');
+    }
+
+    public function test_phone_login_verification_uses_phone_and_sms_code_masks(): void
+    {
+        $this->withSession(['phone_otp.login' => '+992901234567'])
+            ->get(route('login.otp.form'))
+            ->assertSee('data-phone-mask', false)
+            ->assertSee('data-sms-code-mask', false)
+            ->assertSee('page-container max-w-lg', false);
     }
 
     public function test_registration_creates_a_pharmacy_only_after_phone_verification(): void

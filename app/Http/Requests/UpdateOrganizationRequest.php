@@ -23,6 +23,6 @@ class UpdateOrganizationRequest extends FormRequest
 
     public function rules(): array
     {
-        return ['name' => ['required', 'string', 'max:255'], 'city' => ['nullable', 'string', 'max:255'], 'phone' => ['nullable', 'string', 'regex:/^\\+9929\\d{8}$/'], 'minimum_order' => ['nullable', 'numeric', 'min:0'], 'delivery_conditions' => ['nullable', 'string', 'max:5000'], 'active_trade_mode' => [Rule::enum(TradeMode::class)]];
+        return ['name' => ['required', 'string', 'max:255'], 'city' => ['nullable', 'string', 'max:255'], 'phone' => ['nullable', 'string', 'regex:/^\\+992\\d{9}$/'], 'minimum_order' => ['nullable', 'numeric', 'min:0'], 'delivery_conditions' => ['nullable', 'string', 'max:5000'], 'active_trade_mode' => [Rule::enum(TradeMode::class)]];
     }
 }

@@ -26,6 +26,6 @@ class UpdateProfileRequest extends FormRequest
             return ['name' => ['required', 'string', 'max:255'], 'theme' => ['required', Rule::in(['light', 'dark'])]];
         }
 
-        return ['name' => ['required', 'string', 'max:255'], 'email' => ['required', 'email', Rule::unique('users')->ignore($this->user()->id)], 'phone' => ['nullable', 'string', 'regex:/^\\+9929\\d{8}$/', Rule::unique('users')->ignore($this->user()->id)], 'theme' => ['required', Rule::in(['light', 'dark'])], 'password' => ['nullable', 'confirmed', 'min:8']];
+        return ['name' => ['required', 'string', 'max:255'], 'email' => ['required', 'email', Rule::unique('users')->ignore($this->user()->id)], 'phone' => ['nullable', 'string', 'regex:/^\\+992\\d{9}$/', Rule::unique('users')->ignore($this->user()->id)], 'theme' => ['required', Rule::in(['light', 'dark'])], 'password' => ['nullable', 'confirmed', 'min:8']];
     }
 }
