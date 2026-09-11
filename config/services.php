@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'oson_sms' => [
+        'login' => env('OSON_SMS_LOGIN'),
+        'token' => env('OSON_SMS_TOKEN'),
+        'sender' => env('OSON_SMS_SENDER'),
+    ],
+
 ];

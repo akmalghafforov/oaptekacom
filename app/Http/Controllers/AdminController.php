@@ -12,6 +12,7 @@ use App\Models\Organization;
 use App\Models\PaymentRequest;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Support\PhoneNormalizer;
 use Illuminate\Http\Request;
 
 class AdminController extends Controller
@@ -63,6 +64,25 @@ class AdminController extends Controller
         app(AuditLogger::class)->log('user.block_toggled', $user, $before, $user->only('is_blocked'));
 
         return back();
+    }
+
+    public function remediatePharmacyPhone(User $user, Request $request)
+    {
+        abort_unless($user->isCustomer(), 422);
+        $request->validate(['phone' => ['required', 'string', 'max:30']]);
+        $phone = PhoneNormalizer::normalize($request->string('phone')->toString());
+        if (! $phone) {
+            return back()->withErrors(['phone' => 'Введите номер Таджикистана в формате +992XXXXXXXXX.']);
+        }
+        if (User::where('phone', $phone)->whereKeyNot($user->id)->exists()) {
+            return back()->withErrors(['phone' => 'Этот номер уже используется.']);
+        }
+        $before = $user->only('phone', 'is_blocked');
+        $user->forceFill(['phone' => $phone, 'is_blocked' => false, 'password' => null, 'password_change_required' => false])->save();
+        $user->organization?->update(['phone' => $phone]);
+        app(AuditLogger::class)->log('pharmacy.phone_remediated', $user, $before, $user->only('phone', 'is_blocked'));
+
+        return back()->with('success', 'Телефон подтверждён администратором, доступ разблокирован.');
     }
 
     public function modules()

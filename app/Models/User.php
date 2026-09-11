@@ -34,6 +34,11 @@ class User extends Authenticatable
         return $this->role === UserRole::Wholesaler;
     }
 
+    public function isCustomer(): bool
+    {
+        return $this->role === UserRole::Pharmacy;
+    }
+
     public function canBuy(): bool
     {
         return ! $this->isWholesaler() || $this->active_trade_mode === TradeMode::Buyer;
