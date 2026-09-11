@@ -92,6 +92,8 @@ class PaymentRequestReviewTest extends TestCase
     {
         $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
 
+        $this->actingAs($admin)->get(route('admin.subscription-payments.index'))->assertSee('Номер кошелька')->assertSee('Инструкция на русском');
+
         $this->actingAs($admin)->patch(route('admin.subscription-payments.methods.update'), ['methods' => [
             ['method' => 'dc', 'is_enabled' => '1', 'wallet_number' => '100', 'instructions' => 'Перевод на основной кошелёк.'],
             ['method' => 'eskhata_online', 'is_enabled' => '0', 'wallet_number' => '', 'instructions' => ''],
