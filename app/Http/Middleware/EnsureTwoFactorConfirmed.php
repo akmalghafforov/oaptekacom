@@ -12,7 +12,7 @@ class EnsureTwoFactorConfirmed
     {
         $user = $request->user();
 
-        if ($user?->isAdmin() && ! $user->two_factor_confirmed_at) {
+        if (! app()->environment('local') && $user?->isAdmin() && ! $user->two_factor_confirmed_at) {
             return redirect()->route('two-factor.enroll');
         }
 

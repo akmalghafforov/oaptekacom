@@ -64,7 +64,9 @@ class AuthController extends Controller
         $request->session()->regenerate();
         RateLimiter::clear($key);
 
-        return $role === UserRole::Admin ? redirect()->route('two-factor.enroll') : redirect()->intended(route('dashboard'));
+        return $role === UserRole::Admin && ! app()->environment('local')
+            ? redirect()->route('two-factor.enroll')
+            : redirect()->intended(route('dashboard'));
     }
 
     public function sendLoginOtp(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -209,7 +211,7 @@ class AuthController extends Controller
 
     private function canSend(Request $request, string $phone): bool
     {
-        if (app()->environment(['local', 'testing']) ) {
+        if (app()->environment(['local', 'testing'])) {
             return true;
         }
 

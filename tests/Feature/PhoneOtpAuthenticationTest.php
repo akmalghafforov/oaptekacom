@@ -7,6 +7,7 @@ use App\Models\OneTimePassword;
 use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Cookie\CookieValuePrefix;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
@@ -151,6 +152,32 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->post(route('admin.login.authenticate'), ['email' => $provider->email, 'password' => 'password'])->assertSessionHasErrors('email');
         $this->post(route('provider.login.authenticate'), ['email' => $pharmacy->email, 'password' => 'password'])->assertSessionHasErrors('email');
         $this->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])->assertRedirect(route('two-factor.enroll'));
+    }
+
+    public function test_admin_password_login_bypasses_two_factor_in_the_local_environment(): void
+    {
+        app()->detectEnvironment(static fn (): string => 'local');
+        $admin = User::factory()->admin()->create(['email' => 'admin@example.com', 'password' => 'password']);
+
+        try {
+            $this->withoutMiddleware(PreventRequestForgery::class)
+                ->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])
+                ->assertRedirect(route('dashboard'));
+        } finally {
+            app()->detectEnvironment(static fn (): string => 'testing');
+        }
+    }
+
+    public function test_unconfirmed_admin_can_access_the_dashboard_in_the_local_environment(): void
+    {
+        app()->detectEnvironment(static fn (): string => 'local');
+        $admin = User::factory()->admin()->create();
+
+        try {
+            $this->actingAs($admin)->get(route('dashboard'))->assertSee('Панель администратора');
+        } finally {
+            app()->detectEnvironment(static fn (): string => 'testing');
+        }
     }
 
     public function test_development_code_logs_in_a_pharmacy_by_phone_without_sending_an_sms(): void

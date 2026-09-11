@@ -3,9 +3,11 @@
 namespace Database\Seeders;
 
 use App\Enums\OrganizationType;
+use App\Enums\SubscriptionPlan;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use App\Models\Organization;
+use App\Models\SubscriptionPlanPrice;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -25,5 +27,7 @@ class DatabaseSeeder extends Seeder
         User::updateOrCreate(['email' => 'pharmacy@example.test'], ['name' => 'Тестовая аптека', 'phone' => '+992900000001', 'password' => null, 'organization_id' => $pharmacy->id, 'role' => UserRole::Pharmacy, 'active_trade_mode' => TradeMode::Buyer]);
         User::updateOrCreate(['email' => 'wholesaler@example.test'], ['name' => 'Тестовый поставщик', 'phone' => '+992900000002', 'password' => 'password', 'organization_id' => $wholesaler->id, 'role' => UserRole::Wholesaler, 'active_trade_mode' => TradeMode::Supplier]);
         User::updateOrCreate(['email' => 'admin@example.test'], ['name' => 'Тестовый администратор', 'phone' => '+992900000003', 'password' => 'password', 'organization_id' => null, 'role' => UserRole::Admin, 'active_trade_mode' => null]);
+        SubscriptionPlanPrice::updateOrCreate(['plan' => SubscriptionPlan::Base], ['daily_price' => '1.00']);
+        SubscriptionPlanPrice::updateOrCreate(['plan' => SubscriptionPlan::Premium], ['daily_price' => '3.00']);
     }
 }
