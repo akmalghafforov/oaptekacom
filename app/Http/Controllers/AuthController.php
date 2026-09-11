@@ -16,23 +16,44 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\View\View;
 
 class AuthController extends Controller
 {
-    public function loginForm()
+    public function loginForm(): View
     {
         return view('auth.login');
     }
 
-    public function login(Request $request): RedirectResponse
+    public function adminLoginForm(): View
+    {
+        return view('auth.admin-login');
+    }
+
+    public function providerLoginForm(): View
+    {
+        return view('auth.provider-login');
+    }
+
+    public function adminLogin(Request $request): RedirectResponse
+    {
+        return $this->loginAsRole($request, UserRole::Admin);
+    }
+
+    public function providerLogin(Request $request): RedirectResponse
+    {
+        return $this->loginAsRole($request, UserRole::Wholesaler);
+    }
+
+    private function loginAsRole(Request $request, UserRole $role): RedirectResponse
     {
         $data = $request->validate(['email' => ['required', 'email'], 'password' => ['required']]);
         $key = 'staff-login:'.$request->ip();
         if (RateLimiter::tooManyAttempts($key, 5)) {
             return back()->withErrors(['email' => 'Слишком много попыток.']);
         }
-        $user = User::where('email', $data['email'])->first();
-        if (! $user || $user->isCustomer() || ! Auth::attempt(['email' => $data['email'], 'password' => $data['password']], $request->boolean('remember'))) {
+        $user = User::where('email', $data['email'])->where('role', $role)->first();
+        if (! $user || ! Auth::attempt(['email' => $data['email'], 'password' => $data['password'], 'role' => $role], $request->boolean('remember'))) {
             RateLimiter::hit($key, 60);
 
             return back()->withErrors(['email' => 'Неверные данные.']);
@@ -40,7 +61,7 @@ class AuthController extends Controller
         $request->session()->regenerate();
         RateLimiter::clear($key);
 
-        return $request->user()->isAdmin() ? redirect()->route('two-factor.enroll') : redirect()->intended(route('dashboard'));
+        return $role === UserRole::Admin ? redirect()->route('two-factor.enroll') : redirect()->intended(route('dashboard'));
     }
 
     public function sendLoginOtp(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -169,9 +190,7 @@ class AuthController extends Controller
     private function phoneLoginUser(string $phone, bool $includeBlocked = true): ?User
     {
         $query = User::where('phone', $phone);
-        if (! $this->usesDevelopmentOtp()) {
-            $query->where('role', UserRole::Pharmacy);
-        }
+        $query->where('role', UserRole::Pharmacy);
         if (! $includeBlocked) {
             $query->where('is_blocked', false);
         }

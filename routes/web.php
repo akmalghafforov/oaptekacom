@@ -16,11 +16,14 @@ use Illuminate\Support\Facades\Route;
 Route::redirect('/', '/catalog');
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
-    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
     Route::post('/login/phone', [AuthController::class, 'sendLoginOtp'])->name('login.otp.send');
     Route::get('/login/phone/verify', [AuthController::class, 'loginOtpForm'])->name('login.otp.form');
     Route::post('/login/phone/verify', [AuthController::class, 'verifyLoginOtp'])->name('login.otp.verify');
     Route::post('/login/phone/resend', fn (Request $request, AuthController $controller, PhoneOtpService $otpService) => $controller->resend($request, $otpService, 'login'))->name('login.otp.resend');
+    Route::get('/admin/login', [AuthController::class, 'adminLoginForm'])->name('admin.login');
+    Route::post('/admin/login', [AuthController::class, 'adminLogin'])->middleware('throttle:5,1')->name('admin.login.authenticate');
+    Route::get('/provider/login', [AuthController::class, 'providerLoginForm'])->name('provider.login');
+    Route::post('/provider/login', [AuthController::class, 'providerLogin'])->middleware('throttle:5,1')->name('provider.login.authenticate');
     Route::get('/register', [AuthController::class, 'registerForm'])->name('register');
     Route::post('/register', [AuthController::class, 'register']);
     Route::get('/register/verify', [AuthController::class, 'registerOtpForm'])->name('register.otp.form');

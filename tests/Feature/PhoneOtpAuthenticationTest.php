@@ -15,6 +15,13 @@ class PhoneOtpAuthenticationTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_each_role_has_its_own_login_page(): void
+    {
+        $this->get(route('login'))->assertViewIs('auth.login');
+        $this->get(route('admin.login'))->assertViewIs('auth.admin-login');
+        $this->get(route('provider.login'))->assertViewIs('auth.provider-login');
+    }
+
     public function test_registration_creates_a_pharmacy_only_after_phone_verification(): void
     {
         Http::preventStrayRequests();
@@ -53,23 +60,38 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->withSession(['phone_otp.login' => $otp->phone])->post(route('login.otp.verify'), ['phone' => $otp->phone, 'code' => '123456'])->assertSessionHasErrors('code');
     }
 
-    public function test_staff_password_login_remains_available_and_pharmacy_password_login_is_rejected(): void
+    public function test_provider_and_admin_password_login_pages_only_authenticate_their_own_roles(): void
     {
-        $staff = User::factory()->create(['role' => UserRole::Wholesaler, 'email' => 'staff@example.com', 'password' => 'password']);
+        $provider = User::factory()->wholesaler()->create(['email' => 'provider@example.com', 'password' => 'password']);
+        $admin = User::factory()->admin()->create(['email' => 'admin@example.com', 'password' => 'password']);
         $pharmacy = User::factory()->create(['role' => UserRole::Pharmacy, 'email' => 'pharmacy@example.com', 'password' => 'password']);
 
-        $this->post(route('login'), ['email' => $staff->email, 'password' => 'password'])->assertRedirect(route('dashboard'));
+        $this->post(route('provider.login.authenticate'), ['email' => $provider->email, 'password' => 'password'])->assertRedirect(route('dashboard'));
         auth()->logout();
-        $this->post(route('login'), ['email' => $pharmacy->email, 'password' => 'password'])->assertSessionHasErrors('email');
+        $this->post(route('admin.login.authenticate'), ['email' => $provider->email, 'password' => 'password'])->assertSessionHasErrors('email');
+        $this->post(route('provider.login.authenticate'), ['email' => $pharmacy->email, 'password' => 'password'])->assertSessionHasErrors('email');
+        $this->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])->assertRedirect(route('two-factor.enroll'));
     }
 
-    public function test_development_code_logs_in_any_role_by_phone_without_sending_an_sms(): void
+    public function test_development_code_logs_in_a_pharmacy_by_phone_without_sending_an_sms(): void
     {
         config()->set('auth.development_otp_code', '000000');
-        $staff = User::factory()->create(['role' => UserRole::Wholesaler, 'phone' => '+992901234567']);
+        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
 
-        $this->withSession(['phone_otp.login' => $staff->phone])->post(route('login.otp.verify'), ['phone' => $staff->phone, 'code' => '000000'])->assertRedirect(route('dashboard'));
+        $this->withSession(['phone_otp.login' => $pharmacy->phone])->post(route('login.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '000000'])->assertRedirect(route('dashboard'));
 
-        $this->assertAuthenticatedAs($staff);
+        $this->assertAuthenticatedAs($pharmacy);
+    }
+
+    public function test_phone_login_rejects_a_provider_even_with_the_development_code(): void
+    {
+        config()->set('auth.development_otp_code', '000000');
+        $provider = User::factory()->wholesaler()->create(['phone' => '+992901234567']);
+
+        $this->withSession(['phone_otp.login' => $provider->phone])
+            ->post(route('login.otp.verify'), ['phone' => $provider->phone, 'code' => '000000'])
+            ->assertSessionHasErrors('code');
+
+        $this->assertGuest();
     }
 }
