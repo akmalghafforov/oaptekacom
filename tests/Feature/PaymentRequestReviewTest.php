@@ -76,6 +76,37 @@ class PaymentRequestReviewTest extends TestCase
         $this->assertDatabaseCount('payment_requests', 2);
     }
 
+    public function test_pharmacy_can_submit_a_sender_wallet_without_a_receipt(): void
+    {
+        $pharmacy = User::factory()->pharmacy()->create();
+        SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
+        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
+
+        $this->actingAs($pharmacy)->post(route('subscription.requests.store'), [
+            'plan' => 'base',
+            'amount' => '91.00',
+            'payment_method' => 'dc',
+            'sender_wallet_number' => '+992901234568',
+            'transferred_on' => now()->format('d/m/Y'),
+        ])->assertRedirect(route('subscription.create'));
+
+        $this->assertDatabaseHas('payment_requests', ['sender_wallet_number' => '+992901234568', 'sender_wallet_owner_name' => null, 'receipt_path' => null]);
+    }
+
+    public function test_submission_requires_a_receipt_or_sender_wallet_number(): void
+    {
+        $pharmacy = User::factory()->pharmacy()->create();
+        SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
+        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
+
+        $this->actingAs($pharmacy)->post(route('subscription.requests.store'), [
+            'plan' => 'base',
+            'amount' => '91.00',
+            'payment_method' => 'dc',
+            'transferred_on' => now()->format('d/m/Y'),
+        ])->assertSessionHasErrors(['sender_wallet_number', 'receipt']);
+    }
+
     public function test_receipt_is_private_to_the_submitting_organization_and_admins(): void
     {
         Storage::fake('local');

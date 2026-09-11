@@ -110,11 +110,22 @@ document.querySelectorAll('[data-sms-code-mask]').forEach((input) => {
 });
 
 document.querySelectorAll('[data-subscription-calculator]').forEach((form) => {
-    const plan = form.querySelector('[data-subscription-plan]');
+    const plans = form.querySelectorAll('[data-subscription-plan]');
     const amount = form.querySelector('[data-subscription-amount]');
     const output = form.querySelector('[data-subscription-days]');
+    const updateChoices = () => {
+        form.querySelectorAll('[data-subscription-choice]').forEach((choice) => {
+            const isSelected = choice.querySelector('input').checked;
+
+            choice.classList.toggle('border-brand-600', isSelected);
+            choice.classList.toggle('bg-brand-50', isSelected);
+            choice.classList.toggle('border-slate-300', !isSelected);
+            choice.classList.toggle('bg-white', !isSelected);
+        });
+    };
     const updateDays = () => {
-        const dailyPrice = Number(plan.selectedOptions[0]?.dataset.dailyPrice);
+        const selectedPlan = form.querySelector('[data-subscription-plan]:checked');
+        const dailyPrice = Number(selectedPlan?.dataset.dailyPrice);
         const paymentAmount = Number(amount.value);
         const days = paymentAmount / dailyPrice;
 
@@ -130,7 +141,12 @@ document.querySelectorAll('[data-subscription-calculator]').forEach((form) => {
         }
     };
 
-    plan.addEventListener('change', updateDays);
+    plans.forEach((plan) => plan.addEventListener('change', () => {
+        updateChoices();
+        updateDays();
+    }));
+    form.querySelectorAll('[data-subscription-payment-method]').forEach((method) => method.addEventListener('change', updateChoices));
     amount.addEventListener('input', updateDays);
+    updateChoices();
     updateDays();
 });

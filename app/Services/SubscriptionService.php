@@ -45,7 +45,7 @@ class SubscriptionService
         });
     }
 
-    public function request(User $user, SubscriptionPlan $plan, SubscriptionTerm $term, PaymentMethodSetting $paymentMethod, string $amount, ?string $senderWalletNumber, ?string $senderWalletOwnerName, string $transferredOn, UploadedFile $receipt): Subscription
+    public function request(User $user, SubscriptionPlan $plan, SubscriptionTerm $term, PaymentMethodSetting $paymentMethod, string $amount, ?string $senderWalletNumber, ?string $senderWalletOwnerName, string $transferredOn, ?UploadedFile $receipt): Subscription
     {
         if (! $user->isCustomer() || ! $user->organization || $user->organization->status !== 'active' || ! $plan->isPaid()) {
             throw new InvalidArgumentException('Заявку может подать только подтверждённая аптека на платный тариф.');
@@ -68,7 +68,7 @@ class SubscriptionService
                 throw new InvalidArgumentException('У этой аптеки уже есть заявка, ожидающая оплаты или проверки.');
             }
 
-            $receiptPath = $receipt->store('payment-receipts', 'local');
+            $receiptPath = $receipt?->store('payment-receipts', 'local');
             $paymentRequest = PaymentRequest::create([
                 'organization_id' => $lockedUser->organization_id,
                 'user_id' => $lockedUser->id,

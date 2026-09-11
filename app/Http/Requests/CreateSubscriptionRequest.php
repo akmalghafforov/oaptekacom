@@ -28,10 +28,10 @@ class CreateSubscriptionRequest extends FormRequest
             'plan' => ['required', Rule::enum(SubscriptionPlan::class), Rule::notIn([SubscriptionPlan::Free->value])],
             'amount' => ['required', 'decimal:0,2', 'min:0.01'],
             'payment_method' => ['required', Rule::in(array_column(PaymentMethod::cases(), 'value'))],
-            'sender_wallet_number' => ['nullable', 'string', 'regex:/^\\+992\\d{9}$/'],
+            'sender_wallet_number' => ['nullable', 'required_without:receipt', 'string', 'regex:/^\\+992\\d{9}$/'],
             'sender_wallet_owner_name' => ['nullable', 'string', 'max:255'],
             'transferred_on' => ['required', 'date_format:d/m/Y', 'before_or_equal:today'],
-            'receipt' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'],
+            'receipt' => ['nullable', 'required_without:sender_wallet_number', 'file', 'mimes:jpg,jpeg,png,webp,pdf', 'max:10240'],
         ];
     }
 }
