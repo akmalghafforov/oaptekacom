@@ -45,7 +45,7 @@ class SubscriptionService
         });
     }
 
-    public function request(User $user, SubscriptionPlan $plan, SubscriptionTerm $term, PaymentMethodSetting $paymentMethod, string $amount, ?string $senderWalletNumber, ?string $senderWalletOwnerName, string $transferredOn, ?UploadedFile $receipt): Subscription
+    public function request(User $user, SubscriptionPlan $plan, SubscriptionTerm $term, PaymentMethodSetting $paymentMethod, string $transferredOn, UploadedFile $receipt): Subscription
     {
         if (! $user->isCustomer() || ! $user->organization || $user->organization->status !== 'active' || ! $plan->isPaid()) {
             throw new InvalidArgumentException('Заявку может подать только подтверждённая аптека на платный тариф.');
@@ -56,19 +56,16 @@ class SubscriptionService
         }
 
         $price = $this->priceFor($plan);
-        $days = bcdiv($amount, (string) $price->daily_price, 0);
+        $days = $this->customerTermDays($term);
         $totalPrice = bcmul($days, (string) $price->daily_price, 2);
-        if ($days === '0' || bccomp($totalPrice, $amount, 2) !== 0) {
-            throw new InvalidArgumentException('Сумма должна быть кратна дневной стоимости выбранного тарифа.');
-        }
 
-        return DB::transaction(function () use ($user, $plan, $term, $paymentMethod, $price, $days, $totalPrice, $senderWalletNumber, $senderWalletOwnerName, $transferredOn, $receipt): Subscription {
+        return DB::transaction(function () use ($user, $plan, $term, $paymentMethod, $price, $days, $totalPrice, $transferredOn, $receipt): Subscription {
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
             if ($lockedUser->subscriptions()->where('status', SubscriptionStatus::Pending->value)->exists()) {
                 throw new InvalidArgumentException('У этой аптеки уже есть заявка, ожидающая оплаты или проверки.');
             }
 
-            $receiptPath = $receipt?->store('payment-receipts', 'local');
+            $receiptPath = $receipt->store('payment-receipts', 'local');
             $paymentRequest = PaymentRequest::create([
                 'organization_id' => $lockedUser->organization_id,
                 'user_id' => $lockedUser->id,
@@ -77,8 +74,6 @@ class SubscriptionService
                 'payment_method' => $paymentMethod->method,
                 'recipient_wallet' => $paymentMethod->wallet_number,
                 'recipient_wallet_owner_name' => $paymentMethod->wallet_owner_name,
-                'sender_wallet_number' => $senderWalletNumber,
-                'sender_wallet_owner_name' => $senderWalletOwnerName,
                 'transferred_on' => $transferredOn,
                 'receipt_path' => $receiptPath,
                 'status' => 'pending',
@@ -204,6 +199,8 @@ class SubscriptionService
     {
         $startsOn = CarbonImmutable::now(self::TIMEZONE)->startOfDay();
         $endsOn = match ($term) {
+            SubscriptionTerm::TenDays => $startsOn->addDays(10)->subDay(),
+            SubscriptionTerm::Month => $startsOn->addMonthNoOverflow()->subDay(),
             SubscriptionTerm::Year => $startsOn->addYearNoOverflow()->subDay(),
             SubscriptionTerm::SixMonths => $startsOn->addMonthsNoOverflow(6)->subDay(),
             SubscriptionTerm::ThreeMonths => $startsOn->addMonthsNoOverflow(3)->subDay(),
@@ -214,5 +211,16 @@ class SubscriptionService
         }
 
         return [$startsOn, $endsOn];
+    }
+
+    private function customerTermDays(SubscriptionTerm $term): string
+    {
+        return match ($term) {
+            SubscriptionTerm::TenDays => '10',
+            SubscriptionTerm::Month => '30',
+            SubscriptionTerm::SixMonths => '180',
+            SubscriptionTerm::Year => '365',
+            default => throw new InvalidArgumentException('Выберите доступный срок подписки.'),
+        };
     }
 }

@@ -25,11 +25,11 @@ class SubscriptionFactory extends Factory
             'user_id' => User::factory()->pharmacy(),
             'assigned_by' => User::factory()->admin(),
             'plan' => SubscriptionPlan::Base,
-            'term' => SubscriptionTerm::ThreeMonths,
+            'term' => SubscriptionTerm::Month,
             'starts_on' => now('Asia/Dushanbe')->startOfDay(),
-            'ends_on' => now('Asia/Dushanbe')->startOfDay()->addMonthsNoOverflow(3)->subDay(),
+            'ends_on' => now('Asia/Dushanbe')->startOfDay()->addMonthNoOverflow()->subDay(),
             'daily_price' => '1.00',
-            'total_price' => '90.00',
+            'total_price' => '30.00',
             'status' => SubscriptionStatus::Active,
         ];
     }

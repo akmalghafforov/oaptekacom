@@ -23,11 +23,8 @@ class SubscriptionRequestController extends Controller
             $subscriptions->request(
                 $request->user(),
                 SubscriptionPlan::from($request->validated('plan')),
-                SubscriptionTerm::Custom,
+                SubscriptionTerm::from($request->validated('term')),
                 $paymentMethod,
-                $request->validated('amount'),
-                $request->validated('sender_wallet_number'),
-                $request->validated('sender_wallet_owner_name'),
                 CarbonImmutable::createFromFormat('d/m/Y', $request->validated('transferred_on'))->toDateString(),
                 $request->file('receipt'),
             );

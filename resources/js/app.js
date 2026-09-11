@@ -111,8 +111,9 @@ document.querySelectorAll('[data-sms-code-mask]').forEach((input) => {
 
 document.querySelectorAll('[data-subscription-calculator]').forEach((form) => {
     const plans = form.querySelectorAll('[data-subscription-plan]');
-    const amount = form.querySelector('[data-subscription-amount]');
-    const output = form.querySelector('[data-subscription-days]');
+    const terms = form.querySelectorAll('[data-subscription-term]');
+    const total = form.querySelector('[data-subscription-total]');
+    const daysOutput = form.querySelector('[data-subscription-days]');
     const updateChoices = () => {
         form.querySelectorAll('[data-subscription-choice]').forEach((choice) => {
             const isSelected = choice.querySelector('input').checked;
@@ -123,30 +124,32 @@ document.querySelectorAll('[data-subscription-calculator]').forEach((form) => {
             choice.classList.toggle('bg-white', !isSelected);
         });
     };
-    const updateDays = () => {
+    const updateSummary = () => {
         const selectedPlan = form.querySelector('[data-subscription-plan]:checked');
+        const selectedTerm = form.querySelector('[data-subscription-term]:checked');
         const dailyPrice = Number(selectedPlan?.dataset.dailyPrice);
-        const paymentAmount = Number(amount.value);
-        const days = paymentAmount / dailyPrice;
+        const days = Number(selectedTerm?.dataset.days);
 
-        if (!dailyPrice || !paymentAmount) {
-            output.textContent = 'Выберите тариф и укажите сумму, чтобы увидеть срок подписки.';
-        } else if (!Number.isInteger(days)) {
-            output.textContent = 'Сумма должна быть кратна дневной стоимости тарифа.';
-        } else {
-            const lastTwoDigits = days % 100;
-            const lastDigit = days % 10;
-            const dayWord = lastTwoDigits >= 11 && lastTwoDigits <= 14 ? 'дней' : (lastDigit === 1 ? 'день' : (lastDigit >= 2 && lastDigit <= 4 ? 'дня' : 'дней'));
-            output.textContent = `Подписка будет действовать ${days} ${dayWord} с даты подтверждения оплаты.`;
+        if (!dailyPrice || !days) {
+            total.textContent = '—';
+            daysOutput.textContent = 'Выберите тариф и срок подписки.';
+
+            return;
         }
+
+        total.textContent = (dailyPrice * days).toFixed(2);
+        daysOutput.textContent = `Подписка будет действовать ${days} дней с даты подтверждения оплаты.`;
     };
 
     plans.forEach((plan) => plan.addEventListener('change', () => {
         updateChoices();
-        updateDays();
+        updateSummary();
+    }));
+    terms.forEach((term) => term.addEventListener('change', () => {
+        updateChoices();
+        updateSummary();
     }));
     form.querySelectorAll('[data-subscription-payment-method]').forEach((method) => method.addEventListener('change', updateChoices));
-    amount.addEventListener('input', updateDays);
     updateChoices();
-    updateDays();
+    updateSummary();
 });

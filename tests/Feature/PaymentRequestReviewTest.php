@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\PaymentMethod;
 use App\Enums\SubscriptionPlan;
 use App\Enums\SubscriptionStatus;
+use App\Enums\SubscriptionTerm;
 use App\Models\PaymentMethodSetting;
 use App\Models\PaymentRequest;
 use App\Models\Subscription;
@@ -14,6 +15,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class PaymentRequestReviewTest extends TestCase
@@ -26,28 +28,31 @@ class PaymentRequestReviewTest extends TestCase
         Storage::fake('local');
         $pharmacy = User::factory()->pharmacy()->create();
         $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
-        SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
+        SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.25']);
         PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
 
-        $this->actingAs($pharmacy)->post(route('subscription.requests.store'), ['plan' => 'base', 'amount' => '91.00', 'payment_method' => 'dc', 'sender_wallet_number' => '+992901234568', 'sender_wallet_owner_name' => 'Аптека Тест', 'transferred_on' => '01/09/2026', 'receipt' => UploadedFile::fake()->image('receipt.jpg')])->assertRedirect(route('subscription.create'));
+        $this->actingAs($pharmacy)->post(route('subscription.requests.store'), ['plan' => 'base', 'term' => SubscriptionTerm::SixMonths->value, 'payment_method' => 'dc', 'transferred_on' => '01/09/2026', 'receipt' => UploadedFile::fake()->image('receipt.jpg')])->assertRedirect(route('subscription.create'));
 
         $payment = PaymentRequest::firstOrFail();
         $subscription = Subscription::firstOrFail();
-        $this->assertSame('91.00', $payment->amount);
-        $this->assertSame(91, $payment->days);
+        $this->assertSame('225.00', $payment->amount);
+        $this->assertSame(180, $payment->days);
         $this->assertSame('+992901234567', $payment->recipient_wallet);
         $this->assertSame('Акмал Гаффоров', $payment->recipient_wallet_owner_name);
-        $this->assertSame('+992901234568', $payment->sender_wallet_number);
-        $this->assertSame('Аптека Тест', $payment->sender_wallet_owner_name);
+        $this->assertNull($payment->sender_wallet_number);
+        $this->assertNull($payment->sender_wallet_owner_name);
+        $this->assertSame(SubscriptionTerm::SixMonths, $subscription->term);
+        $this->assertSame('1.25', $subscription->daily_price);
+        $this->assertSame('225.00', $subscription->total_price);
         Storage::disk('local')->assertExists($payment->receipt_path);
 
         SubscriptionPlanPrice::query()->where('plan', 'base')->update(['daily_price' => '99.00']);
-        $this->actingAs($admin)->post(route('admin.subscription-payments.review', $payment), ['decision' => 'approve', 'verified_amount' => '91.00', 'verified_reference' => 'wallet-9'])->assertRedirect();
+        $this->actingAs($admin)->post(route('admin.subscription-payments.review', $payment), ['decision' => 'approve', 'verified_amount' => '225.00', 'verified_reference' => 'wallet-9'])->assertRedirect();
 
         $this->assertSame('approved', $payment->refresh()->status);
         $this->assertSame('2026-09-01', $subscription->refresh()->starts_on->toDateString());
-        $this->assertSame('2026-11-30', $subscription->ends_on->toDateString());
-        $this->assertSame('91.00', $subscription->total_price);
+        $this->assertSame('2027-02-27', $subscription->ends_on->toDateString());
+        $this->assertSame('225.00', $subscription->total_price);
         $this->assertSame(SubscriptionStatus::Active, $subscription->status);
         $this->assertSame(SubscriptionPlan::Base, $pharmacy->refresh()->subscription_plan);
         $this->assertDatabaseHas('audit_events', ['event' => 'payment_request.approved', 'subject_id' => $payment->id]);
@@ -60,7 +65,7 @@ class PaymentRequestReviewTest extends TestCase
         $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
         SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
         PaymentMethodSetting::create(['method' => PaymentMethod::Alif, 'is_enabled' => true, 'wallet_number' => '+992901234568', 'wallet_owner_name' => 'Акмал Гаффоров']);
-        $payload = ['plan' => 'base', 'amount' => '91.00', 'payment_method' => 'alif', 'sender_wallet_number' => '+992901234568', 'transferred_on' => now()->format('d/m/Y'), 'receipt' => UploadedFile::fake()->image('receipt.jpg')];
+        $payload = ['plan' => 'base', 'term' => SubscriptionTerm::Month->value, 'payment_method' => 'alif', 'transferred_on' => now()->format('d/m/Y'), 'receipt' => UploadedFile::fake()->image('receipt.jpg')];
 
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), $payload)->assertRedirect();
         $payment = PaymentRequest::firstOrFail();
@@ -76,7 +81,7 @@ class PaymentRequestReviewTest extends TestCase
         $this->assertDatabaseCount('payment_requests', 2);
     }
 
-    public function test_pharmacy_can_submit_a_sender_wallet_without_a_receipt(): void
+    public function test_submission_requires_a_receipt_even_when_sender_wallet_data_is_provided(): void
     {
         $pharmacy = User::factory()->pharmacy()->create();
         SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
@@ -84,16 +89,16 @@ class PaymentRequestReviewTest extends TestCase
 
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), [
             'plan' => 'base',
-            'amount' => '91.00',
+            'term' => SubscriptionTerm::Month->value,
             'payment_method' => 'dc',
             'sender_wallet_number' => '+992901234568',
             'transferred_on' => now()->format('d/m/Y'),
-        ])->assertRedirect(route('subscription.create'));
+        ])->assertSessionHasErrors('receipt');
 
-        $this->assertDatabaseHas('payment_requests', ['sender_wallet_number' => '+992901234568', 'sender_wallet_owner_name' => null, 'receipt_path' => null]);
+        $this->assertDatabaseCount('payment_requests', 0);
     }
 
-    public function test_submission_requires_a_receipt_or_sender_wallet_number(): void
+    public function test_submission_requires_a_receipt(): void
     {
         $pharmacy = User::factory()->pharmacy()->create();
         SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
@@ -101,10 +106,10 @@ class PaymentRequestReviewTest extends TestCase
 
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), [
             'plan' => 'base',
-            'amount' => '91.00',
+            'term' => SubscriptionTerm::Month->value,
             'payment_method' => 'dc',
             'transferred_on' => now()->format('d/m/Y'),
-        ])->assertSessionHasErrors(['sender_wallet_number', 'receipt']);
+        ])->assertSessionHasErrors('receipt');
     }
 
     public function test_receipt_is_private_to_the_submitting_organization_and_admins(): void
@@ -146,12 +151,83 @@ class PaymentRequestReviewTest extends TestCase
         Storage::fake('local');
         $pharmacy = User::factory()->pharmacy()->create();
         SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
-        $payload = ['plan' => 'base', 'amount' => '91.00', 'payment_method' => 'dc', 'transferred_on' => now()->format('d/m/Y'), 'receipt' => UploadedFile::fake()->image('receipt.jpg')];
+        $payload = ['plan' => 'base', 'term' => SubscriptionTerm::Month->value, 'payment_method' => 'dc', 'transferred_on' => now()->format('d/m/Y'), 'receipt' => UploadedFile::fake()->image('receipt.jpg')];
 
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), $payload)->assertSessionHasErrors('payment_method');
         PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
         $payload['receipt'] = UploadedFile::fake()->create('receipt.pdf', 10241, 'application/pdf');
         $this->actingAs($pharmacy)->post(route('subscription.requests.store'), $payload)->assertSessionHasErrors('receipt');
         $this->assertDatabaseCount('payment_requests', 0);
+    }
+
+    #[DataProvider('customerTerms')]
+    public function test_customer_term_creates_the_fixed_duration_and_tariff_price_snapshot(SubscriptionTerm $term, int $days, string $totalPrice): void
+    {
+        Storage::fake('local');
+        $pharmacy = User::factory()->pharmacy()->create();
+        SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Premium, 'daily_price' => '2.50']);
+        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
+
+        $this->actingAs($pharmacy)->post(route('subscription.requests.store'), [
+            'plan' => SubscriptionPlan::Premium->value,
+            'term' => $term->value,
+            'payment_method' => PaymentMethod::Dc->value,
+            'transferred_on' => now()->format('d/m/Y'),
+            'receipt' => UploadedFile::fake()->image('receipt.jpg'),
+        ])->assertRedirect(route('subscription.create'));
+
+        $payment = PaymentRequest::firstOrFail();
+        $subscription = Subscription::firstOrFail();
+
+        $this->assertSame($days, $payment->days);
+        $this->assertSame($totalPrice, $payment->amount);
+        $this->assertSame($term, $subscription->term);
+        $this->assertSame('2.50', $subscription->daily_price);
+        $this->assertSame($totalPrice, $subscription->total_price);
+    }
+
+    /** @return array<string, array{SubscriptionTerm, int, string}> */
+    public static function customerTerms(): array
+    {
+        return [
+            'ten days' => [SubscriptionTerm::TenDays, 10, '25.00'],
+            'month' => [SubscriptionTerm::Month, 30, '75.00'],
+            'six months' => [SubscriptionTerm::SixMonths, 180, '450.00'],
+            'year' => [SubscriptionTerm::Year, 365, '912.50'],
+        ];
+    }
+
+    #[DataProvider('invalidCustomerTerms')]
+    public function test_submission_rejects_missing_invalid_and_non_customer_terms(?string $term): void
+    {
+        Storage::fake('local');
+        $pharmacy = User::factory()->pharmacy()->create();
+        SubscriptionPlanPrice::create(['plan' => SubscriptionPlan::Base, 'daily_price' => '1.00']);
+        PaymentMethodSetting::create(['method' => PaymentMethod::Dc, 'is_enabled' => true, 'wallet_number' => '+992901234567', 'wallet_owner_name' => 'Акмал Гаффоров']);
+        $payload = [
+            'plan' => SubscriptionPlan::Base->value,
+            'payment_method' => PaymentMethod::Dc->value,
+            'transferred_on' => now()->format('d/m/Y'),
+            'receipt' => UploadedFile::fake()->image('receipt.jpg'),
+        ];
+        if ($term !== null) {
+            $payload['term'] = $term;
+        }
+
+        $this->actingAs($pharmacy)->post(route('subscription.requests.store'), $payload)->assertSessionHasErrors('term');
+
+        $this->assertDatabaseCount('payment_requests', 0);
+        $this->assertDatabaseCount('subscriptions', 0);
+    }
+
+    /** @return array<string, array{?string}> */
+    public static function invalidCustomerTerms(): array
+    {
+        return [
+            'missing' => [null],
+            'invalid' => ['invalid'],
+            'administrative three months' => [SubscriptionTerm::ThreeMonths->value],
+            'administrative custom' => [SubscriptionTerm::Custom->value],
+        ];
     }
 }
