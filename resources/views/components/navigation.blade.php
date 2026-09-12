@@ -1,7 +1,6 @@
 @php
     /** @var \App\Models\User $user */
     $user = auth()->user();
-    $modules = app(\App\Services\ModuleRegistry::class);
     $navigationItems = [];
 
     if ($user->isAdmin()) {
@@ -9,7 +8,6 @@
             ['label' => 'Операционный центр', 'route' => 'admin.index', 'active' => ['admin.index']],
             ['label' => 'Пользователи', 'route' => 'admin.users', 'active' => ['admin.users']],
             ['label' => 'Подписки', 'route' => 'admin.subscriptions.index', 'active' => ['admin.subscriptions.*', 'admin.subscription-prices.*', 'admin.subscription-payments.*']],
-            ['label' => 'Модули', 'route' => 'admin.modules', 'active' => ['admin.modules.*']],
         ];
     } else {
         $navigationItems[] = ['label' => 'Обзор', 'route' => 'dashboard', 'active' => ['dashboard']];
@@ -18,17 +16,13 @@
             $navigationItems[] = ['label' => 'Подписка', 'route' => 'subscription.create', 'active' => ['subscription.*', 'payment-requests.*']];
         }
 
-        if ($modules->available($user, \App\Enums\ModuleKey::Catalog)) {
-            $navigationItems[] = ['label' => 'Каталог', 'route' => 'catalog', 'active' => ['catalog']];
-        }
+        $navigationItems[] = ['label' => 'Каталог', 'route' => 'catalog', 'active' => ['catalog']];
 
-        if ($user->canBuy() && $modules->available($user, \App\Enums\ModuleKey::Orders)) {
+        if ($user->canBuy()) {
             $navigationItems[] = ['label' => 'Корзина', 'route' => 'cart', 'active' => ['cart']];
         }
 
-        if ($modules->available($user, \App\Enums\ModuleKey::Orders)) {
-            $navigationItems[] = ['label' => 'Заказы', 'route' => 'orders.index', 'active' => ['orders.*']];
-        }
+        $navigationItems[] = ['label' => 'Заказы', 'route' => 'orders.index', 'active' => ['orders.*']];
     }
 @endphp
 

@@ -1,1 +1,26 @@
-<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class CartItem extends Model { protected $guarded=[]; protected $casts=['snapshot'=>'array']; public function offer(){return $this->belongsTo(Offer::class);} public function cart(){return $this->belongsTo(Cart::class);} }
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class CartItem extends Model
+{
+    protected $guarded = [];
+
+    public function offer(): BelongsTo
+    {
+        return $this->belongsTo(Offer::class);
+    }
+
+    public function cart(): BelongsTo
+    {
+        return $this->belongsTo(Cart::class);
+    }
+
+    protected function casts(): array
+    {
+        return ['snapshot' => 'array'];
+    }
+}

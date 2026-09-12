@@ -10,8 +10,8 @@ class EnsureAccountIsActive
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $u = $request->user();
-        if ($u?->is_blocked) {
+        $user = $request->user();
+        if ($user?->is_blocked) {
             auth()->logout();
 
             return redirect()->route('login')->withErrors(['email' => 'Учётная запись заблокирована.']);
@@ -19,10 +19,10 @@ class EnsureAccountIsActive
         if ($request->routeIs('admin.*')) {
             return $next($request);
         }
-        if (! $u?->isCustomer() && $u?->password_change_required && ! $request->routeIs('profile.*')) {
+        if (! $user?->isCustomer() && $user?->password_change_required && ! $request->routeIs('profile.*')) {
             return redirect()->route('profile.edit')->with('warning', 'Перед продолжением смените временный пароль.');
         }
-        if (! $u?->hasActiveSubscription()) {
+        if (! $user?->hasActiveSubscription()) {
             return redirect()->route('subscription.create')->with('warning', 'Требуется активная подписка или подтверждение организации.');
         }
 

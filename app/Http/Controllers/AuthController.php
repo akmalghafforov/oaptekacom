@@ -104,7 +104,7 @@ class AuthController extends Controller
         return redirect()->route($this->loginOtpFormRoute($role))->with('success', 'Если номер доступен для входа, код отправлен.');
     }
 
-    public function loginOtpForm()
+    public function loginOtpForm(): View
     {
         return $this->loginOtpFormForRole(UserRole::Pharmacy);
     }
@@ -222,7 +222,7 @@ class AuthController extends Controller
         return redirect()->route($role === UserRole::Pharmacy ? 'login' : 'provider.login')->with('warning', 'Вход отменён. Активный сеанс на другом устройстве сохранён.');
     }
 
-    public function registerForm()
+    public function registerForm(): View
     {
         return view('auth.register');
     }
@@ -339,7 +339,7 @@ class AuthController extends Controller
         return $this->sendRegistrationOtp($request, $otpService, $phone, $role);
     }
 
-    public function registerOtpForm()
+    public function registerOtpForm(): View
     {
         return $this->registerOtpFormForRole(UserRole::Pharmacy);
     }

@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Enums\TradeMode;
-use App\Models\ModuleSetting;
 use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -23,7 +22,7 @@ class NavigationTest extends TestCase
             ->assertSeeText(['Обзор', 'Каталог', 'Корзина', 'Заказы', 'Профиль', 'Выйти', 'Аптека Навигация'])
             ->assertDontSeeText(['Операционный центр', 'Пользователи', 'Подписки', 'Модули'])
             ->assertSeeHtml(['href="'.route('dashboard').'"', 'href="'.route('catalog').'"', 'href="'.route('cart').'"', 'href="'.route('orders.index').'"'])
-            ->assertDontSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.users').'"', 'href="'.route('admin.subscriptions.index').'"', 'href="'.route('admin.modules').'"']);
+            ->assertDontSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.users').'"', 'href="'.route('admin.subscriptions.index').'"']);
     }
 
     public function test_supplier_mode_provider_navigation_excludes_cart(): void
@@ -58,23 +57,10 @@ class NavigationTest extends TestCase
         $response = $this->actingAs($user)->get(route('profile.edit'));
 
         $response
-            ->assertSeeText(['Операционный центр', 'Пользователи', 'Подписки', 'Модули', 'Профиль', 'Выйти', 'Администратор Навигация'])
+            ->assertSeeText(['Операционный центр', 'Пользователи', 'Подписки', 'Профиль', 'Выйти', 'Администратор Навигация'])
+            ->assertDontSeeText('Модули')
             ->assertDontSeeText(['Обзор', 'Каталог', 'Корзина', 'Заказы'])
-            ->assertSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.users').'"', 'href="'.route('admin.subscriptions.index').'"', 'href="'.route('admin.modules').'"'])
-            ->assertDontSeeHtml(['href="'.route('catalog').'"', 'href="'.route('cart').'"', 'href="'.route('orders.index').'"']);
-    }
-
-    public function test_disabled_catalog_and_orders_modules_remove_non_admin_navigation_links(): void
-    {
-        ModuleSetting::query()->where('key', 'catalog')->update(['enabled' => false]);
-        ModuleSetting::query()->where('key', 'orders')->update(['enabled' => false]);
-        $user = User::factory()->pharmacy(Organization::factory()->pharmacy()->create())->create();
-
-        $response = $this->actingAs($user)->get(route('profile.edit'));
-
-        $response
-            ->assertSeeText(['Обзор', 'Профиль', 'Выйти'])
-            ->assertDontSeeText(['Каталог', 'Корзина', 'Заказы'])
+            ->assertSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.users').'"', 'href="'.route('admin.subscriptions.index').'"'])
             ->assertDontSeeHtml(['href="'.route('catalog').'"', 'href="'.route('cart').'"', 'href="'.route('orders.index').'"']);
     }
 

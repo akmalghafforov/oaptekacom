@@ -68,24 +68,20 @@ Route::middleware('auth')->group(function () {
 });
 Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
-    Route::get('/catalog', [CatalogController::class, 'index'])->middleware('module:catalog')->name('catalog');
-    Route::middleware('module:orders')->group(function () {
-        Route::get('/cart', [CartController::class, 'show'])->name('cart');
-        Route::post('/cart/{offer}', [CartController::class, 'add'])->name('cart.add');
-        Route::patch('/cart/items/{item}', [CartController::class, 'update'])->name('cart.update');
-        Route::post('/cart/checkout', [CartController::class, 'checkout'])->name('cart.checkout');
-        Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
-        Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');
-        Route::patch('/orders/{order}/status', [OrderController::class, 'status'])->name('orders.status');
-    });
+    Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog');
+    Route::get('/cart', [CartController::class, 'show'])->name('cart');
+    Route::post('/cart/{offer}', [CartController::class, 'add'])->name('cart.add');
+    Route::patch('/cart/items/{item}', [CartController::class, 'update'])->name('cart.update');
+    Route::post('/cart/checkout', [CartController::class, 'checkout'])->name('cart.checkout');
+    Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
+    Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');
+    Route::patch('/orders/{order}/status', [OrderController::class, 'status'])->name('orders.status');
     Route::prefix('admin')->middleware('role:admin')->group(function () {
         Route::get('/', [AdminController::class, 'index'])->name('admin.index');
         Route::post('/organizations/{organization}/approve', [AdminController::class, 'approve'])->name('admin.approve');
         Route::get('/users', [AdminController::class, 'users'])->name('admin.users');
         Route::post('/users/{user}/block', [AdminController::class, 'toggleBlock'])->name('admin.block');
         Route::post('/users/{user}/phone', [AdminController::class, 'remediatePhone'])->name('admin.phone.remediate');
-        Route::get('/modules', [AdminController::class, 'modules'])->name('admin.modules');
-        Route::patch('/modules/{module}', [AdminController::class, 'updateModule'])->name('admin.modules.update');
         Route::get('/subscriptions', [AdminSubscriptionController::class, 'index'])->name('admin.subscriptions.index');
         Route::post('/subscriptions', [AdminSubscriptionController::class, 'store'])->name('admin.subscriptions.store');
         Route::post('/subscriptions/{subscription}/cancel', [AdminSubscriptionController::class, 'cancel'])->name('admin.subscriptions.cancel');

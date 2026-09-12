@@ -5,17 +5,18 @@ namespace App\Http\Controllers;
 use App\Enums\OrganizationType;
 use App\Enums\SubscriptionPlan;
 use App\Enums\UserRole;
-use App\Models\ModuleSetting;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Support\PhoneNormalizer;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\View\View;
 
 class AdminController extends Controller
 {
-    public function index()
+    public function index(): View
     {
         return view('admin.index', [
             'pending' => Organization::query()
@@ -25,9 +26,9 @@ class AdminController extends Controller
         ]);
     }
 
-    public function approve(Organization $organization)
+    public function approve(Organization $organization, AuditLogger $auditLogger): RedirectResponse
     {
-        $organization = DB::transaction(function () use ($organization): Organization {
+        $organization = DB::transaction(function () use ($organization, $auditLogger): Organization {
             $pendingOrganization = Organization::query()
                 ->lockForUpdate()
                 ->findOrFail($organization->id);
@@ -46,7 +47,7 @@ class AdminController extends Controller
                 'approved_at' => now(),
                 'subscription_plan' => $organizationUser->isCustomer() ? SubscriptionPlan::Free : null,
             ], fn (mixed $value): bool => $value !== null))->save();
-            app(AuditLogger::class)->log('organization.approved', $pendingOrganization, $before, $pendingOrganization->only('status'));
+            $auditLogger->log('organization.approved', $pendingOrganization, $before, $pendingOrganization->only('status'));
 
             return $pendingOrganization;
         });
@@ -54,22 +55,22 @@ class AdminController extends Controller
         return back()->with('success', 'Организация одобрена.');
     }
 
-    public function users()
+    public function users(): View
     {
         return view('admin.users', ['users' => User::with('organization')->paginate(30)]);
     }
 
-    public function toggleBlock(User $user)
+    public function toggleBlock(User $user, AuditLogger $auditLogger): RedirectResponse
     {
         abort_if($user->isAdmin(), 422);
         $before = $user->only('is_blocked');
         $user->forceFill(['is_blocked' => ! $user->is_blocked])->save();
-        app(AuditLogger::class)->log('user.block_toggled', $user, $before, $user->only('is_blocked'));
+        $auditLogger->log('user.block_toggled', $user, $before, $user->only('is_blocked'));
 
         return back();
     }
 
-    public function remediatePhone(User $user, Request $request)
+    public function remediatePhone(User $user, Request $request, AuditLogger $auditLogger): RedirectResponse
     {
         abort_unless($user->isCustomer() || $user->isWholesaler(), 422);
         $request->validate(['phone' => ['required', 'string', 'max:30']]);
@@ -83,22 +84,8 @@ class AdminController extends Controller
         $before = $user->only('phone', 'is_blocked');
         $user->forceFill(['phone' => $phone, 'is_blocked' => false, 'password' => null, 'password_change_required' => false])->save();
         $user->organization?->update(['phone' => $phone]);
-        app(AuditLogger::class)->log('user.phone_remediated', $user, $before, $user->only('phone', 'is_blocked'));
+        $auditLogger->log('user.phone_remediated', $user, $before, $user->only('phone', 'is_blocked'));
 
         return back()->with('success', 'Телефон подтверждён администратором, доступ разблокирован.');
-    }
-
-    public function modules()
-    {
-        return view('admin.modules', ['modules' => ModuleSetting::orderBy('key')->get()]);
-    }
-
-    public function updateModule(ModuleSetting $module, Request $request)
-    {
-        $before = $module->only('enabled');
-        $module->update(['enabled' => $request->boolean('enabled')]);
-        app(AuditLogger::class)->log('module.updated', $module, $before, $module->only('enabled'));
-
-        return back()->with('success', 'Настройка модуля сохранена.');
     }
 }

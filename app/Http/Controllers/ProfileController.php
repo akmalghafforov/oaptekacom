@@ -11,15 +11,17 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\PhoneOtpService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
 
 class ProfileController extends Controller
 {
-    public function edit()
+    public function edit(Request $request): View
     {
-        return view('profile.edit', ['user' => request()->user(), 'organization' => request()->user()->organization]);
+        return view('profile.edit', ['user' => $request->user(), 'organization' => $request->user()->organization]);
     }
 
-    public function update(UpdateProfileRequest $request)
+    public function update(UpdateProfileRequest $request, AuditLogger $auditLogger): RedirectResponse
     {
         $user = $request->user();
         $before = $user->only('name', 'email', 'phone', 'theme');
@@ -29,7 +31,7 @@ class ProfileController extends Controller
             $data['password_change_required'] = false;
         }
         $user->forceFill($data)->save();
-        app(AuditLogger::class)->log('profile.updated', $user, $before, $user->only('name', 'email', 'phone', 'theme'));
+        $auditLogger->log('profile.updated', $user, $before, $user->only('name', 'email', 'phone', 'theme'));
 
         return back()->with('success', 'Профиль сохранён.');
     }
@@ -49,11 +51,11 @@ class ProfileController extends Controller
         return redirect()->route('profile.phone.verify');
     }
 
-    public function phoneChangeForm()
+    public function phoneChangeForm(Request $request): View
     {
-        abort_unless(! request()->user()->isAdmin() && session()->has('phone_otp.change_phone'), 404);
+        abort_unless(! $request->user()->isAdmin() && $request->session()->has('phone_otp.change_phone'), 404);
 
-        return view('auth.phone-otp', ['title' => 'Подтвердите новый телефон', 'route' => 'profile.phone.confirm', 'phone' => session('phone_otp.change_phone'), 'resend_route' => 'profile.phone.send']);
+        return view('auth.phone-otp', ['title' => 'Подтвердите новый телефон', 'route' => 'profile.phone.confirm', 'phone' => $request->session()->get('phone_otp.change_phone'), 'resend_route' => 'profile.phone.send']);
     }
 
     public function confirmPhoneChange(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -74,7 +76,7 @@ class ProfileController extends Controller
         return redirect()->route('profile.edit')->with('success', 'Телефон подтверждён и сохранён.');
     }
 
-    public function updateOrganization(UpdateOrganizationRequest $request)
+    public function updateOrganization(UpdateOrganizationRequest $request, AuditLogger $auditLogger): RedirectResponse
     {
         $user = $request->user();
         $organization = $user->organization;
@@ -86,7 +88,7 @@ class ProfileController extends Controller
             abort_unless($organization->permitsMode($mode), 422);
             $user->update(['active_trade_mode' => $mode]);
         }
-        app(AuditLogger::class)->log('organization.updated', $organization, $before, $organization->fresh()->only('name', 'city', 'phone', 'minimum_order', 'delivery_conditions'));
+        $auditLogger->log('organization.updated', $organization, $before, $organization->fresh()->only('name', 'city', 'phone', 'minimum_order', 'delivery_conditions'));
 
         return back()->with('success', 'Настройки организации сохранены.');
     }

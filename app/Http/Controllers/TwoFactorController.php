@@ -2,14 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\View\View;
 use PragmaRX\Google2FALaravel\Facade as Google2FA;
 
 class TwoFactorController extends Controller
 {
-    public function enroll(Request $request)
+    public function enroll(Request $request): View
     {
         $user = $request->user();
         abort_unless($user->isAdmin(), 403);
@@ -21,7 +23,7 @@ class TwoFactorController extends Controller
         return view('auth.two-factor', ['secret' => $secret, 'confirmed' => (bool) $user->two_factor_confirmed_at]);
     }
 
-    public function confirm(Request $request)
+    public function confirm(Request $request): RedirectResponse
     {
         $request->validate(['code' => ['required', 'string']]);
         $user = $request->user();
@@ -41,7 +43,7 @@ class TwoFactorController extends Controller
         return redirect()->route('dashboard')->with('success', '2FA включена. Сохраните коды восстановления: '.implode(', ', $codes));
     }
 
-    public function recovery(Request $request)
+    public function recovery(Request $request): RedirectResponse
     {
         $request->validate(['code' => ['required', 'string']]);
         $user = $request->user();

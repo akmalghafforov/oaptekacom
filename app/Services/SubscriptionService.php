@@ -184,16 +184,6 @@ class SubscriptionService
         return $price;
     }
 
-    private function totalPrice(SubscriptionPlanPrice $price, CarbonImmutable $startsOn, CarbonImmutable $endsOn): string
-    {
-        return $this->totalPriceFromDailyPrice((string) $price->daily_price, $startsOn, $endsOn);
-    }
-
-    private function totalPriceFromDailyPrice(string $dailyPrice, CarbonImmutable $startsOn, CarbonImmutable $endsOn): string
-    {
-        return bcmul($dailyPrice, (string) ($startsOn->diffInDays($endsOn) + 1), 2);
-    }
-
     /** @return array{CarbonImmutable, CarbonImmutable} */
     private function period(SubscriptionTerm $term, ?string $customEndsOn): array
     {

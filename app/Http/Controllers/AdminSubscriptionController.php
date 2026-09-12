@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\View\View;
 use InvalidArgumentException;
 
@@ -77,10 +78,10 @@ class AdminSubscriptionController extends Controller
         return back()->with('success', 'Способы оплаты сохранены.');
     }
 
-    public function cancel(Subscription $subscription, SubscriptionService $subscriptions): RedirectResponse
+    public function cancel(Subscription $subscription, SubscriptionService $subscriptions, Request $request): RedirectResponse
     {
         try {
-            $subscriptions->cancel($subscription, request()->user());
+            $subscriptions->cancel($subscription, $request->user());
         } catch (InvalidArgumentException $exception) {
             return back()->withErrors(['subscription' => $exception->getMessage()]);
         }
@@ -93,13 +94,13 @@ class AdminSubscriptionController extends Controller
         return view('admin.subscriptions.prices', ['prices' => SubscriptionPlanPrice::query()->get()->keyBy(fn (SubscriptionPlanPrice $price): string => $price->plan->value)]);
     }
 
-    public function updatePrices(UpdateSubscriptionPlanPricesRequest $request): RedirectResponse
+    public function updatePrices(UpdateSubscriptionPlanPricesRequest $request, AuditLogger $auditLogger): RedirectResponse
     {
         foreach ([[SubscriptionPlan::Base, 'base_daily_price'], [SubscriptionPlan::Premium, 'premium_daily_price']] as [$plan, $field]) {
             $before = SubscriptionPlanPrice::query()->where('plan', $plan->value)->first()?->only('daily_price') ?? [];
             if ($request->filled($field)) {
                 $price = SubscriptionPlanPrice::query()->updateOrCreate(['plan' => $plan->value], ['daily_price' => $request->validated($field)]);
-                app(AuditLogger::class)->log('subscription.price_updated', $price, $before, $price->only('daily_price'));
+                $auditLogger->log('subscription.price_updated', $price, $before, $price->only('daily_price'));
             } else {
                 SubscriptionPlanPrice::query()->where('plan', $plan->value)->delete();
             }
