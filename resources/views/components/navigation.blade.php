@@ -8,6 +8,7 @@
             ['label' => 'Операционный центр', 'route' => 'admin.index', 'active' => ['admin.index']],
             ['label' => 'Пользователи', 'route' => 'admin.users', 'active' => ['admin.users']],
             ['label' => 'Подписки', 'route' => 'admin.subscriptions.index', 'active' => ['admin.subscriptions.*', 'admin.subscription-prices.*', 'admin.subscription-payments.*']],
+            ['label' => 'Прайс-листы', 'route' => 'price-list-imports.index', 'active' => ['price-list-imports.*', 'admin.supplier-import-profiles.*']],
         ];
     } else {
         $navigationItems[] = ['label' => 'Обзор', 'route' => 'dashboard', 'active' => ['dashboard']];
@@ -17,6 +18,10 @@
         }
 
         $navigationItems[] = ['label' => 'Каталог', 'route' => 'catalog', 'active' => ['catalog']];
+
+        if ($user->canSupply()) {
+            $navigationItems[] = ['label' => 'Прайс-листы', 'route' => 'price-list-imports.index', 'active' => ['price-list-imports.*']];
+        }
 
         if ($user->canBuy()) {
             $navigationItems[] = ['label' => 'Корзина', 'route' => 'cart', 'active' => ['cart']];

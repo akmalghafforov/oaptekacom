@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\OrganizationType;
 use App\Enums\SubscriptionPlan;
+use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use App\Models\Organization;
 use App\Models\User;
@@ -53,6 +54,15 @@ class AdminController extends Controller
         });
 
         return back()->with('success', 'Организация одобрена.');
+    }
+
+    public function storeSupplier(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $validated = $request->validate(['name' => ['required', 'string', 'max:255'], 'city' => ['nullable', 'string', 'max:255'], 'phone' => ['nullable', 'string', 'max:32', 'unique:organizations,phone']]);
+        $supplier = Organization::create([...$validated, 'type' => OrganizationType::Wholesaler, 'status' => 'active', 'supplier_mode' => TradeMode::Supplier->value]);
+        $auditLogger->log('organization.supplier_created', $supplier, [], $supplier->only(['name', 'city', 'phone', 'type', 'status']));
+
+        return redirect()->route('admin.supplier-import-profiles.edit', $supplier)->with('success', 'Поставщик создан. Теперь настройте профиль импорта.');
     }
 
     public function users(): View

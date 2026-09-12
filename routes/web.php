@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\SupplierImportProfileController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminSubscriptionController;
 use App\Http\Controllers\AuthController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PaymentReceiptController;
+use App\Http\Controllers\PriceListImportController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SubscriptionRequestController;
@@ -76,9 +78,16 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');
     Route::patch('/orders/{order}/status', [OrderController::class, 'status'])->name('orders.status');
+    Route::get('/price-list-imports', [PriceListImportController::class, 'index'])->name('price-list-imports.index');
+    Route::post('/price-list-imports', [PriceListImportController::class, 'store'])->name('price-list-imports.store');
+    Route::get('/price-list-imports/{import}', [PriceListImportController::class, 'show'])->name('price-list-imports.show');
+    Route::get('/price-list-imports/{import}/download', [PriceListImportController::class, 'download'])->name('price-list-imports.download');
+    Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->name('price-list-imports.retry');
+    Route::post('/price-list-imports/{import}/commit', [PriceListImportController::class, 'commit'])->name('price-list-imports.commit');
     Route::prefix('admin')->middleware('role:admin')->group(function () {
         Route::get('/', [AdminController::class, 'index'])->name('admin.index');
         Route::post('/organizations/{organization}/approve', [AdminController::class, 'approve'])->name('admin.approve');
+        Route::post('/suppliers', [AdminController::class, 'storeSupplier'])->name('admin.suppliers.store');
         Route::get('/users', [AdminController::class, 'users'])->name('admin.users');
         Route::post('/users/{user}/block', [AdminController::class, 'toggleBlock'])->name('admin.block');
         Route::post('/users/{user}/phone', [AdminController::class, 'remediatePhone'])->name('admin.phone.remediate');
@@ -90,5 +99,8 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::get('/subscription-payments', [AdminSubscriptionController::class, 'paymentRequests'])->name('admin.subscription-payments.index');
         Route::patch('/subscription-payments/methods', [AdminSubscriptionController::class, 'updatePaymentMethods'])->name('admin.subscription-payments.methods.update');
         Route::post('/subscription-payments/{paymentRequest}/review', [AdminSubscriptionController::class, 'reviewPayment'])->name('admin.subscription-payments.review');
+        Route::get('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'edit'])->name('admin.supplier-import-profiles.edit');
+        Route::put('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'update'])->name('admin.supplier-import-profiles.update');
+        Route::post('/price-list-imports/{import}/rows/{row}/override', [PriceListImportController::class, 'override'])->name('admin.price-list-imports.override');
     });
 });

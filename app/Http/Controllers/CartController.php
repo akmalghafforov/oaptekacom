@@ -10,6 +10,7 @@ use App\Models\OrderItem;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class CartController extends Controller
@@ -29,12 +30,15 @@ class CartController extends Controller
     public function add(Offer $offer, Request $request): RedirectResponse
     {
         $this->authorize('view', $offer);
-        abort_unless($request->user()->canBuy() && $offer->is_active, 404);
+        abort_unless($request->user()->canBuy() && $this->isCurrent($offer), 404);
         $validated = $request->validate(['quantity' => 'nullable|integer|min:1|max:999']);
         $cartItem = CartItem::firstOrNew(['cart_id' => $this->cart($request)->id, 'offer_id' => $offer->id]);
         $cartItem->quantity = ($cartItem->exists ? $cartItem->quantity : 0) + ($validated['quantity'] ?? 1);
+        if ($offer->quantity !== null && $cartItem->quantity > (float) $offer->quantity) {
+            throw ValidationException::withMessages(['quantity' => 'Запрошенное количество превышает остаток поставщика.']);
+        }
         $cartItem->unit_price = $offer->price;
-        $cartItem->snapshot = ['medicine' => $offer->medicine->name, 'supplier' => $offer->organization->name, 'price' => $offer->price];
+        $cartItem->snapshot = ['medicine' => $offer->medicine->name, 'supplier' => $offer->organization->name, 'price' => $offer->price, 'source_name' => $offer->source_name, 'batch' => $offer->batch, 'expires_at' => $offer->expires_at?->toDateString()];
         $cartItem->save();
 
         return back()->with('success', 'Товар добавлен в корзину.');
@@ -43,7 +47,11 @@ class CartController extends Controller
     public function update(CartItem $item, Request $request): RedirectResponse
     {
         $this->authorize('update', $item->cart);
-        $item->update($request->validate(['quantity' => 'required|integer|min:1|max:999']));
+        $validated = $request->validate(['quantity' => 'required|integer|min:1|max:999']);
+        if (! $this->isCurrent($item->offer) || ($item->offer->quantity !== null && $validated['quantity'] > (float) $item->offer->quantity)) {
+            throw ValidationException::withMessages(['quantity' => 'Предложение устарело или нужное количество больше остатка.']);
+        }
+        $item->update($validated);
 
         return back();
     }
@@ -54,6 +62,12 @@ class CartController extends Controller
         $cart = $this->cart($request)->load('items.offer');
         abort_if($cart->items->isEmpty(), 422);
         DB::transaction(function () use ($cart, $request): void {
+            foreach ($cart->items as $cartItem) {
+                $offer = Offer::query()->lockForUpdate()->findOrFail($cartItem->offer_id);
+                if (! $this->isCurrent($offer) || ($offer->quantity !== null && $cartItem->quantity > (float) $offer->quantity)) {
+                    throw ValidationException::withMessages(['cart' => 'В корзине есть устаревшее предложение или недостаточный остаток. Обновите корзину.']);
+                }
+            }
             $checkoutId = DB::table('checkouts')->insertGetId(['buyer_organization_id' => $request->user()->organization_id, 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
             foreach ($cart->items->groupBy(fn (CartItem $cartItem) => $cartItem->offer->organization_id) as $supplierOrganizationId => $cartItems) {
                 $total = $cartItems->sum(fn (CartItem $cartItem) => $cartItem->quantity * $cartItem->unit_price);
@@ -66,5 +80,10 @@ class CartController extends Controller
         });
 
         return redirect()->route('orders.index')->with('success', 'Заказы переданы поставщикам.');
+    }
+
+    private function isCurrent(Offer $offer): bool
+    {
+        return $offer->is_active && $offer->price_list_import_id !== null && $offer->organization()->where('active_price_list_import_id', $offer->price_list_import_id)->exists() && ($offer->quantity === null || (float) $offer->quantity > 0) && ($offer->expires_at === null || ! $offer->expires_at->isPast());
     }
 }
