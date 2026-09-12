@@ -50,7 +50,7 @@ services:
     restart: unless-stopped
     working_dir: /var/www
     command: >-
-      sh -c "until test -f vendor/autoload.php; do sleep 2; done; php artisan queue:work --sleep=2 --tries=3 --timeout=120"
+      sh -c "until test -f vendor/autoload.php; do sleep 2; done; php artisan queue:work --queue=price-list-imports,default --sleep=2 --tries=3 --timeout=120"
     volumes:
       - ./:/var/www
       - vendor:/var/www/vendor
@@ -62,6 +62,7 @@ services:
       DB_USERNAME: ${DB_USERNAME:-oapteka}
       DB_PASSWORD: ${DB_PASSWORD:-secret}
       QUEUE_CONNECTION: database
+      PRICE_LIST_QUEUE: price-list-imports
     depends_on:
       postgres:
         condition: service_healthy
