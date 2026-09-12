@@ -21,16 +21,27 @@ class ProfileValidator
             throw ValidationException::withMessages(['configuration' => 'Недопустимые параметры: '.implode(', ', $unexpected)]);
         }
         $validated = Validator::make($configuration, [
+            'worksheet' => ['nullable', 'string', 'max:255'],
             'data_row' => ['required', 'integer', 'min:1'], 'header_row' => ['nullable', 'integer', 'min:1'],
             'mapping' => ['required', 'array'], 'mapping.name' => ['required', 'string', 'regex:/^[A-Z]{1,3}$/'],
             'mapping.price' => ['required', 'string', 'regex:/^[A-Z]{1,3}$/'],
-            'mapping.*' => ['nullable', 'string', 'regex:/^[A-Z]{1,3}$/'], 'date_formats' => ['sometimes', 'array'],
+            'mapping.*' => ['nullable', 'string', 'regex:/^[A-Z]{1,3}$/'],
+            'csv' => ['sometimes', 'array'], 'csv.delimiter' => ['required_with:csv', 'string'], 'csv.enclosure' => ['required_with:csv', 'string'], 'csv.encoding' => ['required_with:csv', 'string'],
+            'decimal_separator' => ['sometimes', 'string'], 'thousands_separator' => ['sometimes', 'string'],
+            'date_formats' => ['sometimes', 'array'], 'date_formats.*' => ['string'],
             'empty_row_limit' => ['sometimes', 'integer', 'min:1', 'max:1000'],
+            'expiration_mode' => ['sometimes', 'in:date,shelf_life'], 'shelf_life_unit' => ['sometimes', 'in:days,months'],
+            'inventory' => ['sometimes', 'array'], 'defaults' => ['sometimes', 'array'], 'validation' => ['sometimes', 'array'],
+            'keep_exact_duplicates' => ['sometimes', 'boolean'],
             'matching_strategy' => ['sometimes', 'in:name,sku,sku_then_name'], 'activation_mode' => ['sometimes', 'in:manual,automatic'],
-            'transformations' => ['sometimes', 'array'], 'skip_rules' => ['sometimes', 'array'],
+            'transformations' => ['sometimes', 'array'], 'skip_rules' => ['sometimes', 'array'], 'automatic' => ['sometimes', 'array'],
         ])->validate();
         if (array_diff(array_keys($validated['mapping']), self::FIELDS) !== []) {
             throw ValidationException::withMessages(['configuration.mapping' => 'Найдено неизвестное поле сопоставления.']);
+        }
+        $assignedColumns = array_filter($validated['mapping'], fn (mixed $column): bool => is_string($column) && $column !== '');
+        if (count($assignedColumns) !== count(array_unique(array_map('strtoupper', $assignedColumns)))) {
+            throw ValidationException::withMessages(['configuration.mapping' => 'Один столбец нельзя назначить нескольким полям.']);
         }
         foreach (($validated['transformations'] ?? []) as $field => $transformations) {
             if (! in_array($field, self::FIELDS, true) || ! is_array($transformations)) {

@@ -47,4 +47,11 @@ class PriceListParsingTest extends TestCase
 
         app(ProfileValidator::class)->validate(['data_row' => 2, 'mapping' => ['name' => 'A'], 'service_class' => 'Dangerous']);
     }
+
+    public function test_profile_rejects_duplicate_column_assignments(): void
+    {
+        $this->expectException(ValidationException::class);
+
+        app(ProfileValidator::class)->validate(['data_row' => 2, 'mapping' => ['name' => 'A', 'price' => 'A']]);
+    }
 }

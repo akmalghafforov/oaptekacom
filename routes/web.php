@@ -100,6 +100,8 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::patch('/subscription-payments/methods', [AdminSubscriptionController::class, 'updatePaymentMethods'])->name('admin.subscription-payments.methods.update');
         Route::post('/subscription-payments/{paymentRequest}/review', [AdminSubscriptionController::class, 'reviewPayment'])->name('admin.subscription-payments.review');
         Route::get('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'edit'])->name('admin.supplier-import-profiles.edit');
+        Route::post('/suppliers/{supplier}/import-profile/sample', [SupplierImportProfileController::class, 'storeSample'])->name('admin.supplier-import-profiles.sample.store');
+        Route::get('/suppliers/{supplier}/import-profile/sample-preview', [SupplierImportProfileController::class, 'samplePreview'])->name('admin.supplier-import-profiles.sample.preview');
         Route::put('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'update'])->name('admin.supplier-import-profiles.update');
         Route::post('/price-list-imports/{import}/rows/{row}/override', [PriceListImportController::class, 'override'])->name('admin.price-list-imports.override');
     });
