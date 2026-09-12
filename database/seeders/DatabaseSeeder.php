@@ -29,5 +29,7 @@ class DatabaseSeeder extends Seeder
         User::updateOrCreate(['email' => 'admin@example.test'], ['name' => 'Тестовый администратор', 'phone' => '+992900000003', 'password' => 'password', 'organization_id' => null, 'role' => UserRole::Admin, 'active_trade_mode' => null]);
         SubscriptionPlanPrice::updateOrCreate(['plan' => SubscriptionPlan::Base], ['daily_price' => '1.00']);
         SubscriptionPlanPrice::updateOrCreate(['plan' => SubscriptionPlan::Premium], ['daily_price' => '3.00']);
+
+        $this->call(SuppliersSeeder::class);
     }
 }
