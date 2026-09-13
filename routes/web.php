@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\OrganizationDirectoryController;
 use App\Http\Controllers\Admin\SupplierImportProfileController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminSubscriptionController;
@@ -89,6 +90,18 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::post('/organizations/{organization}/approve', [AdminController::class, 'approve'])->name('admin.approve');
         Route::post('/suppliers', [AdminController::class, 'storeSupplier'])->name('admin.suppliers.store');
         Route::get('/users', [AdminController::class, 'users'])->name('admin.users');
+        Route::get('/pharmacies', [OrganizationDirectoryController::class, 'pharmacies'])->name('admin.pharmacies.index');
+        Route::get('/pharmacies/{organization}', [OrganizationDirectoryController::class, 'showPharmacy'])->name('admin.pharmacies.show');
+        Route::get('/pharmacies/{organization}/edit', [OrganizationDirectoryController::class, 'editPharmacy'])->name('admin.pharmacies.edit');
+        Route::patch('/pharmacies/{organization}', [OrganizationDirectoryController::class, 'updatePharmacy'])->name('admin.pharmacies.update');
+        Route::patch('/pharmacies/{organization}/accounts/{user}', [OrganizationDirectoryController::class, 'updatePharmacyAccount'])->name('admin.pharmacies.accounts.update');
+        Route::post('/pharmacies/{organization}/archive', [OrganizationDirectoryController::class, 'archivePharmacy'])->name('admin.pharmacies.archive');
+        Route::get('/providers', [OrganizationDirectoryController::class, 'providers'])->name('admin.providers.index');
+        Route::get('/providers/{organization}', [OrganizationDirectoryController::class, 'showProvider'])->name('admin.providers.show');
+        Route::get('/providers/{organization}/edit', [OrganizationDirectoryController::class, 'editProvider'])->name('admin.providers.edit');
+        Route::patch('/providers/{organization}', [OrganizationDirectoryController::class, 'updateProvider'])->name('admin.providers.update');
+        Route::patch('/providers/{organization}/accounts/{user}', [OrganizationDirectoryController::class, 'updateProviderAccount'])->name('admin.providers.accounts.update');
+        Route::post('/providers/{organization}/archive', [OrganizationDirectoryController::class, 'archiveProvider'])->name('admin.providers.archive');
         Route::post('/users/{user}/block', [AdminController::class, 'toggleBlock'])->name('admin.block');
         Route::post('/users/{user}/phone', [AdminController::class, 'remediatePhone'])->name('admin.phone.remediate');
         Route::get('/subscriptions', [AdminSubscriptionController::class, 'index'])->name('admin.subscriptions.index');
