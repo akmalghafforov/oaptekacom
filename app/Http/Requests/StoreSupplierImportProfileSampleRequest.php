@@ -26,7 +26,7 @@ class StoreSupplierImportProfileSampleRequest extends FormRequest
             'sample' => [
                 'required',
                 'file',
-                'extensions:csv,xls,xlsx',
+                'extensions:csv,tsv,xls,xlsx',
                 'mimes:csv,txt,xls,xlsx',
                 'max:'.config('price-list-imports.max_file_kilobytes'),
             ],

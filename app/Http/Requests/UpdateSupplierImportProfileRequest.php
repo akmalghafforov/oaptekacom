@@ -25,7 +25,7 @@ class UpdateSupplierImportProfileRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'file_type' => ['required', 'in:csv,xls,xlsx'],
+            'file_type' => ['required', 'in:csv,tsv,xls,xlsx'],
             'worksheet' => ['required', 'string', 'max:255'],
             'data_row' => ['required', 'integer', 'min:1', 'max:100'],
             'column_mappings' => ['required', 'array'],

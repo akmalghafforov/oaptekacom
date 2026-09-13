@@ -31,5 +31,6 @@ class DatabaseSeeder extends Seeder
         SubscriptionPlanPrice::updateOrCreate(['plan' => SubscriptionPlan::Premium], ['daily_price' => '3.00']);
 
         $this->call(SuppliersSeeder::class);
+        $this->call(ProductCategoryRuleSetSeeder::class);
     }
 }

@@ -65,7 +65,6 @@ class ImportActivator
             $lockedImport->offers()->update(['is_active' => true]);
             $lockedImport->update(['status' => PriceListImportStatus::Completed, 'activated_by' => $actor?->id, 'activated_at' => now()]);
             $supplier->update(['active_price_list_import_id' => $lockedImport->id]);
-            $lockedImport->rows()->whereIn('disposition', [PriceListRowDisposition::Valid])->delete();
             app(AuditLogger::class)->log('price_list_import.activated', $lockedImport, [], ['supplier_organization_id' => $supplier->id, 'valid_rows' => $rows->count()]);
 
             return $lockedImport->fresh();

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\PriceListImportStatus;
 use App\Models\PriceListImport;
+use App\Services\PriceList\ImportLayoutDetector;
 use App\Services\PriceList\ValueNormalizer;
 use App\Services\PriceList\WorkbookReader;
 use Illuminate\Bus\Queueable;
@@ -25,8 +26,9 @@ class PreparePriceListImport implements ShouldQueue
 
     public function __construct(public readonly PriceListImport $import) {}
 
-    public function handle(WorkbookReader $reader, ValueNormalizer $normalizer): void
+    public function handle(WorkbookReader $reader, ValueNormalizer $normalizer, ?ImportLayoutDetector $layoutDetector = null): void
     {
+        $layoutDetector ??= app(ImportLayoutDetector::class);
         $import = $this->import->fresh();
         if ($import->status !== PriceListImportStatus::Pending) {
             return;
@@ -35,10 +37,14 @@ class PreparePriceListImport implements ShouldQueue
         if ($info['highest_row'] > config('price-list-imports.max_rows') || $info['highest_column'] > config('price-list-imports.max_columns')) {
             throw new RuntimeException('Файл превышает допустимый лимит строк или столбцов.');
         }
-        $start = (int) $import->profile_snapshot['data_row'];
+        $detection = $layoutDetector->detect($import, $info);
+        $import->update(['effective_layout' => $detection['layout']]);
+        $import = $import->fresh();
+        $start = (int) $import->effective_layout['data_row'];
         $highestDataRow = $reader->highestDataRow($import, $info['highest_row']);
         $inventoryAt = $this->inventoryAt($import, $reader, $normalizer);
-        $import->update(['status' => PriceListImportStatus::Processing, 'processing_started_at' => now(), 'inventory_at' => $inventoryAt, 'total_rows' => max(0, $highestDataRow - $start + 1), 'summary' => ['worksheets' => $info['worksheets'], 'highest_row' => $highestDataRow, 'highest_column' => $info['highest_column']]]);
+        $summary = ['worksheets' => $info['worksheets'], 'highest_row' => $highestDataRow, 'highest_column' => $info['highest_column'], 'layout_detection' => ['confidence' => $detection['confidence'], 'warning' => $detection['warning']]];
+        $import->update(['status' => PriceListImportStatus::Processing, 'processing_started_at' => now(), 'inventory_at' => $inventoryAt, 'total_rows' => max(0, $highestDataRow - $start + 1), 'summary' => $summary]);
         $jobs = [];
         for ($row = $start; $row <= $highestDataRow; $row += (int) config('price-list-imports.chunk_size')) {
             $jobs[] = new ProcessPriceListImportChunk($import, $row, min($row + (int) config('price-list-imports.chunk_size') - 1, $highestDataRow));

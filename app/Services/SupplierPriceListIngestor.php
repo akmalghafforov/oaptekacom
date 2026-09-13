@@ -10,6 +10,7 @@ use App\Jobs\PreparePriceListImport;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierSenderAddress;
+use App\Services\PriceList\ProductCategoryRuleSetResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -40,12 +41,14 @@ class SupplierPriceListIngestor
         }
 
         return DB::transaction(function () use ($supplier, $file, $context, $profile): PriceListImport {
+            $ruleSet = app(ProductCategoryRuleSetResolver::class)->current();
             $import = PriceListImport::create([
                 'supplier_organization_id' => $supplier->id, 'supplier_import_profile_id' => $profile->id,
                 'profile_snapshot' => $profile->configuration, 'source_type' => $context->source,
                 'file_path' => $file->path, 'original_filename' => $file->originalFilename, 'mime_type' => $file->mimeType,
                 'file_size' => $file->size, 'sha256' => $file->sha256, 'sender_email' => $context->senderEmail,
                 'message_id' => $context->messageId, 'received_at' => $context->receivedAt, 'initiated_by' => $context->actor?->id,
+                'product_category_rule_set_id' => $ruleSet->id, 'product_category_rule_set_checksum' => $ruleSet->checksum,
                 'status' => PriceListImportStatus::Pending, 'summary' => [],
             ]);
             PreparePriceListImport::dispatch($import)->onQueue(config('price-list-imports.queue'))->afterCommit();

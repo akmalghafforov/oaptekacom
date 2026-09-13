@@ -8,11 +8,11 @@
 <x-ui.page-header :title="'Профиль импорта: '.$organization->name" description="Загрузите образец, затем укажите назначение столбцов и первую строку товаров." />
 <x-ui.card class="mt-6">
     <h2 class="text-lg font-bold">Образец прайс-листа</h2>
-    <p class="mt-1 text-sm text-muted">CSV, XLS или XLSX. Файл хранится приватно и используется только для настройки.</p>
+    <p class="mt-1 text-sm text-muted">CSV, TSV, XLS или XLSX. Файл хранится приватно и используется только для настройки.</p>
     @if($profile->sample_metadata)<p class="mt-3 text-sm"><span class="font-semibold">Текущий файл:</span> {{ $profile->sample_metadata['filename'] }} ({{ number_format($profile->sample_metadata['size'] / 1024, 1, ',', ' ') }} КБ)</p>@endif
     <form method="post" action="{{ route('admin.supplier-import-profiles.sample.store', $organization) }}" enctype="multipart/form-data" class="mt-4 flex flex-wrap items-end gap-3">
         @csrf
-        <x-ui.input name="sample" type="file" label="Файл-образец" accept=".csv,.xls,.xlsx" required />
+        <x-ui.input name="sample" type="file" label="Файл-образец" accept=".csv,.tsv,.xls,.xlsx" required />
         <x-ui.button>{{ $profile->sample_metadata ? 'Заменить образец' : 'Загрузить образец' }}</x-ui.button>
     </form>
 </x-ui.card>
@@ -22,7 +22,7 @@
     <x-ui.card>
         <div class="grid gap-4 md:grid-cols-3">
             <x-ui.input name="name" label="Название профиля" :value="$profile->name" required />
-            <x-ui.select name="file_type" label="Тип импортируемого файла">@foreach(['xlsx' => 'XLSX', 'xls' => 'XLS', 'csv' => 'CSV'] as $value => $label)<option value="{{ $value }}" @selected(old('file_type', $profile->file_type?->value ?? $profile->file_type) === $value)>{{ $label }}</option>@endforeach</x-ui.select>
+            <x-ui.select name="file_type" label="Тип импортируемого файла">@foreach(['xlsx' => 'XLSX', 'xls' => 'XLS', 'csv' => 'CSV', 'tsv' => 'TSV'] as $value => $label)<option value="{{ $value }}" @selected(old('file_type', $profile->file_type?->value ?? $profile->file_type) === $value)>{{ $label }}</option>@endforeach</x-ui.select>
             <x-ui.select name="worksheet" label="Лист" data-worksheet data-preview-url="{{ route('admin.supplier-import-profiles.sample.preview', $organization) }}">@foreach($preview['worksheets'] as $worksheet)<option value="{{ $worksheet }}" @selected(old('worksheet', $preview['worksheet']) === $worksheet)>{{ $worksheet }}</option>@endforeach</x-ui.select>
         </div>
         <div class="mt-4"><x-ui.textarea name="sender_emails" label="Email-адреса отправителей" :value="$senderEmails" hint="Один адрес на строку. Адрес может быть назначен только одному поставщику." /></div>

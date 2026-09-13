@@ -17,8 +17,10 @@ class ImportProcessor
     /** @param array<int, array<string, mixed>> $rows */
     public function process(PriceListImport $import, array $rows): void
     {
+        $profile = array_replace($import->profile_snapshot, $import->effective_layout ?? [], ['_inventory_at' => $import->inventory_at?->toDateString(), '_category_rule_set_id' => $import->product_category_rule_set_id, '_source_filename' => $import->original_filename]);
         foreach ($rows as $sourceRow => $rawRow) {
-            $result = $this->parser->parse($rawRow, $sourceRow, array_replace($import->profile_snapshot, ['_inventory_at' => $import->inventory_at?->toDateString()]));
+            $result = $this->parser->parse($rawRow, $sourceRow, $profile);
+            $result['source_worksheet'] = $profile['worksheet'] ?? null;
             if (in_array($result['disposition'], [PriceListRowDisposition::Valid, PriceListRowDisposition::Warning], true)) {
                 $result = $this->match($import, $result);
                 if (! $import->profile_snapshot['keep_exact_duplicates'] && PriceListImportRow::query()->whereBelongsTo($import, 'import')->where('offer_fingerprint', $result['offer_fingerprint'])->where('source_row', '!=', $sourceRow)->exists()) {

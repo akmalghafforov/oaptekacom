@@ -10,6 +10,7 @@ use App\Models\Medicine;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\PriceListImportRow;
+use App\Models\ProductCategoryRuleSet;
 use App\Models\SupplierImportProfile;
 use App\Models\User;
 use App\Services\PriceList\ImportActivator;
@@ -41,6 +42,8 @@ class PriceListImportTest extends TestCase
         $first->assertRedirect();
         $second->assertRedirect();
         $this->assertSame(1, PriceListImport::count());
+        $this->assertNotNull(PriceListImport::first()->product_category_rule_set_id);
+        $this->assertSame('published', ProductCategoryRuleSet::first()->status);
         Queue::assertPushed(PreparePriceListImport::class, 1);
         Storage::disk('local')->assertExists(PriceListImport::first()->file_path);
     }

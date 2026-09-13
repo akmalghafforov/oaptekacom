@@ -83,6 +83,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::post('/price-list-imports', [PriceListImportController::class, 'store'])->name('price-list-imports.store');
     Route::get('/price-list-imports/{import}', [PriceListImportController::class, 'show'])->name('price-list-imports.show');
     Route::get('/price-list-imports/{import}/download', [PriceListImportController::class, 'download'])->name('price-list-imports.download');
+    Route::get('/price-list-imports/{import}/categorization-report', [PriceListImportController::class, 'categorizationReport'])->name('price-list-imports.categorization-report');
     Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->name('price-list-imports.retry');
     Route::post('/price-list-imports/{import}/commit', [PriceListImportController::class, 'commit'])->name('price-list-imports.commit');
     Route::prefix('admin')->middleware('role:admin')->group(function () {

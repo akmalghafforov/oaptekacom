@@ -6,6 +6,7 @@ use App\Enums\ActivationMode;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
 use App\Models\PriceListImport;
+use App\Services\PriceList\CategoryCandidateExtractor;
 use App\Services\PriceList\ImportActivator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -19,7 +20,7 @@ class FinalizePriceListImportPreview implements ShouldQueue
 
     public function __construct(public readonly PriceListImport $import) {}
 
-    public function handle(ImportActivator $activator): void
+    public function handle(ImportActivator $activator, CategoryCandidateExtractor $candidates): void
     {
         $import = $this->import->fresh();
         $counts = $import->rows()->selectRaw('disposition, count(*) as aggregate')->groupBy('disposition')->pluck('aggregate', 'disposition');
@@ -31,6 +32,11 @@ class FinalizePriceListImportPreview implements ShouldQueue
             'skipped_rows' => (int) ($counts[PriceListRowDisposition::Skipped->value] ?? 0),
         ];
         $import->update($attributes);
+        $freshImport = $import->fresh();
+        $categoryCounts = $freshImport->rows()->selectRaw('assigned_category, count(*) as aggregate')->whereNotNull('assigned_category')->groupBy('assigned_category')->pluck('aggregate', 'assigned_category');
+        $statusCounts = $freshImport->rows()->selectRaw('categorization_status, count(*) as aggregate')->whereNotNull('categorization_status')->groupBy('categorization_status')->pluck('aggregate', 'categorization_status');
+        $freshImport->update(['summary' => array_replace($freshImport->summary ?? [], ['rule_set_checksum' => $freshImport->product_category_rule_set_checksum, 'category_distribution' => $categoryCounts, 'categorization' => $statusCounts, 'unmatched_rate' => $freshImport->total_rows ? round(((int) ($statusCounts['unmatched'] ?? 0) / $freshImport->total_rows) * 100, 2) : 0, 'ambiguity_rate' => $freshImport->total_rows ? round(((int) ($statusCounts['ambiguous'] ?? 0) / $freshImport->total_rows) * 100, 2) : 0])]);
+        $candidates->extract($freshImport);
         if (($import->profile_snapshot['activation_mode'] ?? 'manual') === ActivationMode::Automatic->value && $this->meetsThreshold($import->fresh())) {
             $activator->activate($import->fresh());
         }

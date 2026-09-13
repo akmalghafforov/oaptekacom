@@ -18,6 +18,7 @@ use App\Models\PriceListImportRow;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
 use App\Services\AuditLogger;
+use App\Services\PriceList\CategorizationReportExporter;
 use App\Services\PriceList\ImportActivator;
 use App\Services\SupplierPriceListIngestor;
 use Carbon\CarbonImmutable;
@@ -68,9 +69,17 @@ class PriceListImportController extends Controller
         if ($request->expectsJson()) {
             return response()->json(['status' => $importModel->status->value, 'label' => $importModel->status->label(), 'counts' => $importModel->only(['total_rows', 'valid_rows', 'error_rows', 'warning_rows', 'skipped_rows'])]);
         }
-        $rows = $importModel->rows()->when($request->string('disposition')->isNotEmpty(), fn ($query) => $query->where('disposition', $request->string('disposition')->toString()))->orderBy('source_row')->paginate(50)->withQueryString();
+        $rows = $importModel->rows()->when($request->string('disposition')->isNotEmpty(), fn ($query) => $query->where('disposition', $request->string('disposition')->toString()))->when($request->string('categorization_status')->isNotEmpty(), fn ($query) => $query->where('categorization_status', $request->string('categorization_status')->toString()))->orderBy('source_row')->paginate(50)->withQueryString();
 
         return view('price-list-imports.show', ['import' => $importModel->load('supplier'), 'rows' => $rows]);
+    }
+
+    public function categorizationReport(Request $request, int $import, CategorizationReportExporter $exporter): StreamedResponse
+    {
+        $importModel = $this->scoped($request, $import);
+        $this->authorize('view', $importModel);
+
+        return $exporter->export($importModel);
     }
 
     public function download(Request $request, int $import): StreamedResponse
@@ -86,7 +95,6 @@ class PriceListImportController extends Controller
         $importModel = $this->scoped($request, $import);
         $this->authorize('retry', $importModel);
         abort_unless($importModel->status === PriceListImportStatus::Failed, 422);
-        $importModel->rows()->delete();
         $importModel->update(['status' => PriceListImportStatus::Pending, 'failed_at' => null, 'failure_message' => null]);
         PreparePriceListImport::dispatch($importModel)->onQueue(config('price-list-imports.queue'))->afterCommit();
 

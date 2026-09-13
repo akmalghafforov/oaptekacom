@@ -87,7 +87,7 @@ class SampleWorkbookReader
     private function reader(string $extension): IReader
     {
         $reader = match (SupplierFileType::tryFrom(strtolower($extension))) {
-            SupplierFileType::Csv => new Csv,
+            SupplierFileType::Csv, SupplierFileType::Tsv => new Csv,
             SupplierFileType::Xls => new Xls,
             SupplierFileType::Xlsx => new Xlsx,
             default => throw new RuntimeException('Неподдерживаемый тип файла.'),
@@ -95,6 +95,9 @@ class SampleWorkbookReader
         $reader->setReadDataOnly(true);
         if ($reader instanceof Csv) {
             $csv = ProfileValidator::defaults()['csv'];
+            if (SupplierFileType::tryFrom(strtolower($extension)) === SupplierFileType::Tsv) {
+                $csv['delimiter'] = "\t";
+            }
             $reader->setDelimiter($csv['delimiter'])->setEnclosure($csv['enclosure'])->setInputEncoding($csv['encoding']);
         }
 

@@ -9,4 +9,6 @@ return [
     'chunk_size' => 500,
     'timezone' => 'Asia/Dushanbe',
     'near_expiry_days' => 90,
+    'layout_detection_rows' => 100,
+    'layout_detection_high_confidence' => 0.85,
 ];

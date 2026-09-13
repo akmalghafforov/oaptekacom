@@ -22,6 +22,6 @@ class StorePriceListImportRequest extends FormRequest
      */
     public function rules(): array
     {
-        return ['supplier_organization_id' => ['nullable', 'integer', 'exists:organizations,id'], 'file' => ['required', 'file', 'extensions:csv,xls,xlsx', 'mimes:csv,txt,xls,xlsx', 'max:'.config('price-list-imports.max_file_kilobytes')]];
+        return ['supplier_organization_id' => ['nullable', 'integer', 'exists:organizations,id'], 'file' => ['required', 'file', 'extensions:csv,tsv,xls,xlsx', 'mimes:csv,txt,xls,xlsx', 'max:'.config('price-list-imports.max_file_kilobytes')]];
     }
 }

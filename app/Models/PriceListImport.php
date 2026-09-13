@@ -36,6 +36,11 @@ class PriceListImport extends Model
         return $this->belongsTo(SupplierImportProfile::class, 'supplier_import_profile_id');
     }
 
+    public function categoryRuleSet(): BelongsTo
+    {
+        return $this->belongsTo(ProductCategoryRuleSet::class, 'product_category_rule_set_id');
+    }
+
     public function rows(): HasMany
     {
         return $this->hasMany(PriceListImportRow::class);
@@ -60,7 +65,7 @@ class PriceListImport extends Model
     {
         return [
             'status' => PriceListImportStatus::class, 'source_type' => PriceListImportSource::class,
-            'profile_snapshot' => 'array', 'summary' => 'array', 'received_at' => 'datetime',
+            'profile_snapshot' => 'array', 'effective_layout' => 'array', 'summary' => 'array', 'received_at' => 'datetime',
             'inventory_at' => 'datetime', 'processing_started_at' => 'datetime', 'previewed_at' => 'datetime',
             'activated_at' => 'datetime', 'failed_at' => 'datetime', 'superseded_at' => 'datetime',
         ];

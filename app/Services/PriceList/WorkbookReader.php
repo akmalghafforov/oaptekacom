@@ -31,7 +31,7 @@ class WorkbookReader
     /** @return array<int, array<string, mixed>> */
     public function rows(PriceListImport $import, int $startRow, int $endRow): array
     {
-        $profile = $import->profile_snapshot;
+        $profile = array_replace($import->profile_snapshot, $import->effective_layout ?? []);
         $reader = $this->reader($import);
         $reader->setReadFilter(new class($startRow, $endRow) implements IReadFilter
         {
@@ -68,14 +68,15 @@ class WorkbookReader
 
     public function highestDataRow(PriceListImport $import, int $reportedHighestRow): int
     {
-        $start = (int) $import->profile_snapshot['data_row'];
-        $limit = (int) $import->profile_snapshot['empty_row_limit'];
+        $profile = array_replace($import->profile_snapshot, $import->effective_layout ?? []);
+        $start = (int) $profile['data_row'];
+        $limit = (int) $profile['empty_row_limit'];
         $lastDataRow = $start - 1;
         $consecutiveEmpty = 0;
         $chunkSize = (int) config('price-list-imports.chunk_size');
         for ($chunkStart = $start; $chunkStart <= $reportedHighestRow; $chunkStart += $chunkSize) {
             foreach ($this->rows($import, $chunkStart, min($chunkStart + $chunkSize - 1, $reportedHighestRow)) as $rowNumber => $row) {
-                $hasValue = collect($import->profile_snapshot['mapping'])->filter()->contains(fn (string $column): bool => trim((string) ($row[$column] ?? '')) !== '');
+                $hasValue = collect($profile['mapping'])->filter()->contains(fn (string $column): bool => trim((string) ($row[$column] ?? '')) !== '');
                 if ($hasValue) {
                     $lastDataRow = $rowNumber;
                     $consecutiveEmpty = 0;
@@ -95,11 +96,14 @@ class WorkbookReader
     {
         $type = SupplierFileType::from(strtolower(pathinfo((string) $import->original_filename, PATHINFO_EXTENSION)));
         $reader = match ($type) {
-            SupplierFileType::Csv => new Csv, SupplierFileType::Xls => new Xls, SupplierFileType::Xlsx => new Xlsx
+            SupplierFileType::Csv, SupplierFileType::Tsv => new Csv, SupplierFileType::Xls => new Xls, SupplierFileType::Xlsx => new Xlsx
         };
         $reader->setReadDataOnly(true);
         if ($reader instanceof Csv) {
             $csv = $import->profile_snapshot['csv'];
+            if ($type === SupplierFileType::Tsv) {
+                $csv['delimiter'] = "\t";
+            }
             $reader->setDelimiter($csv['delimiter'])->setEnclosure($csv['enclosure'])->setInputEncoding($csv['encoding']);
         }
 
