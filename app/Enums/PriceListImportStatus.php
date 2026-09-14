@@ -5,6 +5,7 @@ namespace App\Enums;
 enum PriceListImportStatus: string
 {
     case Pending = 'pending';
+    case AwaitingDuplicateConfirmation = 'awaiting_duplicate_confirmation';
     case Processing = 'processing';
     case Preview = 'preview';
     case Committing = 'committing';
@@ -15,7 +16,7 @@ enum PriceListImportStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::Pending => 'В очереди', self::Processing => 'Обрабатывается', self::Preview => 'Ожидает проверки',
+            self::Pending => 'В очереди', self::AwaitingDuplicateConfirmation => 'Требует подтверждения дубликата', self::Processing => 'Обрабатывается', self::Preview => 'Ожидает проверки',
             self::Committing => 'Активируется', self::Completed => 'Активен', self::Superseded => 'Заменён', self::Failed => 'Ошибка',
         };
     }

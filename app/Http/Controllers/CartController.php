@@ -23,8 +23,10 @@ class CartController extends Controller
     public function show(Request $request): View
     {
         abort_unless($request->user()->canBuy(), 403);
+        $cart = $this->cart($request);
+        $removed = $cart->items()->whereDoesntHave('offer', fn ($query) => $query->currentAvailable())->delete();
 
-        return view('orders.cart', ['cart' => $this->cart($request)->load('items.offer.medicine', 'items.offer.organization')]);
+        return view('orders.cart', ['cart' => $cart->load('items.offer.medicine', 'items.offer.organization'), 'removedStaleItems' => $removed]);
     }
 
     public function add(Offer $offer, Request $request): RedirectResponse
@@ -84,6 +86,6 @@ class CartController extends Controller
 
     private function isCurrent(Offer $offer): bool
     {
-        return $offer->is_active && $offer->price_list_import_id !== null && $offer->organization()->where('active_price_list_import_id', $offer->price_list_import_id)->exists() && ($offer->quantity === null || (float) $offer->quantity > 0) && ($offer->expires_at === null || ! $offer->expires_at->isPast());
+        return $offer->isCurrentAvailable();
     }
 }

@@ -1,6 +1,7 @@
 @extends('layouts.app')
 @section('content')
 <x-ui.page-header title="Корзина" description="Позиции будут разделены на заказы по поставщикам." />
+@if(($removedStaleItems ?? 0) > 0)<x-ui.alert type="warning" class="mb-4">Устаревшие позиции удалены, потому что поставщик обновил прайс-лист.</x-ui.alert>@endif
 <div class="space-y-3">@forelse($cart->items as $item)<x-ui.card class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p class="font-semibold">{{ $item->offer->medicine->name }}</p><p class="mt-1 text-sm text-muted">{{ $item->offer->organization->name }} · {{ $item->unit_price }} TJS за единицу</p></div><form method="post" action="{{ route('cart.update', $item) }}" class="flex items-end gap-2">@csrf @method('PATCH')<x-ui.input name="quantity" type="number" label="Количество" :value="$item->quantity" min="1" class="w-24" /><x-ui.button variant="secondary">Изменить</x-ui.button></form></x-ui.card>@empty<x-ui.empty-state title="Корзина пуста" description="Добавьте товары из каталога, чтобы оформить заказ."><x-slot:action><a class="font-semibold text-brand-700 hover:underline" href="{{ route('catalog') }}">Перейти в каталог</a></x-slot:action></x-ui.empty-state>@endforelse</div>
 @if($cart->items->isNotEmpty())<form method="post" action="{{ route('cart.checkout') }}" class="mt-6">@csrf <x-ui.button>Оформить заказ</x-ui.button></form>@endif
 @endsection

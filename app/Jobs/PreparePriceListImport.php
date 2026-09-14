@@ -70,6 +70,6 @@ class PreparePriceListImport implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        $this->import->update(['status' => PriceListImportStatus::Failed, 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
+        $this->import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'preparation', 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
     }
 }

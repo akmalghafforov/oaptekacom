@@ -4,6 +4,7 @@ namespace App\Services\PriceList;
 
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
+use App\Models\CartItem;
 use App\Models\Medicine;
 use App\Models\Organization;
 use App\Models\PriceListImport;
@@ -27,8 +28,12 @@ class ImportActivator
             if ($lockedImport->status !== PriceListImportStatus::Preview) {
                 throw ValidationException::withMessages(['import' => 'Импорт ещё не готов к активации.']);
             }
-            if ($supplier->activePriceListImport?->inventory_at && $lockedImport->inventory_at && $lockedImport->inventory_at->lt($supplier->activePriceListImport->inventory_at)) {
+            $currentImport = $supplier->activePriceListImport;
+            if ($currentImport !== null && $this->isOlderThan($lockedImport, $currentImport)) {
                 throw ValidationException::withMessages(['import' => 'Дата остатков старше текущего прайс-листа.']);
+            }
+            if ($lockedImport->rows()->where('categorization_status', 'ambiguous')->exists()) {
+                throw ValidationException::withMessages(['import' => 'Неоднозначные категории необходимо исправить до активации.']);
             }
             $rows = $lockedImport->rows()->whereIn('disposition', [PriceListRowDisposition::Valid, PriceListRowDisposition::Warning])->lockForUpdate()->get();
             if ($rows->isEmpty()) {
@@ -37,15 +42,26 @@ class ImportActivator
             $lockedImport->update(['status' => PriceListImportStatus::Committing]);
             foreach ($rows as $row) {
                 $values = $row->parsed_values;
-                $medicine = $row->medicine ?? Medicine::create([
-                    'name' => $values['name'], 'normalized_name' => $values['normalized_name'], 'search_text' => $values['normalized_name'],
-                    'manufacturer' => $values['manufacturer'] ?? null, 'country_of_origin' => $values['country'] ?? null, 'unit_of_measure' => $values['unit'] ?? null,
-                ]);
+                $medicine = $row->medicine ?? Medicine::firstOrCreate(
+                    ['supplier_organization_id' => $supplier->id, 'normalized_name' => $values['normalized_name']],
+                    [
+                        'name' => $values['name'], 'search_text' => $values['normalized_name'],
+                        'manufacturer' => $values['manufacturer'] ?? null, 'country_of_origin' => $values['country'] ?? null,
+                        'unit_of_measure' => $values['unit'] ?? null, 'inn' => $values['inn'] ?? null,
+                        'form' => $values['form'] ?? null, 'dosage' => $values['dosage'] ?? null,
+                        'category' => $row->assigned_category ?? 'Не распознано',
+                        'category_status' => $row->categorization_status ?? 'unmatched',
+                        'category_rule_set_id' => $lockedImport->product_category_rule_set_id,
+                        'category_rule_set_checksum' => $lockedImport->product_category_rule_set_checksum,
+                        'category_confidence' => $row->categorization_confidence,
+                        'category_evidence' => $row->categorization_evidence,
+                        'category_assigned_at' => now(),
+                    ],
+                );
                 $this->fillCanonicalNulls($medicine, $values, $row);
-                $matchKey = $values['normalized_sku'] ?? $values['normalized_name'];
                 $supplierProduct = $row->supplierProduct ?? SupplierProduct::firstOrCreate(
-                    ['supplier_organization_id' => $supplier->id, 'match_key' => $matchKey],
-                    ['medicine_id' => $medicine->id, 'supplier_sku' => $values['sku'] ?? null, 'normalized_sku' => $values['normalized_sku'], 'original_name' => $values['name'], 'normalized_name' => $values['normalized_name']],
+                    ['supplier_organization_id' => $supplier->id, 'normalized_name' => $values['normalized_name']],
+                    ['medicine_id' => $medicine->id, 'supplier_sku' => $values['sku'] ?? null, 'normalized_sku' => $values['normalized_sku'], 'original_name' => $values['name'], 'match_key' => $values['normalized_name']],
                 );
                 SupplierProductAlias::firstOrCreate(['supplier_organization_id' => $supplier->id, 'normalized_name' => $values['normalized_name']], ['supplier_product_id' => $supplierProduct->id, 'created_by' => $actor?->id]);
                 $offer = $lockedImport->offers()->updateOrCreate(['source_row' => $row->source_row], [
@@ -59,6 +75,7 @@ class ImportActivator
                 throw new \RuntimeException('Не все строки импорта материализованы.');
             }
             if ($supplier->active_price_list_import_id) {
+                CartItem::query()->whereHas('offer', fn ($query) => $query->where('price_list_import_id', $supplier->active_price_list_import_id))->delete();
                 PriceListImport::query()->whereKey($supplier->active_price_list_import_id)->update(['status' => PriceListImportStatus::Superseded, 'superseded_at' => now()]);
                 $supplier->offers()->where('price_list_import_id', $supplier->active_price_list_import_id)->update(['is_active' => false]);
             }
@@ -75,7 +92,7 @@ class ImportActivator
     private function fillCanonicalNulls(Medicine $medicine, array $values, mixed $row): void
     {
         $changes = [];
-        foreach (['manufacturer' => 'manufacturer', 'country' => 'country_of_origin', 'unit' => 'unit_of_measure'] as $source => $canonical) {
+        foreach (['manufacturer' => 'manufacturer', 'country' => 'country_of_origin', 'unit' => 'unit_of_measure', 'inn' => 'inn', 'form' => 'form', 'dosage' => 'dosage'] as $source => $canonical) {
             if ($medicine->{$canonical} === null && ! empty($values[$source])) {
                 $changes[$canonical] = $values[$source];
             } elseif ($medicine->{$canonical} && ! empty($values[$source]) && app(ValueNormalizer::class)->name($medicine->{$canonical}) !== app(ValueNormalizer::class)->name($values[$source])) {
@@ -87,5 +104,15 @@ class ImportActivator
         if ($changes !== []) {
             $medicine->update($changes);
         }
+    }
+
+    private function isOlderThan(PriceListImport $candidate, PriceListImport $current): bool
+    {
+        if ($candidate->inventory_at === null || $current->inventory_at === null) {
+            return $candidate->id < $current->id;
+        }
+
+        return $candidate->inventory_at->lt($current->inventory_at)
+            || ($candidate->inventory_at->equalTo($current->inventory_at) && $candidate->id < $current->id);
     }
 }

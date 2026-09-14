@@ -14,10 +14,7 @@ class CatalogController extends Controller
         $search = trim((string) $request->query('q'));
         $offers = Offer::query()
             ->with(['medicine', 'organization'])
-            ->where('is_active', true)
-            ->where(fn (Builder $query): Builder => $query->whereNull('quantity')->orWhere('quantity', '>', 0))
-            ->where(fn (Builder $query): Builder => $query->whereNull('expires_at')->orWhereDate('expires_at', '>=', now('Asia/Dushanbe')->toDateString()))
-            ->whereHas('organization', fn (Builder $query): Builder => $query->whereColumn('organizations.active_price_list_import_id', 'offers.price_list_import_id'))
+            ->currentAvailable()
             ->when(mb_strlen($search) >= 2, function (Builder $query) use ($search): void {
                 $query->whereHas('medicine', fn (Builder $medicineQuery): Builder => $medicineQuery->where('search_text', 'ilike', '%'.$search.'%'));
             })

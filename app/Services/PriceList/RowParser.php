@@ -4,12 +4,11 @@ namespace App\Services\PriceList;
 
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
-use App\Models\ProductCategoryRuleSet;
 use Carbon\CarbonImmutable;
 
 class RowParser
 {
-    public function __construct(private readonly ValueNormalizer $normalizer, private readonly ProductCategoryClassifier $classifier) {}
+    public function __construct(private readonly ValueNormalizer $normalizer) {}
 
     /** @param array<string, mixed> $row @param array<string, mixed> $profile @return array<string, mixed> */
     public function parse(array $row, int $sourceRow, array $profile): array
@@ -29,8 +28,6 @@ class RowParser
 
         $values['name'] = $this->normalizer->text($values['name'] ?? null);
         $values['normalized_name'] = $this->normalizer->name($values['name']);
-        $originalName = $this->normalizer->text($row[strtoupper((string) ($profile['mapping']['name'] ?? 'A'))] ?? null);
-        $category = $originalName === '' ? null : $this->categorize($originalName, $profile);
         $values['normalized_sku'] = $this->normalizer->sku($values['sku'] ?? null);
         $values['price'] = $this->normalizer->decimal($values['price'] ?? null, $profile['decimal_separator'], $profile['thousands_separator']);
         $values['quantity'] = $this->normalizer->decimal($values['quantity'] ?? null, $profile['decimal_separator'], $profile['thousands_separator']);
@@ -42,9 +39,6 @@ class RowParser
         }
         if ($values['price'] === null || (float) $values['price'] <= 0) {
             $errors[] = 'Цена должна быть положительным числом.';
-        }
-        if ($profile['matching_strategy'] === 'sku' && $values['normalized_sku'] === null) {
-            $errors[] = 'Для сопоставления по SKU необходим артикул.';
         }
         if ($values['quantity'] !== null && (float) $values['quantity'] < 0) {
             $errors[] = 'Количество не может быть отрицательным.';
@@ -78,15 +72,6 @@ class RowParser
 
         $disposition = $errors !== [] ? PriceListRowDisposition::Error : ($warnings !== [] ? PriceListRowDisposition::Warning : PriceListRowDisposition::Valid);
         $result = $this->result($raw, $values, $disposition, PriceListRowAction::Create, $errors, $warnings);
-        if ($category !== null && $category !== []) {
-            $result = array_replace($result, $category);
-            if (in_array($category['categorization_status'], ['unmatched', 'ambiguous'], true)) {
-                $result['warnings'][] = $category['categorization_status'] === 'ambiguous' ? 'Категория товара неоднозначна и требует проверки.' : 'Категория товара не распознана.';
-                if ($result['disposition'] === PriceListRowDisposition::Valid) {
-                    $result['disposition'] = PriceListRowDisposition::Warning;
-                }
-            }
-        }
         $result['offer_fingerprint'] = hash('sha256', json_encode([$values['normalized_name'], $values['price'], $values['quantity'], $values['batch'] ?? null, $values['expiration']], JSON_UNESCAPED_UNICODE));
 
         return $result;
@@ -126,21 +111,5 @@ class RowParser
     private function result(array $raw, array $parsed, PriceListRowDisposition $disposition, PriceListRowAction $action, array $errors, array $warnings): array
     {
         return ['raw_values' => $raw, 'parsed_values' => $parsed, 'disposition' => $disposition, 'planned_action' => $action, 'errors' => $errors, 'warnings' => $warnings, 'offer_fingerprint' => null];
-    }
-
-    /** @param array<string, mixed> $profile @return array<string, mixed> */
-    private function categorize(string $originalName, array $profile): array
-    {
-        $ruleSetId = $profile['_category_rule_set_id'] ?? null;
-        if ($ruleSetId === null) {
-            return [];
-        }
-        $ruleSet = ProductCategoryRuleSet::find($ruleSetId);
-        if ($ruleSet === null) {
-            return [];
-        }
-        $result = $this->classifier->classify($originalName, $ruleSet);
-
-        return ['source_filename' => $profile['_source_filename'] ?? null, 'original_product_name' => $originalName, 'normalized_product_name' => $result['normalized'], 'assigned_category' => $result['category'], 'matched_keyword' => $result['keyword'], 'matched_source_text' => $result['sourceText'], 'categorization_confidence' => $result['confidence'], 'categorization_status' => $result['status'], 'categorization_evidence' => $result['evidence']];
     }
 }

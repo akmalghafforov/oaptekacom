@@ -4,15 +4,17 @@ namespace App\Services\PriceList;
 
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
-use App\Models\Medicine;
 use App\Models\PriceListImport;
 use App\Models\PriceListImportRow;
-use App\Models\SupplierProduct;
-use App\Models\SupplierProductAlias;
+use App\Models\ProductCategoryRuleSet;
 
 class ImportProcessor
 {
-    public function __construct(private readonly RowParser $parser) {}
+    public function __construct(
+        private readonly RowParser $parser,
+        private readonly SupplierProductMatcher $matcher,
+        private readonly ProductCategoryClassifier $classifier,
+    ) {}
 
     /** @param array<int, array<string, mixed>> $rows */
     public function process(PriceListImport $import, array $rows): void
@@ -22,7 +24,10 @@ class ImportProcessor
             $result = $this->parser->parse($rawRow, $sourceRow, $profile);
             $result['source_worksheet'] = $profile['worksheet'] ?? null;
             if (in_array($result['disposition'], [PriceListRowDisposition::Valid, PriceListRowDisposition::Warning], true)) {
-                $result = $this->match($import, $result);
+                $result = $this->matcher->match($import, $result);
+                if (($result['medicine_id'] ?? null) === null && $result['disposition'] !== PriceListRowDisposition::Error) {
+                    $result = $this->categorizeNewProduct($import, $result);
+                }
                 if (! $import->profile_snapshot['keep_exact_duplicates'] && PriceListImportRow::query()->whereBelongsTo($import, 'import')->where('offer_fingerprint', $result['offer_fingerprint'])->where('source_row', '!=', $sourceRow)->exists()) {
                     $result['disposition'] = PriceListRowDisposition::Skipped;
                     $result['planned_action'] = PriceListRowAction::Skip;
@@ -37,41 +42,37 @@ class ImportProcessor
     }
 
     /** @param array<string, mixed> $result @return array<string, mixed> */
-    private function match(PriceListImport $import, array $result): array
+    private function categorizeNewProduct(PriceListImport $import, array $result): array
     {
         $values = $result['parsed_values'];
-        $supplierProduct = null;
-        if ($values['normalized_sku'] !== null && $import->profile_snapshot['matching_strategy'] !== 'name') {
-            $supplierProduct = SupplierProduct::query()->where('supplier_organization_id', $import->supplier_organization_id)->where('normalized_sku', $values['normalized_sku'])->first();
+        $existing = PriceListImportRow::query()
+            ->whereBelongsTo($import, 'import')
+            ->where('normalized_product_name', $values['normalized_name'])
+            ->whereNotNull('categorization_status')
+            ->first();
+        if ($existing !== null) {
+            return array_replace($result, $existing->only(['assigned_category', 'matched_keyword', 'matched_source_text', 'categorization_confidence', 'categorization_status', 'categorization_evidence']));
         }
-        $supplierProduct ??= SupplierProductAlias::query()->with('supplierProduct')->where('supplier_organization_id', $import->supplier_organization_id)->where('normalized_name', $values['normalized_name'])->first()?->supplierProduct;
-        $supplierProduct ??= SupplierProduct::query()->where('supplier_organization_id', $import->supplier_organization_id)->where('normalized_name', $values['normalized_name'])->first();
-        if ($supplierProduct !== null) {
-            $result['supplier_product_id'] = $supplierProduct->id;
-            $result['medicine_id'] = $supplierProduct->medicine_id;
-            $result['planned_action'] = PriceListRowAction::Update;
 
+        $ruleSet = ProductCategoryRuleSet::find($import->product_category_rule_set_id);
+        if ($ruleSet === null) {
             return $result;
         }
-
-        $candidates = Medicine::query()->where('normalized_name', $values['normalized_name'])->get()->filter(function (Medicine $medicine) use ($values): bool {
-            foreach (['manufacturer' => 'manufacturer', 'country' => 'country_of_origin', 'unit' => 'unit_of_measure'] as $source => $canonical) {
-                if (($values[$source] ?? null) && $medicine->{$canonical} && app(ValueNormalizer::class)->name($values[$source]) !== app(ValueNormalizer::class)->name($medicine->{$canonical})) {
-                    return false;
-                }
-            }
-
-            return true;
-        });
-        if ($candidates->count() > 1) {
-            $result['disposition'] = PriceListRowDisposition::Error;
-            $result['errors'][] = 'Найдено несколько совместимых товаров. Выберите сопоставление вручную.';
-
-            return $result;
-        }
-        if ($candidates->count() === 1) {
-            $result['medicine_id'] = $candidates->first()->id;
-            $result['planned_action'] = PriceListRowAction::Match;
+        $category = $this->classifier->classify($values['normalized_name'], $ruleSet);
+        $result = array_replace($result, [
+            'source_filename' => $import->original_filename,
+            'original_product_name' => $values['name'],
+            'normalized_product_name' => $values['normalized_name'],
+            'assigned_category' => $category['category'],
+            'matched_keyword' => $category['keyword'],
+            'matched_source_text' => $category['sourceText'],
+            'categorization_confidence' => $category['confidence'],
+            'categorization_status' => $category['status'],
+            'categorization_evidence' => $category['evidence'],
+        ]);
+        if (in_array($category['status'], ['unmatched', 'ambiguous'], true)) {
+            $result['warnings'][] = $category['status'] === 'ambiguous' ? 'Категория товара неоднозначна и требует проверки.' : 'Категория товара не распознана.';
+            $result['disposition'] = PriceListRowDisposition::Warning;
         }
 
         return $result;

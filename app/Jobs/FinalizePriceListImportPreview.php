@@ -7,7 +7,6 @@ use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
 use App\Models\PriceListImport;
 use App\Services\PriceList\CategoryCandidateExtractor;
-use App\Services\PriceList\ImportActivator;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -20,7 +19,7 @@ class FinalizePriceListImportPreview implements ShouldQueue
 
     public function __construct(public readonly PriceListImport $import) {}
 
-    public function handle(ImportActivator $activator, CategoryCandidateExtractor $candidates): void
+    public function handle(CategoryCandidateExtractor $candidates): void
     {
         $import = $this->import->fresh();
         $counts = $import->rows()->selectRaw('disposition, count(*) as aggregate')->groupBy('disposition')->pluck('aggregate', 'disposition');
@@ -38,7 +37,7 @@ class FinalizePriceListImportPreview implements ShouldQueue
         $freshImport->update(['summary' => array_replace($freshImport->summary ?? [], ['rule_set_checksum' => $freshImport->product_category_rule_set_checksum, 'category_distribution' => $categoryCounts, 'categorization' => $statusCounts, 'unmatched_rate' => $freshImport->total_rows ? round(((int) ($statusCounts['unmatched'] ?? 0) / $freshImport->total_rows) * 100, 2) : 0, 'ambiguity_rate' => $freshImport->total_rows ? round(((int) ($statusCounts['ambiguous'] ?? 0) / $freshImport->total_rows) * 100, 2) : 0])]);
         $candidates->extract($freshImport);
         if (($import->profile_snapshot['activation_mode'] ?? 'manual') === ActivationMode::Automatic->value && $this->meetsThreshold($import->fresh())) {
-            $activator->activate($import->fresh());
+            CommitPriceListImport::dispatch($import->fresh())->onQueue(config('price-list-imports.queue'));
         }
     }
 

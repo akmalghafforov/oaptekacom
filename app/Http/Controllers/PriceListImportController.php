@@ -9,7 +9,10 @@ use App\Enums\PriceListImportSource;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
+use App\Enums\ProductCategory;
+use App\Http\Requests\ConfirmDuplicatePriceListImportRequest;
 use App\Http\Requests\StorePriceListImportRequest;
+use App\Jobs\CommitPriceListImport;
 use App\Jobs\PreparePriceListImport;
 use App\Models\Medicine;
 use App\Models\Organization;
@@ -19,7 +22,6 @@ use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
 use App\Services\AuditLogger;
 use App\Services\PriceList\CategorizationReportExporter;
-use App\Services\PriceList\ImportActivator;
 use App\Services\SupplierPriceListIngestor;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -27,6 +29,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -59,7 +62,11 @@ class PriceListImportController extends Controller
         $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $upload->getClientOriginalName(), $upload->getMimeType() ?: 'application/octet-stream', $upload->getSize(), hash_file('sha256', Storage::disk(config('price-list-imports.disk'))->path($path)));
         $import = $ingestor->ingest($supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))));
 
-        return redirect()->route('price-list-imports.show', $import)->with('success', 'Файл принят и поставлен в очередь.');
+        $message = $import->status === PriceListImportStatus::AwaitingDuplicateConfirmation
+            ? 'Этот файл уже был успешно импортирован. Подтвердите повторную обработку.'
+            : 'Файл принят и поставлен в очередь.';
+
+        return redirect()->route('price-list-imports.show', $import)->with($import->status === PriceListImportStatus::AwaitingDuplicateConfirmation ? 'warning' : 'success', $message);
     }
 
     public function show(Request $request, int $import): View|JsonResponse
@@ -71,7 +78,7 @@ class PriceListImportController extends Controller
         }
         $rows = $importModel->rows()->when($request->string('disposition')->isNotEmpty(), fn ($query) => $query->where('disposition', $request->string('disposition')->toString()))->when($request->string('categorization_status')->isNotEmpty(), fn ($query) => $query->where('categorization_status', $request->string('categorization_status')->toString()))->orderBy('source_row')->paginate(50)->withQueryString();
 
-        return view('price-list-imports.show', ['import' => $importModel->load('supplier'), 'rows' => $rows]);
+        return view('price-list-imports.show', ['import' => $importModel->load('supplier'), 'rows' => $rows, 'productCategories' => ProductCategory::ordered()]);
     }
 
     public function categorizationReport(Request $request, int $import, CategorizationReportExporter $exporter): StreamedResponse
@@ -101,13 +108,22 @@ class PriceListImportController extends Controller
         return back()->with('success', 'Повторная обработка запущена.');
     }
 
-    public function commit(Request $request, int $import, ImportActivator $activator): RedirectResponse
+    public function commit(Request $request, int $import): RedirectResponse
     {
         $importModel = $this->scoped($request, $import);
         $this->authorize('commit', $importModel);
-        $activator->activate($importModel, $request->user());
+        abort_unless($importModel->status === PriceListImportStatus::Preview, 422);
+        CommitPriceListImport::dispatch($importModel, $request->user()->id)->onQueue(config('price-list-imports.queue'));
 
-        return back()->with('success', 'Прайс-лист активирован.');
+        return back()->with('success', 'Активация прайс-листа поставлена в очередь.');
+    }
+
+    public function confirmDuplicate(ConfirmDuplicatePriceListImportRequest $request, int $import, SupplierPriceListIngestor $ingestor): RedirectResponse
+    {
+        $importModel = $this->scoped($request, $import);
+        $ingestor->confirmDuplicate($importModel, $request->user());
+
+        return back()->with('success', 'Повторный импорт подтверждён и поставлен в очередь.');
     }
 
     public function override(Request $request, int $import, int $row, AuditLogger $audit): RedirectResponse
@@ -115,16 +131,32 @@ class PriceListImportController extends Controller
         abort_unless($request->user()->isAdmin(), 403);
         $importModel = PriceListImport::findOrFail($import);
         $importRow = PriceListImportRow::query()->whereBelongsTo($importModel, 'import')->findOrFail($row);
-        $medicine = Medicine::findOrFail($request->validate(['medicine_id' => ['required', 'integer', 'exists:medicines,id']])['medicine_id']);
+        $validated = $request->validate([
+            'medicine_id' => ['nullable', 'integer', 'exists:medicines,id', 'required_without:category'],
+            'category' => ['nullable', Rule::enum(ProductCategory::class), 'required_without:medicine_id'],
+        ]);
+        $before = $importRow->only(['medicine_id', 'supplier_product_id', 'disposition', 'assigned_category', 'categorization_status']);
+        if (! empty($validated['category'])) {
+            $importRow->update([
+                'assigned_category' => $validated['category'], 'categorization_status' => 'manual', 'categorization_confidence' => 100,
+                'categorization_evidence' => array_replace($importRow->categorization_evidence ?? [], ['manual_override_by' => $request->user()->id]),
+            ]);
+            if ($importRow->medicine !== null) {
+                $importRow->medicine->update(['category' => $validated['category'], 'category_status' => 'manual', 'category_confidence' => 100, 'category_assigned_at' => now()]);
+            }
+            $audit->log('price_list_import.category_overridden', $importRow, $before, $importRow->only(['assigned_category', 'categorization_status']));
+
+            return back()->with('success', 'Категория товара сохранена.');
+        }
+
+        $medicine = Medicine::query()->where('supplier_organization_id', $importModel->supplier_organization_id)->findOrFail($validated['medicine_id']);
         $values = $importRow->parsed_values;
-        $matchKey = $values['normalized_sku'] ?? $values['normalized_name'];
         $supplierProduct = SupplierProduct::firstOrCreate(
-            ['supplier_organization_id' => $importModel->supplier_organization_id, 'match_key' => $matchKey],
-            ['medicine_id' => $medicine->id, 'supplier_sku' => $values['sku'] ?? null, 'normalized_sku' => $values['normalized_sku'] ?? null, 'original_name' => $values['name'], 'normalized_name' => $values['normalized_name']],
+            ['supplier_organization_id' => $importModel->supplier_organization_id, 'normalized_name' => $values['normalized_name']],
+            ['medicine_id' => $medicine->id, 'supplier_sku' => $values['sku'] ?? null, 'normalized_sku' => $values['normalized_sku'] ?? null, 'original_name' => $values['name'], 'match_key' => $values['normalized_name']],
         );
         abort_if($supplierProduct->medicine_id !== $medicine->id, 422, 'Этот товар поставщика уже сопоставлен с другим лекарством.');
         SupplierProductAlias::updateOrCreate(['supplier_organization_id' => $importModel->supplier_organization_id, 'normalized_name' => $values['normalized_name']], ['supplier_product_id' => $supplierProduct->id, 'created_by' => $request->user()->id]);
-        $before = $importRow->only(['medicine_id', 'supplier_product_id', 'disposition']);
         $importRow->update(['medicine_id' => $medicine->id, 'supplier_product_id' => $supplierProduct->id, 'planned_action' => PriceListRowAction::Match, 'disposition' => $importRow->warnings ? PriceListRowDisposition::Warning : PriceListRowDisposition::Valid, 'errors' => []]);
         $importModel->update([
             'valid_rows' => $importModel->rows()->whereIn('disposition', ['valid', 'warning'])->count(),

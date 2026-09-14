@@ -61,6 +61,11 @@ class PriceListImport extends Model
         return $this->belongsTo(User::class, 'activated_by');
     }
 
+    public function duplicateOf(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'duplicate_of_import_id');
+    }
+
     protected function casts(): array
     {
         return [
@@ -68,6 +73,7 @@ class PriceListImport extends Model
             'profile_snapshot' => 'array', 'effective_layout' => 'array', 'summary' => 'array', 'received_at' => 'datetime',
             'inventory_at' => 'datetime', 'processing_started_at' => 'datetime', 'previewed_at' => 'datetime',
             'activated_at' => 'datetime', 'failed_at' => 'datetime', 'superseded_at' => 'datetime',
+            'duplicate_confirmed_at' => 'datetime',
         ];
     }
 }

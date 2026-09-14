@@ -25,11 +25,15 @@ class ProcessPriceListImportChunk implements ShouldQueue
 
     public function handle(WorkbookReader $reader, ImportProcessor $processor): void
     {
-        $processor->process($this->import->fresh(), $reader->rows($this->import->fresh(), $this->startRow, $this->endRow));
+        $import = $this->import->fresh();
+        if ($import->status !== PriceListImportStatus::Processing) {
+            return;
+        }
+        $processor->process($import, $reader->rows($import, $this->startRow, $this->endRow));
     }
 
     public function failed(?Throwable $exception): void
     {
-        $this->import->update(['status' => PriceListImportStatus::Failed, 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
+        $this->import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'parsing', 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
     }
 }

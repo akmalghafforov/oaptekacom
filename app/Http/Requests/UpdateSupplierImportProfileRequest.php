@@ -29,7 +29,7 @@ class UpdateSupplierImportProfileRequest extends FormRequest
             'worksheet' => ['required', 'string', 'max:255'],
             'data_row' => ['required', 'integer', 'min:1', 'max:100'],
             'column_mappings' => ['required', 'array'],
-            'column_mappings.*' => ['nullable', 'string', Rule::in(['ignore', 'name', 'sku', 'price', 'expiration', 'manufacturer', 'country', 'batch', 'unit', 'quantity', 'total'])],
+            'column_mappings.*' => ['nullable', 'string', Rule::in(['ignore', 'name', 'sku', 'price', 'expiration', 'manufacturer', 'country', 'batch', 'unit', 'quantity', 'total', 'inn', 'form', 'dosage'])],
             'sender_emails' => ['nullable', 'string', 'max:4000'],
             'decimal_separator' => ['required', 'string', 'max:4'],
             'matching_strategy' => ['required', 'in:name,sku,sku_then_name'],

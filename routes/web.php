@@ -86,6 +86,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::get('/price-list-imports/{import}/categorization-report', [PriceListImportController::class, 'categorizationReport'])->name('price-list-imports.categorization-report');
     Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->name('price-list-imports.retry');
     Route::post('/price-list-imports/{import}/commit', [PriceListImportController::class, 'commit'])->name('price-list-imports.commit');
+    Route::post('/price-list-imports/{import}/confirm-duplicate', [PriceListImportController::class, 'confirmDuplicate'])->name('price-list-imports.confirm-duplicate');
     Route::prefix('admin')->middleware('role:admin')->group(function () {
         Route::get('/', [AdminController::class, 'index'])->name('admin.index');
         Route::post('/organizations/{organization}/approve', [AdminController::class, 'approve'])->name('admin.approve');

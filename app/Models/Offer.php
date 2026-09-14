@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,6 +31,20 @@ class Offer extends Model
     public function supplierProduct(): BelongsTo
     {
         return $this->belongsTo(SupplierProduct::class);
+    }
+
+    public function scopeCurrentAvailable(Builder $query): Builder
+    {
+        return $query
+            ->whereNotNull('price_list_import_id')
+            ->where(fn (Builder $query): Builder => $query->whereNull('quantity')->orWhere('quantity', '>', 0))
+            ->where(fn (Builder $query): Builder => $query->whereNull('expires_at')->orWhereDate('expires_at', '>=', now(config('price-list-imports.timezone'))->toDateString()))
+            ->whereHas('organization', fn (Builder $query): Builder => $query->whereColumn('organizations.active_price_list_import_id', 'offers.price_list_import_id'));
+    }
+
+    public function isCurrentAvailable(): bool
+    {
+        return self::query()->whereKey($this->getKey())->currentAvailable()->exists();
     }
 
     protected function casts(): array

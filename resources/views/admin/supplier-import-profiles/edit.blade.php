@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('content')
 @php
-    $attributeLabels = ['name' => 'Название товара', 'sku' => 'SKU', 'price' => 'Цена', 'expiration' => 'Срок годности', 'manufacturer' => 'Производитель', 'country' => 'Страна', 'batch' => 'Серия', 'unit' => 'Единица', 'quantity' => 'Количество', 'total' => 'Сумма'];
+    $attributeLabels = ['name' => 'Название товара', 'sku' => 'SKU', 'price' => 'Цена', 'expiration' => 'Срок годности', 'manufacturer' => 'Производитель', 'country' => 'Страна', 'batch' => 'Серия', 'unit' => 'Единица', 'quantity' => 'Количество', 'total' => 'Сумма', 'inn' => 'МНН', 'form' => 'Форма', 'dosage' => 'Дозировка'];
     $savedMapping = array_flip($profile->configuration['mapping'] ?? []);
     $selectedDataRow = (int) old('data_row', $profile->configuration['data_row'] ?? 1);
 @endphp
@@ -28,7 +28,7 @@
         <div class="mt-4"><x-ui.textarea name="sender_emails" label="Email-адреса отправителей" :value="$senderEmails" hint="Один адрес на строку. Адрес может быть назначен только одному поставщику." /></div>
         <div class="mt-4 grid gap-4 md:grid-cols-3">
             <x-ui.input name="decimal_separator" label="Десятичный разделитель" :value="$profile->configuration['decimal_separator'] ?? '.'" required />
-            <x-ui.select name="matching_strategy" label="Сопоставление" data-matching-strategy>@foreach(['name' => 'По названию', 'sku' => 'Строго по SKU', 'sku_then_name' => 'SKU, затем название'] as $value => $label)<option value="{{ $value }}" @selected(old('matching_strategy', $profile->configuration['matching_strategy'] ?? 'name') === $value)>{{ $label }}</option>@endforeach</x-ui.select>
+            <x-ui.select name="matching_strategy" label="Сопоставление" data-matching-strategy><option value="name">По нормализованному названию</option></x-ui.select>
             <x-ui.select name="activation_mode" label="Активация"><option value="manual" @selected(old('activation_mode', $profile->configuration['activation_mode'] ?? 'manual') === 'manual')>Вручную</option><option value="automatic" @selected(old('activation_mode', $profile->configuration['activation_mode'] ?? 'manual') === 'automatic')>Автоматически</option></x-ui.select>
         </div>
     </x-ui.card>
@@ -50,7 +50,7 @@
     const update = () => {
         const selects = [...table.querySelectorAll('[data-column-mapping]')]; const chosen = selects.map(select => select.value).filter(value => value !== 'ignore');
         selects.forEach(select => [...select.options].forEach(option => option.disabled = option.value !== 'ignore' && option.value !== select.value && chosen.includes(option.value)));
-        const required = ['name', 'price', ...(strategy.value === 'sku' ? ['sku'] : [])]; const missing = required.filter(field => !chosen.includes(field));
+        const required = ['name', 'price']; const missing = required.filter(field => !chosen.includes(field));
         error.textContent = missing.length ? `Укажите столбцы: ${missing.map(field => labels[field]).join(', ')}.` : ''; error.classList.toggle('hidden', missing.length === 0); save.disabled = missing.length > 0;
         selects.forEach(select => { table.querySelector(`[data-column-label="${select.dataset.column}"]`).textContent = select.value === 'ignore' ? `Столбец ${select.dataset.column} · игнорируется` : `Столбец ${select.dataset.column} · ${labels[select.value]}`; });
         const selectedRow = Number(form.querySelector('input[name="data_row"]:checked')?.value ?? 1);

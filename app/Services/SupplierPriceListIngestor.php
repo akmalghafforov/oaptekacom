@@ -10,6 +10,7 @@ use App\Jobs\PreparePriceListImport;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierSenderAddress;
+use App\Models\User;
 use App\Services\PriceList\ProductCategoryRuleSetResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -31,17 +32,23 @@ class SupplierPriceListIngestor
         if ($profile === null) {
             throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
         }
-        $existing = PriceListImport::query()->whereBelongsTo($supplier, 'supplier')->where('sha256', $file->sha256)->first();
-        if ($existing !== null) {
-            if ($existing->file_path !== $file->path) {
+        $inFlight = PriceListImport::query()->whereBelongsTo($supplier, 'supplier')->where('sha256', $file->sha256)->whereIn('status', [PriceListImportStatus::Pending, PriceListImportStatus::Processing])->first();
+        if ($inFlight !== null) {
+            if ($inFlight->file_path !== $file->path) {
                 Storage::disk($file->disk)->delete($file->path);
             }
 
-            return $existing;
+            return $inFlight;
         }
 
         return DB::transaction(function () use ($supplier, $file, $context, $profile): PriceListImport {
             $ruleSet = app(ProductCategoryRuleSetResolver::class)->current();
+            $duplicate = PriceListImport::query()
+                ->whereBelongsTo($supplier, 'supplier')
+                ->where('sha256', $file->sha256)
+                ->whereIn('status', [PriceListImportStatus::Completed, PriceListImportStatus::Superseded])
+                ->latest('id')
+                ->first();
             $import = PriceListImport::create([
                 'supplier_organization_id' => $supplier->id, 'supplier_import_profile_id' => $profile->id,
                 'profile_snapshot' => $profile->configuration, 'source_type' => $context->source,
@@ -49,11 +56,36 @@ class SupplierPriceListIngestor
                 'file_size' => $file->size, 'sha256' => $file->sha256, 'sender_email' => $context->senderEmail,
                 'message_id' => $context->messageId, 'received_at' => $context->receivedAt, 'initiated_by' => $context->actor?->id,
                 'product_category_rule_set_id' => $ruleSet->id, 'product_category_rule_set_checksum' => $ruleSet->checksum,
-                'status' => PriceListImportStatus::Pending, 'summary' => [],
+                'duplicate_of_import_id' => $duplicate?->id,
+                'status' => $duplicate === null ? PriceListImportStatus::Pending : PriceListImportStatus::AwaitingDuplicateConfirmation,
+                'summary' => [],
             ]);
-            PreparePriceListImport::dispatch($import)->onQueue(config('price-list-imports.queue'))->afterCommit();
+            if ($duplicate === null) {
+                PreparePriceListImport::dispatch($import)->onQueue(config('price-list-imports.queue'))->afterCommit();
+            }
 
             return $import;
+        });
+    }
+
+    public function confirmDuplicate(PriceListImport $import, User $actor): PriceListImport
+    {
+        return DB::transaction(function () use ($import, $actor): PriceListImport {
+            $lockedImport = PriceListImport::query()->lockForUpdate()->findOrFail($import->id);
+            Organization::query()->lockForUpdate()->findOrFail($lockedImport->supplier_organization_id);
+            if ($lockedImport->duplicate_confirmed_at !== null || $lockedImport->status !== PriceListImportStatus::AwaitingDuplicateConfirmation) {
+                return $lockedImport;
+            }
+
+            $lockedImport->update([
+                'status' => PriceListImportStatus::Pending,
+                'duplicate_confirmed_at' => now(),
+                'duplicate_confirmed_by' => $actor->id,
+            ]);
+            app(AuditLogger::class)->log('price_list_import.duplicate_confirmed', $lockedImport, [], ['duplicate_of_import_id' => $lockedImport->duplicate_of_import_id]);
+            PreparePriceListImport::dispatch($lockedImport)->onQueue(config('price-list-imports.queue'))->afterCommit();
+
+            return $lockedImport->fresh();
         });
     }
 }

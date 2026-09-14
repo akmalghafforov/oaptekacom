@@ -9,7 +9,7 @@ class OfferPolicy
 {
     public function view(User $user, Offer $offer): bool
     {
-        return $offer->is_active || $user->isAdmin() || $user->organization_id === $offer->organization_id;
+        return $offer->isCurrentAvailable() || $user->isAdmin() || $user->organization_id === $offer->organization_id;
     }
 
     public function create(User $user): bool

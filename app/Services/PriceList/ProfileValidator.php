@@ -9,7 +9,7 @@ class ProfileValidator
 {
     private const KEYS = ['worksheet', 'header_row', 'data_row', 'mapping', 'csv', 'empty_row_limit', 'decimal_separator', 'thousands_separator', 'date_formats', 'expiration_mode', 'shelf_life_unit', 'inventory', 'transformations', 'defaults', 'validation', 'skip_rules', 'keep_exact_duplicates', 'matching_strategy', 'activation_mode', 'automatic'];
 
-    private const FIELDS = ['name', 'sku', 'price', 'expiration', 'manufacturer', 'country', 'batch', 'unit', 'quantity', 'total'];
+    private const FIELDS = ['name', 'sku', 'price', 'expiration', 'manufacturer', 'country', 'batch', 'unit', 'quantity', 'total', 'inn', 'form', 'dosage'];
 
     private const OPERATORS = ['trim', 'unicode_normalize', 'collapse_whitespace', 'literal_replace', 'regex_replace', 'extract', 'remove_prefix', 'lowercase', 'uppercase'];
 
