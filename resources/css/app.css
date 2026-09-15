@@ -34,4 +34,26 @@
     .data-table th { @apply border-b border-slate-200 bg-slate-50 px-4 py-3 font-semibold text-slate-600; }
     .data-table td { @apply border-b border-slate-100 px-4 py-3 align-middle; }
     .data-table tr:last-child td { @apply border-b-0; }
+    .catalog-category-strip { @apply flex snap-x gap-3 overflow-x-auto pb-2; scrollbar-width: thin; }
+    .catalog-category-card { @apply flex min-w-32 snap-start flex-col items-center gap-2 rounded-panel border border-slate-200 bg-white px-3 py-4 text-center text-sm transition hover:border-brand-500 hover:shadow-panel; }
+    .catalog-category-card[aria-selected="true"] { @apply border-brand-600 bg-brand-50 text-brand-700; }
+    .catalog-view-button { @apply min-h-10 rounded-control px-3 text-sm font-medium text-slate-600; }
+    .catalog-view-button[aria-pressed="true"] { @apply bg-brand-600 text-white shadow-sm; }
+    .catalog-search-panel.is-compact [data-search-expanded] { @apply hidden; }
+    .catalog-search-panel.is-compact [data-catalog-form] { @apply mt-0; }
+    .catalog-search-panel.is-compact label, .catalog-search-panel.is-compact [id$="-hint"] { @apply sr-only; }
+    .catalog-dialog[open] { animation: catalog-dialog-in 160ms ease-out; }
+    body.dialog-open { overflow: hidden; }
+
+    @media (max-width: 639px) {
+        .catalog-dialog { @apply mt-auto h-[100dvh] max-h-[100dvh] w-full max-w-none rounded-none; }
+        .catalog-dialog > div { @apply max-h-[100dvh]; }
+    }
+}
+
+@keyframes catalog-dialog-in { from { opacity: 0; transform: translateY(0.5rem); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .catalog-dialog[open] { animation: none; }
+    *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }

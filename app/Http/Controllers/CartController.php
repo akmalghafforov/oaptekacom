@@ -7,6 +7,7 @@ use App\Models\CartItem;
 use App\Models\Offer;
 use App\Models\Order;
 use App\Models\OrderItem;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +30,7 @@ class CartController extends Controller
         return view('orders.cart', ['cart' => $cart->load('items.offer.medicine', 'items.offer.organization'), 'removedStaleItems' => $removed]);
     }
 
-    public function add(Offer $offer, Request $request): RedirectResponse
+    public function add(Offer $offer, Request $request): RedirectResponse|JsonResponse
     {
         $this->authorize('view', $offer);
         abort_unless($request->user()->canBuy() && $this->isCurrent($offer), 404);
@@ -42,6 +43,14 @@ class CartController extends Controller
         $cartItem->unit_price = $offer->price;
         $cartItem->snapshot = ['medicine' => $offer->medicine->name, 'supplier' => $offer->organization->name, 'price' => $offer->price, 'source_name' => $offer->source_name, 'batch' => $offer->batch, 'expires_at' => $offer->expires_at?->toDateString()];
         $cartItem->save();
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Товар добавлен в корзину.',
+                'cart' => ['total_quantity' => (int) $cartItem->cart->items()->sum('quantity')],
+                'item' => ['offer_id' => $offer->id, 'quantity' => $cartItem->quantity],
+            ]);
+        }
 
         return back()->with('success', 'Товар добавлен в корзину.');
     }

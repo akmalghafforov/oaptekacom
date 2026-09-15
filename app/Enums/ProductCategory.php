@@ -5,6 +5,8 @@ namespace App\Enums;
 enum ProductCategory: string
 {
     case Inhalations = 'Ингаляции';
+    case Ampoules = 'Ампулы';
+    case Vials = 'Флаконы';
     case Injections = 'Инъекции';
     case Suspension = 'Суспензия';
     case Suppositories = 'Свечи';
@@ -38,13 +40,13 @@ enum ProductCategory: string
     /** @return list<self> */
     public static function ordered(): array
     {
-        return [self::Inhalations, self::Injections, self::Suspension, self::Suppositories, self::ChewingGum, self::Microenema, self::Lozenges, self::Tablets, self::Capsules, self::Dragee, self::Syrup, self::Ointment, self::Cream, self::Gel, self::Drops, self::Spray, self::Aerosol, self::Solution, self::Powder, self::Granules, self::Patch, self::Emulsion, self::Liniment, self::Lotion, self::Paste, self::Oil, self::Tincture, self::Shampoo, self::Extract, self::Unrecognized];
+        return [self::Inhalations, self::Ampoules, self::Vials, self::Injections, self::Suspension, self::Suppositories, self::ChewingGum, self::Microenema, self::Lozenges, self::Tablets, self::Capsules, self::Dragee, self::Syrup, self::Ointment, self::Cream, self::Gel, self::Drops, self::Spray, self::Aerosol, self::Solution, self::Powder, self::Granules, self::Patch, self::Emulsion, self::Liniment, self::Lotion, self::Paste, self::Oil, self::Tincture, self::Shampoo, self::Extract, self::Unrecognized];
     }
 
     public function code(): string
     {
         return match ($this) {
-            self::Inhalations => 'inhalations', self::Injections => 'injections', self::Suspension => 'suspension',
+            self::Inhalations => 'inhalations', self::Ampoules => 'ampoules', self::Vials => 'vials', self::Injections => 'injections', self::Suspension => 'suspension',
             self::Suppositories => 'suppositories', self::ChewingGum => 'chewing_gum', self::Microenema => 'microenema',
             self::Lozenges => 'lozenges', self::Tablets => 'tablets', self::Capsules => 'capsules', self::Dragee => 'dragee',
             self::Syrup => 'syrup', self::Ointment => 'ointment', self::Cream => 'cream', self::Gel => 'gel',

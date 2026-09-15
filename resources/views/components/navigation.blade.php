@@ -1,3 +1,4 @@
+@props(['cartTotal' => 0])
 @php
     /** @var \App\Models\User $user */
     $user = auth()->user();
@@ -36,7 +37,7 @@
     <nav class="absolute right-0 z-10 mt-2 flex w-60 flex-col gap-1 rounded-panel border border-slate-200 bg-white p-2 shadow-panel" aria-label="Основная навигация">
         @foreach($navigationItems as $item)
             @php($isActive = request()->routeIs(...$item['active']))
-            <a class="flex min-h-10 items-center rounded-control px-3 {{ $isActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" href="{{ route($item['route']) }}" @if($isActive) aria-current="page" @endif>{{ $item['label'] }}</a>
+            <a class="flex min-h-10 items-center justify-between gap-2 rounded-control px-3 {{ $isActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" href="{{ route($item['route']) }}" @if($isActive) aria-current="page" @endif><span>{{ $item['label'] }}</span>@if($item['route'] === 'cart' && $cartTotal)<span class="rounded-full bg-brand-600 px-2 py-0.5 text-xs text-white">{{ $cartTotal }}</span>@endif</a>
         @endforeach
         <div class="mt-1 border-t border-slate-200 pt-1">
             <span class="flex min-h-10 items-center px-3 text-sm text-slate-500">{{ $user->name }}</span>
@@ -50,8 +51,14 @@
 <nav class="hidden items-center gap-1 text-sm md:flex" aria-label="Основная навигация">
     @foreach($navigationItems as $item)
         @php($isActive = request()->routeIs(...$item['active']))
-        <a class="flex min-h-10 items-center rounded-control px-3 {{ $isActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" href="{{ route($item['route']) }}" @if($isActive) aria-current="page" @endif>{{ $item['label'] }}</a>
+        <a class="flex min-h-10 items-center gap-2 rounded-control px-3 {{ $isActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" href="{{ route($item['route']) }}" @if($isActive) aria-current="page" @endif>{{ $item['label'] }}@if($item['route'] === 'cart' && $cartTotal)<span class="rounded-full bg-brand-600 px-2 py-0.5 text-xs text-white">{{ $cartTotal }}</span>@endif</a>
     @endforeach
+    @if(! $user->isAdmin())
+        <button type="button" disabled class="flex min-h-10 items-center rounded-control px-3 text-slate-400" title="Раздел готовится">Партнёры <span class="sr-only">недоступно</span></button>
+        <button type="button" disabled class="flex min-h-10 items-center rounded-control px-3 text-slate-400" title="Раздел готовится">Вопросы <span class="sr-only">недоступно</span></button>
+        <x-ui.icon-button label="Избранное — раздел готовится" disabled><span aria-hidden="true">♡</span></x-ui.icon-button>
+        <x-ui.icon-button label="Уведомления — раздел готовится" disabled><span aria-hidden="true">♢</span></x-ui.icon-button>
+    @endif
     <div class="ml-2 flex items-center gap-1 border-l border-slate-200 pl-3">
         <span class="px-1 text-slate-500">{{ $user->name }}</span>
         @php($isProfileActive = request()->routeIs('profile.*'))

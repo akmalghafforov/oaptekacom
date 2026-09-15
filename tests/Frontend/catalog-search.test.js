@@ -2,177 +2,66 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CatalogSearchController } from '../../resources/js/catalog-search.js';
 
-const deferred = () => {
-    let resolve;
-    let reject;
-    const promise = new Promise((promiseResolve, promiseReject) => {
-        resolve = promiseResolve;
-        reject = promiseReject;
-    });
-    return { promise, resolve, reject };
+const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
+const harness = (fetcher = async () => ({ fragments: { cards: '<article />' }, pagination: { next_cursor: null, has_more: false } })) => {
+    const states = []; const data = []; const filters = [];
+    const controller = new CatalogSearchController({ fetcher, onState: (value) => states.push(value), onData: (value, append) => data.push([value, append]), onFilters: (value, push) => filters.push([{ ...value }, push]) });
+    return { controller, states, data, filters };
 };
 
-const harness = (fetcher = async () => ({ html: '<article />', next_cursor: null, has_more: false, facets: [] })) => {
-    const states = [];
-    const data = [];
-    const filterEvents = [];
-    const timers = new Map();
-    let timerId = 0;
-    const controller = new CatalogSearchController({
-        fetcher,
-        onState: (state) => states.push(state),
-        onData: (response, append) => data.push([response, append]),
-        onFilters: (filters, replace) => filterEvents.push([{ ...filters }, replace]),
-        setTimer: (callback, delay) => {
-            timers.set(++timerId, { callback, delay });
-            return timerId;
-        },
-        clearTimer: (id) => timers.delete(id),
-    });
-    return { controller, states, data, filterEvents, timers };
-};
-
-test('invokes native timers with the global receiver', () => {
-    const originalSetTimeout = globalThis.setTimeout;
-    const originalClearTimeout = globalThis.clearTimeout;
-    let clearedTimer;
-
-    globalThis.setTimeout = function (callback, delay) {
-        assert.equal(this, globalThis);
-        assert.equal(delay, 500);
-
-        return 123;
-    };
-    globalThis.clearTimeout = function (timer) {
-        assert.equal(this, globalThis);
-        clearedTimer = timer;
-    };
-
-    try {
-        const controller = new CatalogSearchController({
-            fetcher: async () => ({}),
-            onState: () => {},
-            onData: () => {},
-            onFilters: () => {},
-        });
-
-        controller.setQuery('aspirin');
-        controller.setQuery('aspirin forte');
-
-        assert.equal(clearedTimer, 123);
-    } finally {
-        globalThis.setTimeout = originalSetTimeout;
-        globalThis.clearTimeout = originalClearTimeout;
-    }
-});
-
-test('debounces searches for exactly 500 ms and clears immediately below three characters', async () => {
+test('typing changes only the draft and submit performs the request', async () => {
     let requests = 0;
-    const { controller, states, data, timers } = harness(async () => {
-        requests++;
-        return { html: '<article />', next_cursor: null, has_more: false, facets: [] };
-    });
-
-    controller.setQuery(' асп ');
-    assert.equal([...timers.values()][0].delay, 500);
+    const { controller, states } = harness(async () => { requests++; return { fragments: { cards: '' }, pagination: { next_cursor: null, has_more: false } }; });
+    controller.setDraftQuery('аспирин');
     assert.equal(requests, 0);
-    await [...timers.values()][0].callback();
+    await controller.submit('аспирин');
     assert.equal(requests, 1);
-
-    controller.setQuery(' аб ');
-    assert.equal(states.at(-1), 'waiting');
-    assert.equal(data.at(-1)[0].html, '');
+    assert.equal(states.at(-1), 'empty');
 });
 
-test('cancels in-flight work and rejects a stale response even if abort is ignored', async () => {
-    const requests = [deferred(), deferred()];
-    let index = 0;
-    const { controller, data } = harness(() => requests[index++].promise);
-
-    controller.filters = { q: 'first' };
-    const first = controller.request(false);
-    controller.setQuery('second');
-    const timer = controller.timer;
-    controller.timer = null;
-    controller.clearTimer(timer);
-    const second = controller.request(false);
-    requests[1].resolve({ html: 'second', next_cursor: null, has_more: false, facets: [] });
-    await second;
-    requests[0].resolve({ html: 'first', next_cursor: null, has_more: false, facets: [] });
-    await first;
-
-    assert.deepEqual(data.map(([response]) => response.html).filter(Boolean), ['second']);
-});
-
-test('active filter changes reset pagination and duplicate observer callbacks request one cursor once', async () => {
-    let calls = 0;
-    const pending = deferred();
-    const { controller } = harness(async (filters) => {
-        calls++;
-        if (filters.cursor) {
-            return pending.promise;
-        }
-        return { html: 'one', next_cursor: 'cursor-1', has_more: true, facets: [] };
-    });
-    controller.filters = { q: 'аспирин' };
-    await controller.request(false);
-    controller.loadMore();
-    controller.loadMore();
-    assert.equal(calls, 2);
-    pending.resolve({ html: 'two', next_cursor: null, has_more: false, facets: null });
-    await Promise.resolve();
-
-    await controller.setFilter('city', 'Душанбе');
-    assert.equal(controller.seenCursors.size, 0);
-});
-
-test('restore loads valid shared filters immediately without replacing history', async () => {
+test('empty query browses while short non-empty query is rejected', async () => {
     let requested;
-    const { controller, filterEvents } = harness(async (filters) => {
-        requested = filters;
-        return { html: '', next_cursor: null, has_more: false, facets: [] };
-    });
-
-    await controller.restore({ q: '  аспирин ', city: ' Душанбе ', cursor: 'ignored' });
-
-    assert.deepEqual(requested, { q: 'аспирин', city: 'Душанбе' });
-    assert.equal(filterEvents.at(-1)[1], false);
+    const { controller, states } = harness(async (filters) => { requested = filters; return { fragments: { cards: '' }, pagination: { next_cursor: null, has_more: false } }; });
+    await controller.submit('аб');
+    assert.equal(states.at(-1), 'invalid');
+    await controller.submit('');
+    assert.equal(requested.view, 'list');
+    assert.equal('q' in requested, false);
 });
 
-test('retries initial and load-more failures while preserving append mode', async () => {
-    let failures = 2;
-    const { controller, states, data } = harness(async (filters) => {
-        if (failures-- > 0) {
-            throw new Error('offline');
-        }
-        return { html: filters.cursor ? 'more' : 'initial', next_cursor: null, has_more: false, facets: [] };
-    });
-    controller.filters = { q: 'аспирин' };
-    await controller.request(false);
-    assert.equal(states.at(-1), 'error');
-    await controller.retry();
-    assert.equal(states.at(-1), 'error');
-    await controller.retry();
-    assert.equal(data.at(-1)[1], false);
+test('committed filters use arrays and reset pagination', async () => {
+    const requests = [];
+    const { controller, filters } = harness(async (input) => { requests.push(input); return { fragments: { cards: '' }, pagination: { next_cursor: null, has_more: false } }; });
+    controller.cursor = 'old';
+    await controller.setFilters({ cities: ['Душанбе'], suppliers: ['4'], sort: 'updated_desc' });
+    assert.deepEqual(requests[0].cities, ['Душанбе']);
+    assert.equal(controller.cursor, null);
+    assert.equal(filters.at(-1)[1], true);
+});
 
-    controller.cursor = 'next';
-    controller.hasMore = true;
-    failures = 1;
+test('late responses are ignored after a newer committed search', async () => {
+    const first = deferred(); const second = deferred(); let index = 0;
+    const { controller, data } = harness(() => [first, second][index++].promise);
+    const oldRequest = controller.submit('первый');
+    const newRequest = controller.submit('второй');
+    second.resolve({ fragments: { cards: 'second' }, pagination: { next_cursor: null, has_more: false } }); await newRequest;
+    first.resolve({ fragments: { cards: 'first' }, pagination: { next_cursor: null, has_more: false } }); await oldRequest;
+    assert.deepEqual(data.map(([response]) => response.fragments?.cards).filter(Boolean), ['second']);
+});
+
+test('load more uses one explicit cursor request', async () => {
+    const requests = [];
+    const { controller, data } = harness(async (input) => { requests.push(input); return requests.length === 1 ? { fragments: { cards: 'first' }, pagination: { next_cursor: 'next', has_more: true } } : { fragments: { cards: 'more' }, pagination: { next_cursor: null, has_more: false } }; });
+    await controller.submit('аспирин');
     await controller.loadMore();
-    assert.equal(states.at(-1), 'loadMoreError');
-    await controller.retry();
+    assert.equal(requests[1].cursor, 'next');
     assert.equal(data.at(-1)[1], true);
-    assert.equal(states.at(-1), 'complete');
 });
 
-test('emits waiting, loading, results, empty, failure, loading-more and complete states', async () => {
-    const { controller, states } = harness();
-    controller.restore({ q: 'ab' });
-    controller.filters = { q: 'asp' };
-    await controller.request(false);
-    controller.cursor = 'next';
-    controller.hasMore = true;
-    await controller.loadMore();
-
-    assert.deepEqual([...new Set(states)], ['waiting', 'loading', 'complete', 'loadingMore']);
+test('view changes are requested but excluded from shareable filters', async () => {
+    let requested;
+    const { controller, filters } = harness(async (input) => { requested = input; return { fragments: { cards: '' }, pagination: { next_cursor: null, has_more: false } }; });
+    await controller.setView('grid');
+    assert.equal(requested.view, 'grid');
+    assert.equal('view' in filters.at(-1)[0], false);
 });
