@@ -108,6 +108,20 @@ class CatalogSearchTest extends TestCase
         }
     }
 
+    public function test_catalog_page_renders_compact_search_panel_with_accessible_controls(): void
+    {
+        $response = $this->actingAs($this->pharmacyUser())->get(route('catalog'));
+
+        $response
+            ->assertSee('data-search-panel', false)
+            ->assertSee('data-search-actions', false)
+            ->assertSee('aria-label="Фильтры"', false)
+            ->assertSee('aria-label="Найти"', false)
+            ->assertSee('Название лекарства')
+            ->assertDontSee('Оптовый каталог')
+            ->assertDontSee('Оставьте поле пустым, чтобы посмотреть весь каталог.');
+    }
+
     public function test_catalog_page_uses_neutral_medicine_image_for_unmapped_category_code(): void
     {
         $category = ProductCategory::query()->create([

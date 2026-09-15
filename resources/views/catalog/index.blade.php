@@ -1,14 +1,31 @@
 @extends('layouts.app')
 @section('content')
 <div data-catalog-search data-search-url="{{ route('catalog.search') }}" data-cart-total="{{ $cartTotal }}">
-    <x-ui.card class="catalog-search-panel sticky top-2 z-20 mb-5 overflow-visible" data-search-panel>
-        <div data-search-expanded><p class="text-sm font-semibold uppercase tracking-wider text-brand-700">Оптовый каталог</p><h1 class="mt-1 text-2xl font-bold sm:text-3xl">Поиск товаров</h1><p class="mt-2 max-w-2xl text-sm text-muted">Сравнивайте цены, остатки и сроки годности в актуальных прайс-листах поставщиков.</p></div>
-        <form data-catalog-form class="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
-            <x-ui.search-input name="q" label="Название лекарства" :value="request('q')" placeholder="Название, МНН, форма или дозировка" hint="Оставьте поле пустым, чтобы посмотреть весь каталог." autocomplete="off" />
-            <x-ui.button type="button" variant="secondary" data-filter-open>Фильтры <span data-filter-count class="hidden rounded-full bg-brand-100 px-2 py-0.5 text-xs">0</span></x-ui.button>
-            <x-ui.button type="submit" data-search-submit><svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg> Найти</x-ui.button>
+    <x-ui.card class="catalog-search-panel sticky top-2 z-20 mb-5 overflow-visible transition-[padding] [&.is-compact]:p-2" data-search-panel>
+        <div data-search-expanded class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0">
+                <h1 class="text-2xl font-bold sm:text-3xl">Поиск товаров</h1>
+                <p class="mt-1 max-w-2xl text-sm text-muted">Сравнивайте цены, остатки и сроки годности в актуальных прайс-листах поставщиков.</p>
+            </div>
+            <div class="flex shrink-0 flex-wrap gap-2" data-search-actions>
+                <x-ui.button type="button" variant="secondary" disabled>AI-закупка · скоро</x-ui.button>
+                @if($canBuy)
+                    <x-ui.button href="{{ route('cart') }}" variant="secondary" class="gap-2">Корзина <span data-cart-badge>{{ $cartTotal }}</span></x-ui.button>
+                @endif
+            </div>
+        </div>
+        <form data-catalog-form class="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
+            <x-ui.search-input name="q" label="Название лекарства" :value="request('q')" placeholder="Название, МНН, форма или дозировка" autocomplete="off" />
+            <x-ui.button type="button" variant="secondary" class="min-h-12 gap-2 px-3 sm:px-4" data-filter-open aria-label="Фильтры">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+                <span class="hidden sm:inline">Фильтры</span>
+                <span data-filter-count class="hidden rounded-full bg-brand-100 px-2 py-0.5 text-xs">0</span>
+            </x-ui.button>
+            <x-ui.button type="submit" class="min-h-12 gap-2 px-3 sm:px-4" data-search-submit aria-label="Найти">
+                <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+                <span class="hidden sm:inline">Найти</span>
+            </x-ui.button>
         </form>
-        <div data-search-expanded class="mt-4 flex flex-wrap gap-2"><x-ui.button type="button" variant="secondary" disabled>AI-закупка · скоро</x-ui.button>@if($canBuy)<x-ui.button href="{{ route('cart') }}" variant="secondary">Корзина <span data-cart-badge>{{ $cartTotal }}</span></x-ui.button>@endif</div>
     </x-ui.card>
     <div data-search-sentinel class="h-px" aria-hidden="true"></div>
     <section aria-labelledby="catalog-categories-title" class="mb-5">

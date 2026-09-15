@@ -59,6 +59,10 @@
         .catalog-dialog { @apply mt-auto h-[100dvh] max-h-[100dvh] w-full max-w-none rounded-none; }
         .catalog-dialog > div { @apply max-h-[100dvh]; }
     }
+
+    @media (min-width: 640px) {
+        .catalog-search-panel:not(.is-compact) [data-catalog-form] label { @apply sr-only; }
+    }
 }
 
 @keyframes catalog-dialog-in { from { opacity: 0; transform: translateY(0.5rem); } }
