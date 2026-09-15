@@ -7,6 +7,7 @@ use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
 use App\Jobs\CommitPriceListImport;
 use App\Jobs\FinalizePriceListImportPreview;
+use App\Jobs\MaterializePriceListImportChunk;
 use App\Jobs\PreparePriceListImport;
 use App\Models\Medicine;
 use App\Models\Organization;
@@ -99,7 +100,7 @@ class PriceListImportTest extends TestCase
 
     public function test_finalization_ignores_legacy_manual_thresholds_and_queues_activation(): void
     {
-        Queue::fake([CommitPriceListImport::class]);
+        Queue::fake([MaterializePriceListImportChunk::class, CommitPriceListImport::class]);
         $supplier = Organization::factory()->wholesaler()->create();
         $configuration = array_replace(ProfileValidator::defaults(), [
             'activation_mode' => 'manual',
@@ -112,12 +113,12 @@ class PriceListImportTest extends TestCase
         (new FinalizePriceListImportPreview($import))->handle(app(CategoryCandidateExtractor::class));
 
         $this->assertSame(PriceListImportStatus::Preview, $import->fresh()->status);
-        Queue::assertPushed(CommitPriceListImport::class, 1);
+        Queue::assertPushed(MaterializePriceListImportChunk::class, 1);
     }
 
     public function test_import_with_no_processable_rows_fails_automatically(): void
     {
-        Queue::fake([CommitPriceListImport::class]);
+        Queue::fake([MaterializePriceListImportChunk::class, CommitPriceListImport::class]);
         $supplier = Organization::factory()->wholesaler()->create();
         $import = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Processing, 'total_rows' => 1]);
         PriceListImportRow::factory()->for($import, 'import')->create(['disposition' => PriceListRowDisposition::Error]);
@@ -125,6 +126,6 @@ class PriceListImportTest extends TestCase
         (new FinalizePriceListImportPreview($import))->handle(app(CategoryCandidateExtractor::class));
 
         $this->assertSame(PriceListImportStatus::Failed, $import->fresh()->status);
-        Queue::assertNotPushed(CommitPriceListImport::class);
+        Queue::assertNotPushed(MaterializePriceListImportChunk::class);
     }
 }

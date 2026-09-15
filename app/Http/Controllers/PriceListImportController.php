@@ -19,6 +19,7 @@ use App\Models\ProductCategory;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
 use App\Services\AuditLogger;
+use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CategorizationReportExporter;
 use App\Services\SupplierPriceListIngestor;
 use Carbon\CarbonImmutable;
@@ -91,13 +92,22 @@ class PriceListImportController extends Controller
         return Storage::disk(config('price-list-imports.disk'))->download($importModel->file_path, $importModel->original_filename);
     }
 
-    public function retry(Request $request, int $import): RedirectResponse
+    public function retry(Request $request, int $import, ActivationDispatcher $activationDispatcher): RedirectResponse
     {
         $importModel = $this->scoped($request, $import);
         $this->authorize('retry', $importModel);
         abort_unless($importModel->status === PriceListImportStatus::Failed, 422);
-        $importModel->update(['status' => PriceListImportStatus::Pending, 'failed_at' => null, 'failure_message' => null]);
-        PreparePriceListImport::dispatch($importModel)->onQueue(config('price-list-imports.queue'))->afterCommit();
+        $activationFailure = in_array($importModel->failure_stage, ['activation', 'activation_materialization', 'activation_cutover'], true);
+        $importModel->update([
+            'status' => $activationFailure ? PriceListImportStatus::Preview : PriceListImportStatus::Pending,
+            'failed_at' => null, 'failure_stage' => null, 'failure_message' => null,
+        ]);
+        if ($activationFailure) {
+            $activationDispatcher->dispatch($importModel->fresh(), $request->user()->id);
+        } else {
+            $importModel->rows()->delete();
+            PreparePriceListImport::dispatch($importModel->fresh())->onQueue(config('price-list-imports.queue'))->afterCommit();
+        }
 
         return back()->with('success', 'Повторная обработка запущена.');
     }
@@ -106,6 +116,7 @@ class PriceListImportController extends Controller
     {
         abort_unless($request->user()->isAdmin(), 403);
         $importModel = PriceListImport::findOrFail($import);
+        abort_unless($importModel->status === PriceListImportStatus::Preview, 422);
         $importRow = PriceListImportRow::query()->whereBelongsTo($importModel, 'import')->findOrFail($row);
         $validated = $request->validate([
             'medicine_id' => ['nullable', 'integer', 'exists:medicines,id', 'required_without:categories'],

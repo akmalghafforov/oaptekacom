@@ -7,6 +7,7 @@ return [
     'max_rows' => 100000,
     'max_columns' => 64,
     'chunk_size' => 500,
+    'activation_chunk_size' => 500,
     'timezone' => 'Asia/Dushanbe',
     'near_expiry_days' => 90,
     'layout_detection_rows' => 100,

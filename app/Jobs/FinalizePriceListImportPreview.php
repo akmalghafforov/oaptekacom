@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
 use App\Models\PriceListImport;
+use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CategoryCandidateExtractor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -43,6 +44,6 @@ class FinalizePriceListImportPreview implements ShouldQueue
             return;
         }
 
-        CommitPriceListImport::dispatch($freshImport)->onQueue(config('price-list-imports.queue'));
+        app(ActivationDispatcher::class)->dispatch($freshImport);
     }
 }

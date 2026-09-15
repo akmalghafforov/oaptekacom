@@ -6,6 +6,7 @@ use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
 use App\Jobs\CommitPriceListImport;
+use App\Jobs\MaterializePriceListImportChunk;
 use App\Jobs\PreparePriceListImport;
 use App\Models\Organization;
 use App\Models\PriceListImport;
@@ -20,7 +21,7 @@ class RolloutAutomaticPriceListImportsTest extends TestCase
 
     public function test_command_releases_legacy_imports_and_is_idempotent(): void
     {
-        Queue::fake([PreparePriceListImport::class, CommitPriceListImport::class]);
+        Queue::fake([PreparePriceListImport::class, MaterializePriceListImportChunk::class, CommitPriceListImport::class]);
         $supplier = Organization::factory()->wholesaler()->create();
         $duplicate = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::AwaitingDuplicateConfirmation]);
         $preview = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Preview]);
@@ -39,6 +40,6 @@ class RolloutAutomaticPriceListImportsTest extends TestCase
         $this->assertSame(PriceListRowDisposition::Valid, $row->fresh()->disposition);
         $this->assertSame([], $row->fresh()->warnings);
         Queue::assertPushed(PreparePriceListImport::class, 1);
-        Queue::assertPushed(CommitPriceListImport::class, 1);
+        Queue::assertPushed(MaterializePriceListImportChunk::class, 2);
     }
 }

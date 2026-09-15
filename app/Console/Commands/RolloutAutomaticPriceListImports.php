@@ -4,10 +4,10 @@ namespace App\Console\Commands;
 
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
-use App\Jobs\CommitPriceListImport;
 use App\Jobs\PreparePriceListImport;
 use App\Models\PriceListImport;
 use App\Models\PriceListImportRow;
+use App\Services\PriceList\ActivationDispatcher;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -37,9 +37,6 @@ class RolloutAutomaticPriceListImports extends Command
                 ->lockForUpdate()
                 ->get();
             foreach ($legacyPreviews as $import) {
-                if (($import->summary['automatic_rollout_queued'] ?? false) === true) {
-                    continue;
-                }
                 $import->update(['summary' => array_replace($import->summary ?? [], ['automatic_rollout_queued' => true])]);
                 $activationIds[] = $import->id;
             }
@@ -75,7 +72,7 @@ class RolloutAutomaticPriceListImports extends Command
             PreparePriceListImport::dispatch(PriceListImport::findOrFail($importId))->onQueue(config('price-list-imports.queue'));
         }
         foreach ($activationIds as $importId) {
-            CommitPriceListImport::dispatch(PriceListImport::findOrFail($importId))->onQueue(config('price-list-imports.queue'));
+            app(ActivationDispatcher::class)->dispatch(PriceListImport::findOrFail($importId));
         }
 
         $this->info('Legacy price-list imports and category statuses were rolled forward.');

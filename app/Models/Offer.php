@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Offer extends Model
 {
@@ -31,6 +32,11 @@ class Offer extends Model
     public function supplierProduct(): BelongsTo
     {
         return $this->belongsTo(SupplierProduct::class);
+    }
+
+    public function importRow(): HasOne
+    {
+        return $this->hasOne(PriceListImportRow::class);
     }
 
     public function scopeCurrentCatalog(Builder $query): Builder
