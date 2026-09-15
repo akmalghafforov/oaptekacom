@@ -32,6 +32,40 @@ const harness = (fetcher = async () => ({ html: '<article />', next_cursor: null
     return { controller, states, data, filterEvents, timers };
 };
 
+test('invokes native timers with the global receiver', () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    let clearedTimer;
+
+    globalThis.setTimeout = function (callback, delay) {
+        assert.equal(this, globalThis);
+        assert.equal(delay, 500);
+
+        return 123;
+    };
+    globalThis.clearTimeout = function (timer) {
+        assert.equal(this, globalThis);
+        clearedTimer = timer;
+    };
+
+    try {
+        const controller = new CatalogSearchController({
+            fetcher: async () => ({}),
+            onState: () => {},
+            onData: () => {},
+            onFilters: () => {},
+        });
+
+        controller.setQuery('aspirin');
+        controller.setQuery('aspirin forte');
+
+        assert.equal(clearedTimer, 123);
+    } finally {
+        globalThis.setTimeout = originalSetTimeout;
+        globalThis.clearTimeout = originalClearTimeout;
+    }
+});
+
 test('debounces searches for exactly 500 ms and clears immediately below three characters', async () => {
     let requests = 0;
     const { controller, states, data, timers } = harness(async () => {

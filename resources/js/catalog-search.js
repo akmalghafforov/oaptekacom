@@ -1,7 +1,15 @@
 const FILTER_KEYS = ['q', 'category', 'city', 'supplier', 'form', 'min_price', 'max_price'];
 
 export class CatalogSearchController {
-    constructor({ fetcher, onState, onData, onFilters, setTimer = setTimeout, clearTimer = clearTimeout, debounceMs = 500 }) {
+    constructor({
+        fetcher,
+        onState,
+        onData,
+        onFilters,
+        setTimer = (callback, delay) => globalThis.setTimeout(callback, delay),
+        clearTimer = (timer) => globalThis.clearTimeout(timer),
+        debounceMs = 500,
+    }) {
         this.fetcher = fetcher;
         this.onState = onState;
         this.onData = onData;
