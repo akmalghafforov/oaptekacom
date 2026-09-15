@@ -3,7 +3,9 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OAPTEKA</title>@vite(['resources/css/app.css', 'resources/js/app.js'])</head>
 <body>
 <header class="border-b border-slate-200 bg-white"><div class="page-container flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
-<a href="{{ auth()->check() ? route('dashboard') : route('login') }}" class="flex items-center gap-2 text-lg font-bold tracking-tight text-brand-700"><span class="grid size-8 place-items-center rounded-control bg-brand-600 text-sm text-white" aria-hidden="true">+</span> OAPTEKA</a>
+<a href="{{ auth()->check() ? route('dashboard') : route('login') }}" aria-label="OAPTEKA — на главную">
+<img src="{{ asset('images/oapteka-logo-header.png') }}" alt="OAPTEKA" class="h-9 w-auto sm:h-10">
+</a>
 @auth
 <x-navigation :cart-total="$navigationCartTotal ?? $cartTotal ?? 0" />
 @else
