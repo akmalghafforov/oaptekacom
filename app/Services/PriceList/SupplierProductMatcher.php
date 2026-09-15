@@ -31,12 +31,14 @@ class SupplierProductMatcher
         $supplierProduct ??= $aliasProduct;
 
         if ($supplierProduct !== null) {
-            $medicine = $supplierProduct->medicine;
+            $medicine = $supplierProduct->medicine()->with('categories')->firstOrFail();
             $result['supplier_product_id'] = $supplierProduct->id;
             $result['medicine_id'] = $medicine->id;
             $result['planned_action'] = PriceListRowAction::Update;
             $result['assigned_category'] = $medicine->category;
-            $result['categorization_status'] = $medicine->category_status;
+            $result['assigned_categories'] = $medicine->categories->pluck('code')->all();
+            $result['category_candidates'] = $medicine->categories->map(fn ($category): array => ['code' => $category->code, 'label' => $category->label, 'confidence' => $category->pivot->confidence, 'decision' => 'accepted', 'evidence' => $category->pivot->evidence])->all();
+            $result['categorization_status'] = $medicine->categories_locked_at ? 'manual_locked' : $medicine->category_status;
             $result['categorization_confidence'] = $medicine->category_confidence;
             $result['categorization_evidence'] = $medicine->category_evidence;
         }

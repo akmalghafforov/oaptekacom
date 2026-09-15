@@ -9,7 +9,6 @@ use App\Enums\PriceListImportSource;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
-use App\Enums\ProductCategory;
 use App\Http\Requests\ConfirmDuplicatePriceListImportRequest;
 use App\Http\Requests\StorePriceListImportRequest;
 use App\Jobs\CommitPriceListImport;
@@ -18,6 +17,7 @@ use App\Models\Medicine;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\PriceListImportRow;
+use App\Models\ProductCategory;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
 use App\Services\AuditLogger;
@@ -78,7 +78,7 @@ class PriceListImportController extends Controller
         }
         $rows = $importModel->rows()->when($request->string('disposition')->isNotEmpty(), fn ($query) => $query->where('disposition', $request->string('disposition')->toString()))->when($request->string('categorization_status')->isNotEmpty(), fn ($query) => $query->where('categorization_status', $request->string('categorization_status')->toString()))->orderBy('source_row')->paginate(50)->withQueryString();
 
-        return view('price-list-imports.show', ['import' => $importModel->load('supplier'), 'rows' => $rows, 'productCategories' => ProductCategory::ordered()]);
+        return view('price-list-imports.show', ['import' => $importModel->load('supplier'), 'rows' => $rows, 'productCategories' => ProductCategory::query()->where('is_active', true)->orderBy('sort_order')->get()]);
     }
 
     public function categorizationReport(Request $request, int $import, CategorizationReportExporter $exporter): StreamedResponse
@@ -132,21 +132,25 @@ class PriceListImportController extends Controller
         $importModel = PriceListImport::findOrFail($import);
         $importRow = PriceListImportRow::query()->whereBelongsTo($importModel, 'import')->findOrFail($row);
         $validated = $request->validate([
-            'medicine_id' => ['nullable', 'integer', 'exists:medicines,id', 'required_without:category'],
-            'category' => ['nullable', Rule::enum(ProductCategory::class), 'required_without:medicine_id'],
+            'medicine_id' => ['nullable', 'integer', 'exists:medicines,id', 'required_without:categories'],
+            'categories' => ['nullable', 'array', 'min:1', 'distinct', 'required_without:medicine_id'],
+            'categories.*' => ['string', Rule::exists('product_categories', 'code')->where('is_active', true)],
         ]);
         $before = $importRow->only(['medicine_id', 'supplier_product_id', 'disposition', 'assigned_category', 'categorization_status']);
-        if (! empty($validated['category'])) {
-            $importRow->update([
-                'assigned_category' => $validated['category'], 'categorization_status' => 'manual', 'categorization_confidence' => 100,
-                'categorization_evidence' => array_replace($importRow->categorization_evidence ?? [], ['manual_override_by' => $request->user()->id]),
-            ]);
+        if (! empty($validated['categories'])) {
+            $categories = ProductCategory::query()->whereIn('code', $validated['categories'])->orderBy('sort_order')->get();
+            $codes = $categories->pluck('code')->all();
+            $candidates = $categories->map(fn (ProductCategory $category): array => ['code' => $category->code, 'label' => $category->label, 'confidence' => 100, 'decision' => 'accepted', 'source' => 'manual'])->all();
+            $equivalentRows = $importModel->rows()->where('normalized_product_name', $importRow->normalized_product_name);
+            $equivalentRows->update(['assigned_category' => $categories->first()->label, 'assigned_categories' => json_encode($codes), 'category_candidates' => json_encode($candidates, JSON_UNESCAPED_UNICODE), 'categorization_status' => 'manual_locked', 'categorization_confidence' => 100, 'categorization_evidence' => json_encode(['manual_override_by' => $request->user()->id], JSON_UNESCAPED_UNICODE)]);
             if ($importRow->medicine !== null) {
-                $importRow->medicine->update(['category' => $validated['category'], 'category_status' => 'manual', 'category_confidence' => 100, 'category_assigned_at' => now()]);
+                $medicine = $importRow->medicine;
+                $medicine->update(['category' => $categories->first()->label, 'category_status' => 'manual', 'category_confidence' => 100, 'category_assigned_at' => now(), 'categories_locked_at' => now(), 'categories_locked_by' => $request->user()->id]);
+                $medicine->categories()->sync($categories->mapWithKeys(fn (ProductCategory $category): array => [$category->id => ['source' => 'manual', 'confidence' => 100, 'evidence' => json_encode(['row_id' => $importRow->id]), 'assigned_by' => $request->user()->id]])->all());
             }
             $audit->log('price_list_import.category_overridden', $importRow, $before, $importRow->only(['assigned_category', 'categorization_status']));
 
-            return back()->with('success', 'Категория товара сохранена.');
+            return back()->with('success', 'Набор категорий товара сохранён и заблокирован для автоматических изменений.');
         }
 
         $medicine = Medicine::query()->where('supplier_organization_id', $importModel->supplier_organization_id)->findOrFail($validated['medicine_id']);

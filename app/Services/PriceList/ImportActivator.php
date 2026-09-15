@@ -8,6 +8,7 @@ use App\Models\CartItem;
 use App\Models\Medicine;
 use App\Models\Organization;
 use App\Models\PriceListImport;
+use App\Models\ProductCategory;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
 use App\Models\User;
@@ -32,9 +33,6 @@ class ImportActivator
             if ($currentImport !== null && $this->isOlderThan($lockedImport, $currentImport)) {
                 throw ValidationException::withMessages(['import' => 'Дата остатков старше текущего прайс-листа.']);
             }
-            if ($lockedImport->rows()->where('categorization_status', 'ambiguous')->exists()) {
-                throw ValidationException::withMessages(['import' => 'Неоднозначные категории необходимо исправить до активации.']);
-            }
             $rows = $lockedImport->rows()->whereIn('disposition', [PriceListRowDisposition::Valid, PriceListRowDisposition::Warning])->lockForUpdate()->get();
             if ($rows->isEmpty()) {
                 throw ValidationException::withMessages(['import' => 'Нет корректных строк для активации.']);
@@ -58,6 +56,9 @@ class ImportActivator
                         'category_assigned_at' => now(),
                     ],
                 );
+                if ($medicine->categories_locked_at === null) {
+                    $this->syncCategories($medicine, $row, $lockedImport, $actor);
+                }
                 $this->fillCanonicalNulls($medicine, $values, $row);
                 $supplierProduct = $row->supplierProduct ?? SupplierProduct::firstOrCreate(
                     ['supplier_organization_id' => $supplier->id, 'normalized_name' => $values['normalized_name']],
@@ -86,6 +87,18 @@ class ImportActivator
 
             return $lockedImport->fresh();
         });
+    }
+
+    private function syncCategories(Medicine $medicine, mixed $row, PriceListImport $import, ?User $actor): void
+    {
+        $categories = ProductCategory::query()->whereIn('code', $row->assigned_categories ?? [])->get();
+        $candidateByCode = collect($row->category_candidates ?? [])->keyBy('code');
+        $sync = $categories->mapWithKeys(function ($category) use ($candidateByCode, $import, $actor): array {
+            $candidate = $candidateByCode->get($category->code, []);
+
+            return [$category->id => ['source' => 'automatic', 'confidence' => $candidate['confidence'] ?? 0, 'rule_set_id' => $import->product_category_rule_set_id, 'rule_set_checksum' => $import->product_category_rule_set_checksum, 'evidence' => json_encode($candidate, JSON_UNESCAPED_UNICODE), 'assigned_by' => $actor?->id]];
+        })->all();
+        $medicine->categories()->sync($sync);
     }
 
     /** @param array<string, mixed> $values */

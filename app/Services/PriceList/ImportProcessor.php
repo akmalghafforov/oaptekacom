@@ -51,27 +51,29 @@ class ImportProcessor
             ->whereNotNull('categorization_status')
             ->first();
         if ($existing !== null) {
-            return array_replace($result, $existing->only(['assigned_category', 'matched_keyword', 'matched_source_text', 'categorization_confidence', 'categorization_status', 'categorization_evidence']));
+            return array_replace($result, $existing->only(['assigned_category', 'assigned_categories', 'category_candidates', 'matched_keyword', 'matched_source_text', 'categorization_confidence', 'categorization_status', 'categorization_evidence']));
         }
 
         $ruleSet = ProductCategoryRuleSet::find($import->product_category_rule_set_id);
         if ($ruleSet === null) {
             return $result;
         }
-        $category = $this->classifier->classify($values['normalized_name'], $ruleSet);
+        $category = $this->classifier->classify($values['normalized_name'], $ruleSet, ['form' => $values['form'] ?? null, 'dosage' => $values['dosage'] ?? null, 'unit' => $values['unit'] ?? null]);
         $result = array_replace($result, [
             'source_filename' => $import->original_filename,
             'original_product_name' => $values['name'],
             'normalized_product_name' => $values['normalized_name'],
             'assigned_category' => $category['category'],
+            'assigned_categories' => array_column($category['assignments'], 'code'),
+            'category_candidates' => $category['candidates'],
             'matched_keyword' => $category['keyword'],
             'matched_source_text' => $category['sourceText'],
             'categorization_confidence' => $category['confidence'],
             'categorization_status' => $category['status'],
             'categorization_evidence' => $category['evidence'],
         ]);
-        if (in_array($category['status'], ['unmatched', 'ambiguous'], true)) {
-            $result['warnings'][] = $category['status'] === 'ambiguous' ? 'Категория товара неоднозначна и требует проверки.' : 'Категория товара не распознана.';
+        if (in_array($category['status'], ['unmatched', 'review_required'], true)) {
+            $result['warnings'][] = $category['status'] === 'review_required' ? 'Категории товара требуют проверки.' : 'Категория товара не распознана.';
             $result['disposition'] = PriceListRowDisposition::Warning;
         }
 

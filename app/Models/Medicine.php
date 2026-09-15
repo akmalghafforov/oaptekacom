@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Medicine extends Model
@@ -42,8 +43,13 @@ class Medicine extends Model
         return $this->belongsTo(ProductCategoryRuleSet::class, 'category_rule_set_id');
     }
 
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(ProductCategory::class)->withPivot(['source', 'confidence', 'rule_set_id', 'rule_set_checksum', 'evidence', 'assigned_by'])->withTimestamps()->orderBy('sort_order');
+    }
+
     protected function casts(): array
     {
-        return ['category_evidence' => 'array', 'category_assigned_at' => 'datetime'];
+        return ['category_evidence' => 'array', 'category_assigned_at' => 'datetime', 'categories_locked_at' => 'datetime'];
     }
 }

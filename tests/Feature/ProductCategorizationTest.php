@@ -48,4 +48,24 @@ class ProductCategorizationTest extends TestCase
         $this->assertSame(ProductCategory::Lozenges->value, app(ProductCategoryClassifier::class)->classify('Паст. 24 шт', $ruleSet)['category']);
         $this->assertSame(ProductCategory::Paste->value, app(ProductCategoryClassifier::class)->classify('Паста 20 г', $ruleSet)['category']);
     }
+
+    public function test_distinct_product_forms_are_assigned_together_in_deterministic_order(): void
+    {
+        $result = app(ProductCategoryClassifier::class)->classify('Набор: таблетки и капсулы 20 шт', app(ProductCategoryRuleSetResolver::class)->current());
+
+        $this->assertSame('multi_matched', $result['status']);
+        $this->assertSame(['tablets', 'capsules'], array_column($result['assignments'], 'code'));
+    }
+
+    public function test_review_band_candidate_is_not_automatically_assigned(): void
+    {
+        $ruleSet = app(ProductCategoryRuleSetResolver::class)->current();
+        $ruleSet->rules()->where('category', ProductCategory::Syrup->value)->update(['confidence' => 84]);
+
+        $result = app(ProductCategoryClassifier::class)->classify('Сироп детский', $ruleSet);
+
+        $this->assertSame('review_required', $result['status']);
+        $this->assertSame([], $result['assignments']);
+        $this->assertSame(84, $result['candidates'][0]['confidence']);
+    }
 }

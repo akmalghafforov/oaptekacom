@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\CategoryReviewController;
 use App\Http\Controllers\Admin\OrganizationDirectoryController;
 use App\Http\Controllers\Admin\SupplierImportProfileController;
 use App\Http\Controllers\AdminController;
@@ -119,5 +120,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::get('/suppliers/{supplier}/import-profile/sample-preview', [SupplierImportProfileController::class, 'samplePreview'])->name('admin.supplier-import-profiles.sample.preview');
         Route::put('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'update'])->name('admin.supplier-import-profiles.update');
         Route::post('/price-list-imports/{import}/rows/{row}/override', [PriceListImportController::class, 'override'])->name('admin.price-list-imports.override');
+        Route::get('/category-reviews', [CategoryReviewController::class, 'index'])->name('admin.category-reviews.index');
+        Route::post('/medicines/{medicine}/categories/unlock', [CategoryReviewController::class, 'unlock'])->name('admin.medicines.categories.unlock');
     });
 });

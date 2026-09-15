@@ -11,4 +11,5 @@ return [
     'near_expiry_days' => 90,
     'layout_detection_rows' => 100,
     'layout_detection_high_confidence' => 0.85,
+    'multi_category_enabled' => env('PRICE_LIST_MULTI_CATEGORY_ENABLED', true),
 ];

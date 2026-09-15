@@ -38,6 +38,6 @@ class PriceListImportRow extends Model
 
     protected function casts(): array
     {
-        return ['raw_values' => 'array', 'parsed_values' => 'array', 'errors' => 'array', 'warnings' => 'array', 'categorization_evidence' => 'array', 'disposition' => PriceListRowDisposition::class, 'planned_action' => PriceListRowAction::class];
+        return ['raw_values' => 'array', 'parsed_values' => 'array', 'errors' => 'array', 'warnings' => 'array', 'categorization_evidence' => 'array', 'assigned_categories' => 'array', 'category_candidates' => 'array', 'disposition' => PriceListRowDisposition::class, 'planned_action' => PriceListRowAction::class];
     }
 }

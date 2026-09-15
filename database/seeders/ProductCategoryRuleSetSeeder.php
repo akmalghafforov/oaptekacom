@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Enums\ProductCategory;
+use App\Models\ProductCategory as ProductCategoryModel;
 use App\Models\ProductCategoryRuleSet;
 use App\Services\PriceList\ProductNameNormalizer;
 use Illuminate\Database\Seeder;
@@ -19,6 +20,7 @@ class ProductCategoryRuleSetSeeder extends Seeder
         ProductCategoryRuleSet::query()->where('status', 'published')->update(['status' => 'retired']);
         $set = ProductCategoryRuleSet::create(['version' => ((int) ProductCategoryRuleSet::max('version')) + 1, 'checksum' => $checksum, 'status' => 'published', 'published_at' => now()]);
         foreach ($definitions as $definition) {
+            $definition['product_category_id'] = ProductCategoryModel::query()->where('label', $definition['category'])->value('id');
             $set->rules()->create($definition);
         }
     }
