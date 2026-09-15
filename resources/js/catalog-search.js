@@ -185,9 +185,9 @@ export function initializeCatalogSearch(root) {
         announcer.textContent = messages[name]?.[0] ?? (name === 'complete' ? 'Все предложения загружены.' : 'Предложения загружены.');
     };
     const updateFacets = (facets) => {
-        root.querySelector('[data-all-count]').textContent = facets.all_count;
+        root.querySelector('[data-all-count]').textContent = `${facets.all_count} тов.`;
         const counts = new Map((facets.categories ?? []).map((item) => [String(item.id), item.count]));
-        root.querySelectorAll('[data-category]').forEach((button) => { const count = button.querySelector('[data-category-count]'); if (count) count.textContent = counts.get(button.dataset.category) ?? 0; });
+        root.querySelectorAll('[data-category]').forEach((button) => { const count = button.querySelector('[data-category-count]'); if (count) count.textContent = `${counts.get(button.dataset.category) ?? 0} тов.`; });
     };
     const toggleClear = () => { clearButton.hidden = !queryInput.value; clearButton.classList.toggle('hidden', !queryInput.value); clearButton.classList.toggle('grid', Boolean(queryInput.value)); };
     const updateHistory = (filters, method) => {

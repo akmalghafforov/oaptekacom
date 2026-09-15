@@ -87,6 +87,42 @@ class CatalogSearchTest extends TestCase
         $this->assertSame([2, 1], collect($response->json('facets'))->pluck('count')->all());
     }
 
+    public function test_catalog_page_renders_compact_toolbar_with_accessible_views_and_category_images(): void
+    {
+        $categories = ProductCategory::query()->where('is_active', true)->orderBy('sort_order')->get();
+
+        $response = $this->actingAs($this->pharmacyUser())->get(route('catalog'));
+
+        $response
+            ->assertSee('data-catalog-toolbar', false)
+            ->assertSee('aria-label="Список"', false)
+            ->assertSee('aria-label="Карточки"', false)
+            ->assertSee('aria-label="Поставщики"', false)
+            ->assertSee('data-all-count', false);
+
+        $this->assertSame($categories->count() + 1, substr_count($response->getContent(), 'data-category-image'));
+        $this->assertSame($categories->count(), substr_count($response->getContent(), 'data-category-count'));
+
+        foreach ($categories as $category) {
+            $response->assertSee('data-category="'.$category->id.'"', false);
+        }
+    }
+
+    public function test_catalog_page_uses_neutral_medicine_image_for_unmapped_category_code(): void
+    {
+        $category = ProductCategory::query()->create([
+            'code' => 'new_unknown_form',
+            'label' => 'Новая форма',
+            'sort_order' => 999,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($this->pharmacyUser())->get(route('catalog'));
+
+        $response->assertSee('Новая форма');
+        $this->assertSame(1, preg_match('/data-category="'.$category->id.'".*?src="[^"]*images\/catalog\/categories\/medicine\.webp".*?width="32".*?height="32"/s', $response->getContent()));
+    }
+
     public function test_preserves_current_catalog_availability_contract(): void
     {
         [$supplier, $activeImport] = $this->activeImport();
