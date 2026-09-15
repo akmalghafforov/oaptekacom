@@ -73,6 +73,7 @@ Route::middleware('auth')->group(function () {
 Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog');
+    Route::get('/catalog/search', [CatalogController::class, 'search'])->name('catalog.search');
     Route::get('/cart', [CartController::class, 'show'])->name('cart');
     Route::post('/cart/{offer}', [CartController::class, 'add'])->name('cart.add');
     Route::patch('/cart/items/{item}', [CartController::class, 'update'])->name('cart.update');

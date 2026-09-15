@@ -27,7 +27,11 @@ class CatalogAvailabilityTest extends TestCase
         $medicine = Medicine::factory()->create(['supplier_organization_id' => $supplier->id, 'name' => 'Аспирин', 'search_text' => 'аспирин']);
         $offer = Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $import->id, 'quantity' => 0, 'source_row' => 2]);
 
-        $this->actingAs($user)->get(route('catalog'))->assertSee('Аспирин');
+        $response = $this->actingAs($user)->getJson(route('catalog.search', ['q' => 'аспирин']))
+            ->assertOk()
+            ->assertJsonPath('has_more', false);
+        $this->assertStringContainsString('Аспирин', $response->json('html'));
+        $this->assertStringContainsString('Нет в наличии', $response->json('html'));
         $this->actingAs($user)->post(route('cart.add', $offer))->assertNotFound();
         $this->assertDatabaseMissing('cart_items', ['offer_id' => $offer->id]);
     }

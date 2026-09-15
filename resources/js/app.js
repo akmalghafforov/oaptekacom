@@ -1,3 +1,5 @@
+import { initializeCatalogSearch } from './catalog-search.js';
+
 const formatPhone = (value, showCountryCode = false) => {
     let digits = value.replace(/\D/g, '');
 
@@ -153,3 +155,5 @@ document.querySelectorAll('[data-subscription-calculator]').forEach((form) => {
     updateChoices();
     updateSummary();
 });
+
+document.querySelectorAll('[data-catalog-search]').forEach(initializeCatalogSearch);
