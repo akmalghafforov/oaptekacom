@@ -1,6 +1,6 @@
 @extends('layouts.app')
 @section('content')
-    <x-ui.page-header title="Прайс-листы" description="Загрузка, проверка и атомарная активация предложений поставщика." />
+    <x-ui.page-header title="Прайс-листы" description="Автоматическая обработка и публикация предложений поставщика." />
 
     @if(auth()->user()->isAdmin())
         <x-ui.card class="mt-6"><h2 class="font-bold">Новый поставщик</h2><form method="post" action="{{ route('admin.suppliers.store') }}" class="mt-4 grid gap-4 md:grid-cols-4 md:items-end">@csrf<x-ui.input name="name" label="Название" required /><x-ui.input name="city" label="Город" /><x-ui.input name="phone" label="Телефон" /><x-ui.button>Создать</x-ui.button></form></x-ui.card>
@@ -26,7 +26,7 @@
             <thead><tr><th>Файл</th><th>Поставщик</th><th>Статус</th><th>Строки</th><th>Дата</th><th></th></tr></thead>
             <tbody>
                 @forelse($imports as $import)
-                    <tr><td>{{ $import->original_filename }}</td><td>{{ $import->supplier->name }}</td><td><x-ui.status-badge :status="$import->status->value" /></td><td>{{ $import->valid_rows }} / {{ $import->error_rows }} ош.</td><td>{{ $import->created_at->format('d.m.Y H:i') }}</td><td class="text-right"><a class="font-semibold text-brand-700 hover:underline" href="{{ route('price-list-imports.show', $import) }}">Открыть</a></td></tr>
+                    <tr><td>{{ $import->original_filename }}</td><td>{{ $import->supplier->name }}</td><td><x-ui.status-badge :status="$import->status->value" :label="$import->status->label()" /></td><td>{{ $import->valid_rows }} / {{ $import->error_rows }} ош.</td><td>{{ $import->created_at->format('d.m.Y H:i') }}</td><td class="text-right"><a class="font-semibold text-brand-700 hover:underline" href="{{ route('price-list-imports.show', $import) }}">Открыть</a></td></tr>
                 @empty
                     <tr><td colspan="6"><x-ui.empty-state title="Прайс-листов пока нет" description="Загруженные файлы появятся здесь." /></td></tr>
                 @endforelse

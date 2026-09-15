@@ -14,7 +14,7 @@ class CatalogController extends Controller
         $search = trim((string) $request->query('q'));
         $offers = Offer::query()
             ->with(['medicine', 'organization'])
-            ->currentAvailable()
+            ->currentCatalog()
             ->when(mb_strlen($search) >= 2, function (Builder $query) use ($search): void {
                 $query->whereHas('medicine', fn (Builder $medicineQuery): Builder => $medicineQuery->where('search_text', 'ilike', '%'.$search.'%'));
             })

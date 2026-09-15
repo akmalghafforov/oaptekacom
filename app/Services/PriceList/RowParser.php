@@ -46,9 +46,6 @@ class RowParser
         if ($values['total'] !== null && (float) $values['total'] < 0) {
             $errors[] = 'Сумма не может быть отрицательной.';
         }
-        if ($values['quantity'] !== null && (float) $values['quantity'] === 0.0) {
-            return $this->result($raw, $values, PriceListRowDisposition::Skipped, PriceListRowAction::Skip, [], ['Товар отсутствует (количество 0).']);
-        }
         $expiration = $values['expiration'] ?? null;
         if ($expiration !== null && trim((string) $expiration) !== '') {
             $parsedExpiration = ($profile['expiration_mode'] ?? 'date') === 'shelf_life'
@@ -60,9 +57,8 @@ class RowParser
                 $values['expiration'] = $parsedExpiration->toDateString();
                 $today = CarbonImmutable::now(config('price-list-imports.timezone'))->startOfDay();
                 if ($parsedExpiration->lt($today)) {
-                    return $this->result($raw, $values, PriceListRowDisposition::Skipped, PriceListRowAction::Skip, [], ['Срок годности истёк.']);
-                }
-                if ($parsedExpiration->lte($today->addDays((int) config('price-list-imports.near_expiry_days')))) {
+                    $warnings[] = 'Срок годности истёк.';
+                } elseif ($parsedExpiration->lte($today->addDays((int) config('price-list-imports.near_expiry_days')))) {
                     $warnings[] = 'Срок годности скоро истекает.';
                 }
             }

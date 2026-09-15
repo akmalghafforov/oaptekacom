@@ -64,7 +64,7 @@ class ProductCategorizationTest extends TestCase
 
         $result = app(ProductCategoryClassifier::class)->classify('Сироп детский', $ruleSet);
 
-        $this->assertSame('review_required', $result['status']);
+        $this->assertSame('attention_needed', $result['status']);
         $this->assertSame([], $result['assignments']);
         $this->assertSame(84, $result['candidates'][0]['confidence']);
     }

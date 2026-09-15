@@ -17,7 +17,7 @@ class CategoryReviewController extends Controller
 {
     public function index(Request $request): View
     {
-        $rows = PriceListImportRow::query()->with('import.supplier')->whereIn('categorization_status', ['review_required', 'unmatched'])
+        $rows = PriceListImportRow::query()->with('import.supplier')->whereIn('categorization_status', ['attention_needed', 'uncategorized'])
             ->when($request->filled('supplier'), fn ($query) => $query->whereHas('import', fn ($import) => $import->where('supplier_organization_id', $request->integer('supplier'))))
             ->when($request->filled('status'), fn ($query) => $query->where('categorization_status', $request->string('status')->toString()))
             ->when($request->filled('category'), fn ($query) => $query->whereJsonContains('category_candidates', ['code' => $request->string('category')->toString()]))

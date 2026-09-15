@@ -10,7 +10,6 @@ use App\Jobs\PreparePriceListImport;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierSenderAddress;
-use App\Models\User;
 use App\Services\PriceList\ProductCategoryRuleSetResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -57,35 +56,12 @@ class SupplierPriceListIngestor
                 'message_id' => $context->messageId, 'received_at' => $context->receivedAt, 'initiated_by' => $context->actor?->id,
                 'product_category_rule_set_id' => $ruleSet->id, 'product_category_rule_set_checksum' => $ruleSet->checksum,
                 'duplicate_of_import_id' => $duplicate?->id,
-                'status' => $duplicate === null ? PriceListImportStatus::Pending : PriceListImportStatus::AwaitingDuplicateConfirmation,
+                'status' => PriceListImportStatus::Pending,
                 'summary' => [],
             ]);
-            if ($duplicate === null) {
-                PreparePriceListImport::dispatch($import)->onQueue(config('price-list-imports.queue'))->afterCommit();
-            }
+            PreparePriceListImport::dispatch($import)->onQueue(config('price-list-imports.queue'))->afterCommit();
 
             return $import;
-        });
-    }
-
-    public function confirmDuplicate(PriceListImport $import, User $actor): PriceListImport
-    {
-        return DB::transaction(function () use ($import, $actor): PriceListImport {
-            $lockedImport = PriceListImport::query()->lockForUpdate()->findOrFail($import->id);
-            Organization::query()->lockForUpdate()->findOrFail($lockedImport->supplier_organization_id);
-            if ($lockedImport->duplicate_confirmed_at !== null || $lockedImport->status !== PriceListImportStatus::AwaitingDuplicateConfirmation) {
-                return $lockedImport;
-            }
-
-            $lockedImport->update([
-                'status' => PriceListImportStatus::Pending,
-                'duplicate_confirmed_at' => now(),
-                'duplicate_confirmed_by' => $actor->id,
-            ]);
-            app(AuditLogger::class)->log('price_list_import.duplicate_confirmed', $lockedImport, [], ['duplicate_of_import_id' => $lockedImport->duplicate_of_import_id]);
-            PreparePriceListImport::dispatch($lockedImport)->onQueue(config('price-list-imports.queue'))->afterCommit();
-
-            return $lockedImport->fresh();
         });
     }
 }

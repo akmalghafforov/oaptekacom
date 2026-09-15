@@ -41,6 +41,20 @@ class PriceListParsingTest extends TestCase
         $this->assertSame(PriceListRowDisposition::Error, $invalid['disposition']);
     }
 
+    public function test_zero_stock_and_expired_rows_remain_processable(): void
+    {
+        $this->travelTo('2026-09-15 12:00:00');
+        $profile = array_replace(ProfileValidator::defaults(), [
+            'mapping' => ['name' => 'A', 'price' => 'B', 'quantity' => 'C', 'expiration' => 'D'],
+        ]);
+
+        $result = app(RowParser::class)->parse(['A' => 'Аспирин', 'B' => '12.50', 'C' => '0', 'D' => '14.09.2026'], 2, $profile);
+
+        $this->assertSame(PriceListRowDisposition::Warning, $result['disposition']);
+        $this->assertSame(0.0, $result['parsed_values']['quantity']);
+        $this->assertSame(['Срок годности истёк.'], $result['warnings']);
+    }
+
     public function test_profile_rejects_unexpected_configuration_and_operators(): void
     {
         $this->expectException(ValidationException::class);

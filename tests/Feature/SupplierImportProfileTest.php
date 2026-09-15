@@ -186,7 +186,6 @@ class SupplierImportProfileTest extends TestCase
             'sender_emails' => '',
             'decimal_separator' => '.',
             'matching_strategy' => 'name',
-            'activation_mode' => 'manual',
         ], $overrides);
     }
 }

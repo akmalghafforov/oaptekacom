@@ -16,7 +16,7 @@ enum PriceListImportStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::Pending => 'В очереди', self::AwaitingDuplicateConfirmation => 'Требует подтверждения дубликата', self::Processing => 'Обрабатывается', self::Preview => 'Ожидает проверки',
+            self::Pending => 'Поставлен в очередь', self::AwaitingDuplicateConfirmation => 'Поставлен в очередь', self::Processing => 'Обрабатывается', self::Preview => 'Ожидает автоматической активации',
             self::Committing => 'Активируется', self::Completed => 'Активен', self::Superseded => 'Заменён', self::Failed => 'Ошибка',
         };
     }

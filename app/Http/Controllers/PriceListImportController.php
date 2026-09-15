@@ -9,9 +9,7 @@ use App\Enums\PriceListImportSource;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
-use App\Http\Requests\ConfirmDuplicatePriceListImportRequest;
 use App\Http\Requests\StorePriceListImportRequest;
-use App\Jobs\CommitPriceListImport;
 use App\Jobs\PreparePriceListImport;
 use App\Models\Medicine;
 use App\Models\Organization;
@@ -62,11 +60,7 @@ class PriceListImportController extends Controller
         $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $upload->getClientOriginalName(), $upload->getMimeType() ?: 'application/octet-stream', $upload->getSize(), hash_file('sha256', Storage::disk(config('price-list-imports.disk'))->path($path)));
         $import = $ingestor->ingest($supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))));
 
-        $message = $import->status === PriceListImportStatus::AwaitingDuplicateConfirmation
-            ? 'Этот файл уже был успешно импортирован. Подтвердите повторную обработку.'
-            : 'Файл принят и поставлен в очередь.';
-
-        return redirect()->route('price-list-imports.show', $import)->with($import->status === PriceListImportStatus::AwaitingDuplicateConfirmation ? 'warning' : 'success', $message);
+        return redirect()->route('price-list-imports.show', $import)->with('success', 'Файл принят и поставлен в очередь автоматической обработки и публикации.');
     }
 
     public function show(Request $request, int $import): View|JsonResponse
@@ -106,24 +100,6 @@ class PriceListImportController extends Controller
         PreparePriceListImport::dispatch($importModel)->onQueue(config('price-list-imports.queue'))->afterCommit();
 
         return back()->with('success', 'Повторная обработка запущена.');
-    }
-
-    public function commit(Request $request, int $import): RedirectResponse
-    {
-        $importModel = $this->scoped($request, $import);
-        $this->authorize('commit', $importModel);
-        abort_unless($importModel->status === PriceListImportStatus::Preview, 422);
-        CommitPriceListImport::dispatch($importModel, $request->user()->id)->onQueue(config('price-list-imports.queue'));
-
-        return back()->with('success', 'Активация прайс-листа поставлена в очередь.');
-    }
-
-    public function confirmDuplicate(ConfirmDuplicatePriceListImportRequest $request, int $import, SupplierPriceListIngestor $ingestor): RedirectResponse
-    {
-        $importModel = $this->scoped($request, $import);
-        $ingestor->confirmDuplicate($importModel, $request->user());
-
-        return back()->with('success', 'Повторный импорт подтверждён и поставлен в очередь.');
     }
 
     public function override(Request $request, int $import, int $row, AuditLogger $audit): RedirectResponse

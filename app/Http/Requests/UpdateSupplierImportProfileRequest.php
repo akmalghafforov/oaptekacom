@@ -33,7 +33,6 @@ class UpdateSupplierImportProfileRequest extends FormRequest
             'sender_emails' => ['nullable', 'string', 'max:4000'],
             'decimal_separator' => ['required', 'string', 'max:4'],
             'matching_strategy' => ['required', 'in:name,sku,sku_then_name'],
-            'activation_mode' => ['required', 'in:manual,automatic'],
         ];
     }
 }

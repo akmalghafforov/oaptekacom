@@ -12,7 +12,7 @@ class CategoryCandidateExtractor
     public function extract(PriceListImport $import): void
     {
         $groups = [];
-        $import->rows()->whereIn('categorization_status', ['unmatched', 'review_required'])->each(function ($row) use (&$groups): void {
+        $import->rows()->whereIn('categorization_status', ['uncategorized', 'attention_needed'])->each(function ($row) use (&$groups): void {
             $tokens = array_values(array_filter($this->normalizer->normalize($row->original_product_name)['tokens'], fn (string $token): bool => ! preg_match('/\d|^(мг|мл|г|кг|шт|уп|фл|ваг|рект|шприц)$/u', $token)));
             foreach (array_slice($tokens, 0, 3) as $length) {
                 $phrase = implode(' ', array_slice($tokens, 0, array_search($length, $tokens, true) + 1));

@@ -33,13 +33,18 @@ class Offer extends Model
         return $this->belongsTo(SupplierProduct::class);
     }
 
-    public function scopeCurrentAvailable(Builder $query): Builder
+    public function scopeCurrentCatalog(Builder $query): Builder
     {
         return $query
             ->whereNotNull('price_list_import_id')
-            ->where(fn (Builder $query): Builder => $query->whereNull('quantity')->orWhere('quantity', '>', 0))
             ->where(fn (Builder $query): Builder => $query->whereNull('expires_at')->orWhereDate('expires_at', '>=', now(config('price-list-imports.timezone'))->toDateString()))
             ->whereHas('organization', fn (Builder $query): Builder => $query->whereColumn('organizations.active_price_list_import_id', 'offers.price_list_import_id'));
+    }
+
+    public function scopeCurrentAvailable(Builder $query): Builder
+    {
+        return $query->currentCatalog()
+            ->where(fn (Builder $query): Builder => $query->whereNull('quantity')->orWhere('quantity', '>', 0));
     }
 
     public function isCurrentAvailable(): bool

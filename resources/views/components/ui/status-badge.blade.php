@@ -1,4 +1,4 @@
-@props(['status'])
+@props(['status', 'label' => null])
 @php
     $labels = [
         'received' => 'Получен', 'confirmed' => 'Подтверждён', 'partially_confirmed' => 'Подтверждён частично',
@@ -11,4 +11,4 @@
     $negative = ['cancelled', 'rejected', 'failed', 'blocked'];
     $style = in_array($status, $negative, true) ? 'bg-red-50 text-danger ring-red-200' : (in_array($status, $positive, true) ? 'bg-brand-50 text-brand-700 ring-brand-200' : 'bg-amber-50 text-warning ring-amber-200');
 @endphp
-<span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $style }}">{{ $labels[$status] ?? $status }}</span>
+<span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $style }}">{{ $label ?? $labels[$status] ?? $status }}</span>

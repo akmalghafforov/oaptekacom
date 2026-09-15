@@ -63,11 +63,6 @@ class PriceListImportPolicy
         return false;
     }
 
-    public function commit(User $user, PriceListImport $priceListImport): bool
-    {
-        return $this->belongsToUser($user, $priceListImport);
-    }
-
     public function retry(User $user, PriceListImport $priceListImport): bool
     {
         return $this->belongsToUser($user, $priceListImport);

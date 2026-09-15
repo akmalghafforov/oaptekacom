@@ -54,12 +54,12 @@ class ProfileValidator
             }
         }
 
-        return array_replace_recursive(self::defaults(), $validated);
+        return array_replace_recursive(self::defaults(), $validated, ['activation_mode' => 'automatic']);
     }
 
     /** @return array<string, mixed> */
     public static function defaults(): array
     {
-        return ['header_row' => 1, 'data_row' => 2, 'mapping' => ['name' => 'A', 'price' => 'B'], 'csv' => ['delimiter' => ',', 'enclosure' => '"', 'encoding' => 'UTF-8'], 'empty_row_limit' => 25, 'decimal_separator' => '.', 'thousands_separator' => '', 'date_formats' => ['d.m.Y', 'd.m.y', 'Y-m-d'], 'expiration_mode' => 'date', 'transformations' => [], 'defaults' => [], 'validation' => [], 'skip_rules' => [], 'keep_exact_duplicates' => false, 'matching_strategy' => 'name', 'activation_mode' => 'manual', 'automatic' => ['minimum_valid_rows' => 1, 'maximum_error_rows' => 0, 'maximum_error_percentage' => 0, 'fatal_warning_codes' => []]];
+        return ['header_row' => 1, 'data_row' => 2, 'mapping' => ['name' => 'A', 'price' => 'B'], 'csv' => ['delimiter' => ',', 'enclosure' => '"', 'encoding' => 'UTF-8'], 'empty_row_limit' => 25, 'decimal_separator' => '.', 'thousands_separator' => '', 'date_formats' => ['d.m.Y', 'd.m.y', 'Y-m-d'], 'expiration_mode' => 'date', 'transformations' => [], 'defaults' => [], 'validation' => [], 'skip_rules' => [], 'keep_exact_duplicates' => false, 'matching_strategy' => 'name', 'activation_mode' => 'automatic', 'automatic' => ['minimum_valid_rows' => 1, 'maximum_error_rows' => 0, 'maximum_error_percentage' => 0, 'fatal_warning_codes' => []]];
     }
 }

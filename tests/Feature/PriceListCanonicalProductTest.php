@@ -25,7 +25,7 @@ class PriceListCanonicalProductTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_successful_duplicate_waits_for_confirmation_and_dispatches_once(): void
+    public function test_successful_duplicate_is_queued_immediately_with_audit_metadata(): void
     {
         Storage::fake('local');
         Queue::fake([PreparePriceListImport::class]);
@@ -39,14 +39,8 @@ class PriceListCanonicalProductTest extends TestCase
 
         $duplicate = PriceListImport::query()->latest('id')->firstOrFail();
         $response->assertRedirect(route('price-list-imports.show', $duplicate));
-        $this->assertSame(PriceListImportStatus::AwaitingDuplicateConfirmation, $duplicate->status);
-        Queue::assertNotPushed(PreparePriceListImport::class);
-
-        $this->actingAs($user)->post(route('price-list-imports.confirm-duplicate', $duplicate))->assertRedirect();
-        $this->actingAs($user)->post(route('price-list-imports.confirm-duplicate', $duplicate))->assertRedirect();
-
-        $this->assertSame(PriceListImportStatus::Pending, $duplicate->fresh()->status);
-        $this->assertSame($user->id, $duplicate->fresh()->duplicate_confirmed_by);
+        $this->assertSame(PriceListImportStatus::Pending, $duplicate->status);
+        $this->assertNotNull($duplicate->duplicate_of_import_id);
         Queue::assertPushed(PreparePriceListImport::class, 1);
     }
 
@@ -76,7 +70,22 @@ class PriceListCanonicalProductTest extends TestCase
         $currentOffer = Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $current->id, 'source_row' => 2, 'is_active' => false, 'quantity' => 1]);
         Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $old->id, 'source_row' => 2, 'is_active' => true, 'quantity' => 1]);
 
-        $this->assertSame([$currentOffer->id], Offer::query()->currentAvailable()->pluck('id')->all());
+        $this->assertSame([$currentOffer->id], Offer::query()->currentCatalog()->pluck('id')->all());
+    }
+
+    public function test_catalog_lists_zero_stock_and_today_expiry_but_purchase_scope_does_not(): void
+    {
+        $this->travelTo('2026-09-15 12:00:00');
+        $supplier = Organization::factory()->wholesaler()->create();
+        $current = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Completed]);
+        $supplier->update(['active_price_list_import_id' => $current->id]);
+        $medicine = Medicine::factory()->create(['supplier_organization_id' => $supplier->id]);
+        $zeroStock = Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $current->id, 'source_row' => 2, 'quantity' => 0, 'expires_at' => '2026-09-15']);
+        $inStock = Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $current->id, 'source_row' => 3, 'quantity' => 2, 'expires_at' => '2026-09-15']);
+        Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $current->id, 'source_row' => 4, 'quantity' => 2, 'expires_at' => '2026-09-14']);
+
+        $this->assertSame([$zeroStock->id, $inStock->id], Offer::query()->currentCatalog()->orderBy('id')->pluck('id')->all());
+        $this->assertSame([$inStock->id], Offer::query()->currentAvailable()->pluck('id')->all());
     }
 
     /** @param list<string> $names */

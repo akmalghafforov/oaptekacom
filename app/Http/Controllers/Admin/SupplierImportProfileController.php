@@ -166,7 +166,7 @@ class SupplierImportProfileController extends Controller
             'mapping' => $mapping,
             'decimal_separator' => $request->validated('decimal_separator'),
             'matching_strategy' => $request->validated('matching_strategy'),
-            'activation_mode' => $request->validated('activation_mode'),
+            'activation_mode' => 'automatic',
         ]);
         $configuration = $validator->validate($configuration);
         $emails = collect(preg_split('/\R/u', (string) $request->validated('sender_emails')))->map(fn (string $email): string => mb_strtolower(trim($email)))->filter()->unique()->values();

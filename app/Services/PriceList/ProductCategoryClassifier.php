@@ -39,7 +39,7 @@ class ProductCategoryClassifier
         $overlap = $this->hasConflictingSpan($accepted);
         $requiresReview = $invalidCategory || $supersedenceConflict || $overlap || count($accepted) > 3 || ($accepted === [] && $review !== []);
         usort($accepted, fn (array $left, array $right): int => $this->categoryOrder($left['label']) <=> $this->categoryOrder($right['label']));
-        $status = $requiresReview ? 'review_required' : ($accepted === [] ? 'unmatched' : (count($accepted) > 1 ? 'multi_matched' : 'matched'));
+        $status = $requiresReview ? 'attention_needed' : ($accepted === [] ? 'uncategorized' : (count($accepted) > 1 ? 'multi_matched' : 'matched'));
 
         return ['normalized' => $normalized['normalized'], 'status' => $status, 'assignments' => $accepted, 'candidates' => $matches, 'rule_set_id' => $ruleSet->id, 'rule_set_checksum' => $ruleSet->checksum, 'category' => $accepted[0]['label'] ?? ProductCategory::Unrecognized->value, 'confidence' => $accepted[0]['confidence'] ?? ($review[0]['confidence'] ?? 0), 'keyword' => $accepted[0]['keyword'] ?? null, 'sourceText' => $accepted[0]['source_text'] ?? null, 'evidence' => ['assignments' => $accepted, 'candidates' => $matches, 'issues' => array_keys(array_filter(['unknown_or_inactive_category' => $invalidCategory, 'supersedence_conflict' => $supersedenceConflict, 'overlapping_span' => $overlap, 'too_many_assignments' => count($accepted) > 3]))]];
     }

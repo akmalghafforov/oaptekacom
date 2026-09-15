@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
+use App\Jobs\CommitPriceListImport;
+use App\Jobs\FinalizePriceListImportPreview;
 use App\Jobs\PreparePriceListImport;
 use App\Models\Medicine;
 use App\Models\Organization;
@@ -13,6 +15,7 @@ use App\Models\PriceListImportRow;
 use App\Models\ProductCategoryRuleSet;
 use App\Models\SupplierImportProfile;
 use App\Models\User;
+use App\Services\PriceList\CategoryCandidateExtractor;
 use App\Services\PriceList\ImportActivator;
 use App\Services\PriceList\ProfileValidator;
 use App\Services\PriceList\ValueNormalizer;
@@ -77,7 +80,7 @@ class PriceListImportTest extends TestCase
         $this->assertDatabaseHas('offers', ['id' => $oldOffer->id]);
     }
 
-    public function test_csv_processing_builds_preview_and_skips_exact_duplicate(): void
+    public function test_csv_processing_activates_automatically_and_skips_exact_duplicate(): void
     {
         Storage::fake('local');
         $supplier = Organization::factory()->wholesaler()->create();
@@ -88,9 +91,40 @@ class PriceListImportTest extends TestCase
 
         (new PreparePriceListImport($import))->handle(app(WorkbookReader::class), app(ValueNormalizer::class));
 
-        $this->assertSame(PriceListImportStatus::Preview, $import->fresh()->status);
+        $this->assertSame(PriceListImportStatus::Completed, $import->fresh()->status);
         $this->assertSame(1, $import->fresh()->valid_rows);
         $this->assertSame(1, $import->fresh()->skipped_rows);
         $this->assertDatabaseHas('price_list_import_rows', ['price_list_import_id' => $import->id, 'source_row' => 3, 'disposition' => PriceListRowDisposition::Skipped->value]);
+    }
+
+    public function test_finalization_ignores_legacy_manual_thresholds_and_queues_activation(): void
+    {
+        Queue::fake([CommitPriceListImport::class]);
+        $supplier = Organization::factory()->wholesaler()->create();
+        $configuration = array_replace(ProfileValidator::defaults(), [
+            'activation_mode' => 'manual',
+            'automatic' => ['minimum_valid_rows' => 100, 'maximum_error_rows' => 0, 'maximum_error_percentage' => 0],
+        ]);
+        $import = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Processing, 'profile_snapshot' => $configuration, 'total_rows' => 2]);
+        PriceListImportRow::factory()->for($import, 'import')->create(['disposition' => PriceListRowDisposition::Valid]);
+        PriceListImportRow::factory()->for($import, 'import')->create(['source_row' => 3, 'disposition' => PriceListRowDisposition::Error]);
+
+        (new FinalizePriceListImportPreview($import))->handle(app(CategoryCandidateExtractor::class));
+
+        $this->assertSame(PriceListImportStatus::Preview, $import->fresh()->status);
+        Queue::assertPushed(CommitPriceListImport::class, 1);
+    }
+
+    public function test_import_with_no_processable_rows_fails_automatically(): void
+    {
+        Queue::fake([CommitPriceListImport::class]);
+        $supplier = Organization::factory()->wholesaler()->create();
+        $import = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Processing, 'total_rows' => 1]);
+        PriceListImportRow::factory()->for($import, 'import')->create(['disposition' => PriceListRowDisposition::Error]);
+
+        (new FinalizePriceListImportPreview($import))->handle(app(CategoryCandidateExtractor::class));
+
+        $this->assertSame(PriceListImportStatus::Failed, $import->fresh()->status);
+        Queue::assertNotPushed(CommitPriceListImport::class);
     }
 }

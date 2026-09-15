@@ -17,6 +17,6 @@ class CategorizationReportExporter
                 fputcsv($stream, [$row->source_row, $row->source_filename, $row->source_worksheet, $row->original_product_name, $row->normalized_product_name, implode(', ', $row->assigned_categories ?? []), $accepted->pluck('label')->implode(', '), $row->categorization_confidence, $row->categorization_status, json_encode($row->category_candidates, JSON_UNESCAPED_UNICODE)]);
             });
             fclose($stream);
-        }, 'categorization-review-'.$import->id.'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+        }, 'category-maintenance-'.$import->id.'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 }

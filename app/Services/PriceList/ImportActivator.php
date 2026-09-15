@@ -48,7 +48,7 @@ class ImportActivator
                         'unit_of_measure' => $values['unit'] ?? null, 'inn' => $values['inn'] ?? null,
                         'form' => $values['form'] ?? null, 'dosage' => $values['dosage'] ?? null,
                         'category' => $row->assigned_category ?? 'Не распознано',
-                        'category_status' => $row->categorization_status ?? 'unmatched',
+                        'category_status' => $row->categorization_status ?? 'uncategorized',
                         'category_rule_set_id' => $lockedImport->product_category_rule_set_id,
                         'category_rule_set_checksum' => $lockedImport->product_category_rule_set_checksum,
                         'category_confidence' => $row->categorization_confidence,

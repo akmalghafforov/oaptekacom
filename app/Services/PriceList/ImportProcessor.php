@@ -72,10 +72,6 @@ class ImportProcessor
             'categorization_status' => $category['status'],
             'categorization_evidence' => $category['evidence'],
         ]);
-        if (in_array($category['status'], ['unmatched', 'review_required'], true)) {
-            $result['warnings'][] = $category['status'] === 'review_required' ? 'Категории товара требуют проверки.' : 'Категория товара не распознана.';
-            $result['disposition'] = PriceListRowDisposition::Warning;
-        }
 
         return $result;
     }

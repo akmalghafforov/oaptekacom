@@ -29,7 +29,7 @@
         <div class="mt-4 grid gap-4 md:grid-cols-3">
             <x-ui.input name="decimal_separator" label="Десятичный разделитель" :value="$profile->configuration['decimal_separator'] ?? '.'" required />
             <x-ui.select name="matching_strategy" label="Сопоставление" data-matching-strategy><option value="name">По нормализованному названию</option></x-ui.select>
-            <x-ui.select name="activation_mode" label="Активация"><option value="manual" @selected(old('activation_mode', $profile->configuration['activation_mode'] ?? 'manual') === 'manual')>Вручную</option><option value="automatic" @selected(old('activation_mode', $profile->configuration['activation_mode'] ?? 'manual') === 'automatic')>Автоматически</option></x-ui.select>
+            <p class="self-end pb-3 text-sm text-muted">Прайс-листы обрабатываются и публикуются автоматически.</p>
         </div>
     </x-ui.card>
     <x-ui.card>

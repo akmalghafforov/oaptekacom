@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Enums\ActivationMode;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
 use App\Models\PriceListImport;
@@ -36,18 +35,14 @@ class FinalizePriceListImportPreview implements ShouldQueue
         $statusCounts = $freshImport->rows()->selectRaw('categorization_status, count(*) as aggregate')->whereNotNull('categorization_status')->groupBy('categorization_status')->pluck('aggregate', 'categorization_status');
         $categoryCountDistribution = $freshImport->rows()->get(['assigned_categories'])->countBy(fn ($row): int => count($row->assigned_categories ?? []));
         $suppressed = $freshImport->rows()->get(['category_candidates'])->sum(fn ($row): int => collect($row->category_candidates ?? [])->where('decision', 'suppressed')->count());
-        $freshImport->update(['summary' => array_replace($freshImport->summary ?? [], ['rule_set_checksum' => $freshImport->product_category_rule_set_checksum, 'category_distribution' => $categoryCounts, 'category_count_distribution' => $categoryCountDistribution, 'categorization' => $statusCounts, 'suppressed_match_count' => $suppressed, 'unmatched_rate' => $freshImport->total_rows ? round(((int) ($statusCounts['unmatched'] ?? 0) / $freshImport->total_rows) * 100, 2) : 0, 'review_required_rate' => $freshImport->total_rows ? round(((int) ($statusCounts['review_required'] ?? 0) / $freshImport->total_rows) * 100, 2) : 0])]);
+        $freshImport->update(['summary' => array_replace($freshImport->summary ?? [], ['rule_set_checksum' => $freshImport->product_category_rule_set_checksum, 'category_distribution' => $categoryCounts, 'category_count_distribution' => $categoryCountDistribution, 'categorization' => $statusCounts, 'suppressed_match_count' => $suppressed, 'uncategorized_rate' => $freshImport->total_rows ? round(((int) ($statusCounts['uncategorized'] ?? 0) / $freshImport->total_rows) * 100, 2) : 0, 'attention_needed_rate' => $freshImport->total_rows ? round(((int) ($statusCounts['attention_needed'] ?? 0) / $freshImport->total_rows) * 100, 2) : 0])]);
         $candidates->extract($freshImport);
-        if (($import->profile_snapshot['activation_mode'] ?? 'manual') === ActivationMode::Automatic->value && $this->meetsThreshold($import->fresh())) {
-            CommitPriceListImport::dispatch($import->fresh())->onQueue(config('price-list-imports.queue'));
+        if ($freshImport->valid_rows === 0) {
+            $freshImport->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'parsing', 'failed_at' => now(), 'failure_message' => 'Нет корректных строк для публикации.']);
+
+            return;
         }
-    }
 
-    private function meetsThreshold(PriceListImport $import): bool
-    {
-        $threshold = $import->profile_snapshot['automatic'];
-        $percentage = $import->total_rows > 0 ? ($import->error_rows / $import->total_rows) * 100 : 100;
-
-        return $import->valid_rows >= $threshold['minimum_valid_rows'] && $import->error_rows <= $threshold['maximum_error_rows'] && $percentage <= $threshold['maximum_error_percentage'];
+        CommitPriceListImport::dispatch($freshImport)->onQueue(config('price-list-imports.queue'));
     }
 }
