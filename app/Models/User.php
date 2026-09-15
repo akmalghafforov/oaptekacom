@@ -65,6 +65,11 @@ class User extends Authenticatable
         return $this->isWholesaler() && $this->active_trade_mode === TradeMode::Supplier;
     }
 
+    public function defaultLandingRouteName(): string
+    {
+        return ! $this->isAdmin() && $this->canBuy() ? 'catalog' : 'dashboard';
+    }
+
     public function hasActiveSubscription(): bool
     {
         if ($this->isAdmin()) {

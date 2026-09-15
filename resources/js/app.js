@@ -157,3 +157,33 @@ document.querySelectorAll('[data-subscription-calculator]').forEach((form) => {
 });
 
 document.querySelectorAll('[data-catalog-search]').forEach(initializeCatalogSearch);
+
+document.querySelectorAll('[data-drawer]').forEach((drawer) => {
+    const openers = document.querySelectorAll(`[aria-controls="${drawer.id}"]`);
+    let returnFocus = null;
+
+    const closeDrawer = () => {
+        if (drawer.open) {
+            drawer.close();
+        }
+    };
+
+    openers.forEach((opener) => opener.addEventListener('click', () => {
+        returnFocus = opener;
+        drawer.showModal();
+        document.body.classList.add('drawer-open');
+        openers.forEach((button) => button.setAttribute('aria-expanded', 'true'));
+        drawer.querySelector('[data-drawer-close]')?.focus();
+    }));
+    drawer.querySelectorAll('[data-drawer-close]').forEach((button) => button.addEventListener('click', closeDrawer));
+    drawer.addEventListener('click', (event) => {
+        if (event.target === drawer) {
+            closeDrawer();
+        }
+    });
+    drawer.addEventListener('close', () => {
+        document.body.classList.remove('drawer-open');
+        openers.forEach((button) => button.setAttribute('aria-expanded', 'false'));
+        returnFocus?.focus();
+    });
+});

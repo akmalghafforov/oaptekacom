@@ -65,7 +65,7 @@ class AuthController extends Controller
 
         return $role === UserRole::Admin && ! app()->environment('local')
             ? redirect()->route('two-factor.enroll')
-            : redirect()->intended(route('dashboard'));
+            : redirect()->intended(route($user->defaultLandingRouteName()));
     }
 
     public function sendLoginOtp(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -156,7 +156,7 @@ class AuthController extends Controller
         $request->session()->regenerate();
         $request->session()->forget($this->loginSessionKey($role));
 
-        return redirect()->intended(route('dashboard'));
+        return redirect()->intended(route($user->defaultLandingRouteName()));
     }
 
     public function sessionConfirmationForm(Request $request): View
@@ -201,7 +201,7 @@ class AuthController extends Controller
         $request->session()->regenerate();
         $request->session()->forget([$this->loginSessionKey($role), $this->pendingLoginSessionKey($role)]);
 
-        return redirect()->intended(route('dashboard'));
+        return redirect()->intended(route($user->defaultLandingRouteName()));
     }
 
     public function cancelSessionReplacement(Request $request): RedirectResponse

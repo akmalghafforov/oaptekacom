@@ -40,7 +40,7 @@ class TwoFactorController extends Controller
         $user->forceFill(['totp_enabled' => true, 'two_factor_confirmed_at' => now(), 'recovery_codes' => array_map(fn ($code) => Hash::make($code), $codes)])->save();
         RateLimiter::clear($key);
 
-        return redirect()->route('dashboard')->with('success', '2FA включена. Сохраните коды восстановления: '.implode(', ', $codes));
+        return redirect()->route($user->defaultLandingRouteName())->with('success', '2FA включена. Сохраните коды восстановления: '.implode(', ', $codes));
     }
 
     public function recovery(Request $request): RedirectResponse
@@ -53,7 +53,7 @@ class TwoFactorController extends Controller
                 unset($codes[$index]);
                 $user->forceFill(['recovery_codes' => array_values($codes), 'two_factor_confirmed_at' => now()])->save();
 
-                return redirect()->route('dashboard');
+                return redirect()->route($user->defaultLandingRouteName());
             }
         }
 

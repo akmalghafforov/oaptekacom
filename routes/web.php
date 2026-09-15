@@ -20,7 +20,7 @@ use App\Services\PhoneOtpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-Route::redirect('/', '/catalog');
+Route::get('/', fn (Request $request) => redirect()->route($request->user()?->defaultLandingRouteName() ?? 'catalog'));
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
     Route::post('/login/phone', [AuthController::class, 'sendLoginOtp'])->name('login.otp.send');

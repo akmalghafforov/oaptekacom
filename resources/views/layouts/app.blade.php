@@ -3,7 +3,7 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OAPTEKA</title>@vite(['resources/css/app.css', 'resources/js/app.js'])</head>
 <body>
 <header class="border-b border-slate-200 bg-white"><div class="page-container flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
-<a href="{{ auth()->check() ? route('dashboard') : route('login') }}" aria-label="OAPTEKA — на главную">
+<a href="{{ auth()->check() ? route(auth()->user()->defaultLandingRouteName()) : route('login') }}" aria-label="OAPTEKA — на главную">
 <img src="{{ asset('images/oapteka-logo-header.png') }}" alt="OAPTEKA" class="h-9 w-auto sm:h-10">
 </a>
 @auth

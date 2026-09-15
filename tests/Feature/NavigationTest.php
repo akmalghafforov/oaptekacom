@@ -12,17 +12,34 @@ class NavigationTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_pharmacy_navigation_renders_buying_destinations_and_account_actions(): void
+    public function test_pharmacy_navigation_keeps_buying_destinations_primary_and_moves_account_actions_to_drawer(): void
     {
         $user = User::factory()->pharmacy(Organization::factory()->pharmacy()->create())->create(['name' => 'Аптека Навигация']);
 
         $response = $this->actingAs($user)->get(route('profile.edit'));
 
         $response
-            ->assertSeeText(['Обзор', 'Каталог', 'Корзина', 'Заказы', 'Профиль', 'Выйти', 'Аптека Навигация'])
+            ->assertSeeText(['Поиск', 'Корзина', 'Партнёры', 'Вопросы', 'Меню аккаунта', 'Обзор', 'Заказы', 'Профиль', 'Мой тариф', 'Выйти', 'Аптека Навигация'])
             ->assertDontSeeText(['Операционный центр', 'Пользователи', 'Подписки', 'Модули'])
+            ->assertSeeHtml(['data-primary-nav', 'data-primary-link="catalog"', 'data-primary-link="cart"', 'data-primary-placeholder="partners"', 'data-primary-placeholder="questions"', 'aria-controls="account-drawer"', 'data-account-drawer="data-account-drawer"'])
+            ->assertDontSeeHtml(['data-primary-link="dashboard"', 'data-primary-link="orders.index"', 'data-primary-link="profile.edit"', 'data-primary-link="subscription.create"'])
+            ->assertSeeHtml(['data-account-link="dashboard"', 'data-account-link="orders.index"', 'data-account-link="profile.edit"', 'data-account-link="subscription.create"', 'data-account-logout="data-account-logout"'])
             ->assertSeeHtml(['href="'.route('dashboard').'"', 'href="'.route('catalog').'"', 'href="'.route('cart').'"', 'href="'.route('orders.index').'"'])
             ->assertDontSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.users').'"', 'href="'.route('admin.subscriptions.index').'"']);
+    }
+
+    public function test_pharmacy_account_drawer_escapes_account_names(): void
+    {
+        $organization = Organization::factory()->pharmacy()->create(['name' => '<script>organization</script>']);
+        $user = User::factory()->pharmacy($organization)->create(['name' => '<script>account</script>']);
+
+        $response = $this->actingAs($user)->get(route('profile.edit'));
+
+        $response
+            ->assertSee('&lt;script&gt;organization&lt;/script&gt;', false)
+            ->assertSee('&lt;script&gt;account&lt;/script&gt;', false)
+            ->assertDontSee('<script>organization</script>', false)
+            ->assertDontSee('<script>account</script>', false);
     }
 
     public function test_supplier_mode_provider_navigation_excludes_cart(): void

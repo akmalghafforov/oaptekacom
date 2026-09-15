@@ -54,6 +54,8 @@
     .catalog-search-panel.is-compact label, .catalog-search-panel.is-compact [id$="-hint"] { @apply sr-only; }
     .catalog-dialog[open] { animation: catalog-dialog-in 160ms ease-out; }
     body.dialog-open { overflow: hidden; }
+    .account-drawer[open] [data-drawer-panel] { animation: account-drawer-in 180ms ease-out; }
+    body.drawer-open { overflow: hidden; }
 
     @media (max-width: 639px) {
         .catalog-dialog { @apply mt-auto h-[100dvh] max-h-[100dvh] w-full max-w-none rounded-none; }
@@ -66,8 +68,10 @@
 }
 
 @keyframes catalog-dialog-in { from { opacity: 0; transform: translateY(0.5rem); } }
+@keyframes account-drawer-in { from { transform: translateX(100%); } }
 
 @media (prefers-reduced-motion: reduce) {
     .catalog-dialog[open] { animation: none; }
+    .account-drawer[open] [data-drawer-panel] { animation: none; }
     *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
 }
