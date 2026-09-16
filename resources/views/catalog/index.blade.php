@@ -18,7 +18,7 @@
             </div>
         </div>
         <form data-catalog-form class="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
-            <x-ui.search-input name="q" label="Название лекарства" :value="request('q')" placeholder="Название, МНН, форма или дозировка" autocomplete="off" />
+            <x-ui.search-input name="q" label="Название лекарства" :value="request('q')" placeholder="Название товара/" autocomplete="off" />
             <x-ui.button type="button" variant="secondary" class="min-h-12 gap-2 px-3 sm:px-4" data-filter-open aria-label="Фильтры">
                 <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
                 <span class="hidden sm:inline">Фильтры</span>

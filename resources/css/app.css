@@ -99,8 +99,8 @@
         .catalog-search-panel [data-catalog-form] input { height: 2.5rem; min-height: 2.5rem; padding-top: 0.375rem; padding-bottom: 0.375rem; }
         .catalog-search-panel [data-filter-open] { @apply min-h-10 min-w-10 px-0; }
         .catalog-search-panel [data-search-submit] { @apply min-h-10 px-3 text-xs; }
-        .catalog-search-submit-icon { @apply hidden; }
-        .catalog-search-submit-label { @apply inline; }
+        .catalog-search-submit-icon { @apply inline; }
+        .catalog-search-submit-label { @apply hidden; }
         .catalog-search-panel:not(.is-compact) [data-catalog-form] label { @apply sr-only; }
         .catalog-search-panel.is-compact { @apply px-3 py-2 shadow-sm; }
         .catalog-search-panel.is-compact .catalog-mobile-search-heading { @apply flex; }
