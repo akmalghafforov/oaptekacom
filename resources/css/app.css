@@ -64,15 +64,15 @@
     body.drawer-open { overflow: hidden; }
 
     @media (max-width: 767px) {
-        body:has([data-catalog-search]) { --catalog-mobile-header-height: 3rem; --catalog-accent: #c72535; --catalog-accent-dark: #a9192a; --catalog-accent-soft: #fff1f2; }
-        body:has([data-catalog-search]) .app-header { @apply fixed inset-x-0 top-0 z-30 h-12 bg-white; }
+        body:has([data-catalog-search]) { --catalog-mobile-header-height: 3rem; --catalog-mobile-search-offset: calc(var(--catalog-mobile-header-height) + 0.75rem); --catalog-accent: #c72535; --catalog-accent-dark: #a9192a; --catalog-accent-soft: #fff1f2; }
+        body:has([data-catalog-search]) .app-header { @apply fixed inset-x-0 top-0 z-30 h-auto bg-white; }
         .app-header > .page-container { @apply min-h-12 flex-nowrap px-3 py-1.5; }
         .app-header-logo { @apply h-8 max-w-32 object-contain object-left; }
         .customer-mobile-header-actions { @apply flex items-center gap-1.5; }
         .customer-mobile-header-actions > * { @apply min-h-9 min-w-9 border-slate-200 shadow-sm; }
         .customer-page { padding-bottom: 6.5rem; }
-        .customer-page:has([data-catalog-search]) { @apply px-0 pt-0; }
-        .customer-page:has([data-catalog-search]) > div:first-child:empty { @apply hidden; }
+        .customer-page:has([data-catalog-search]) { @apply px-0 !pt-0; }
+        .customer-page:has([data-catalog-search]) > div:first-child:not(:has(*)) { @apply hidden; }
         .customer-mobile-nav { @apply fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-8px_24px_rgb(23_33_29/0.08)] backdrop-blur; }
         body:has([data-catalog-search]) .customer-mobile-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .customer-mobile-nav-link { @apply relative flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-control text-[0.6875rem] font-medium text-slate-500 transition-colors; }
@@ -89,8 +89,8 @@
         .account-drawer [data-drawer-panel] { @apply h-auto max-h-[88dvh] rounded-t-2xl; }
         .account-drawer[open] [data-drawer-panel] { animation: account-sheet-in 180ms ease-out; }
 
-        [data-catalog-search] { padding-top: var(--catalog-mobile-header-height); }
-        [data-catalog-search] .catalog-search-panel { position: sticky; top: var(--catalog-mobile-header-height); height: auto; margin-bottom: 0; @apply z-20 overflow-visible rounded-none border-x-0 border-t-0 px-3 py-2 shadow-sm; }
+        [data-catalog-search] { padding-top: var(--catalog-mobile-search-offset); }
+        [data-catalog-search] .catalog-search-panel { position: sticky; top: var(--catalog-mobile-search-offset); height: auto; margin-bottom: 0; @apply z-20 overflow-visible !rounded-none border-x-0 border-t-0 px-3 pt-3 pb-2 shadow-sm; }
         .catalog-mobile-search-heading { @apply flex items-center justify-between gap-3; }
         .catalog-mobile-search-heading h1 { @apply text-base font-bold leading-tight; }
         .catalog-mobile-search-heading p { @apply mt-0.5 text-[0.6875rem] text-muted; }
