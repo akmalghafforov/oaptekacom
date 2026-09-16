@@ -45,19 +45,29 @@
                     <span class="sr-only">Поставщики</span>
                 </button>
             </div>
-            <div data-category-list class="catalog-category-strip" role="listbox" aria-label="Категории товаров">
-                <button type="button" data-category="" role="option" aria-selected="true" class="catalog-category-card">
-                    <span class="catalog-category-image"><x-ui.catalog-category-icon code="all" /></span>
-                    <span class="catalog-category-copy"><span class="catalog-category-name">Все товары</span><span data-all-count class="catalog-category-count">— тов.</span></span>
-                    <svg data-category-selected class="catalog-category-selected" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5 8 2 2 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>
-                @foreach($categories as $category)
-                    <button type="button" data-category="{{ $category->id }}" role="option" aria-selected="false" class="catalog-category-card">
-                        <span class="catalog-category-image"><x-ui.catalog-category-icon :code="$category->code" /></span>
-                        <span class="catalog-category-copy"><span class="catalog-category-name">{{ $category->label }}</span><span data-category-count class="catalog-category-count">— тов.</span></span>
+            <div class="catalog-category-navigation">
+                <div data-category-list class="catalog-category-strip" role="listbox" aria-label="Категории товаров">
+                    <button type="button" data-category="" role="option" aria-selected="true" class="catalog-category-card">
+                        <span class="catalog-category-image"><x-ui.catalog-category-icon code="all" /></span>
+                        <span class="catalog-category-copy"><span class="catalog-category-name">Все товары</span><span data-all-count class="catalog-category-count">— тов.</span></span>
                         <svg data-category-selected class="catalog-category-selected" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5 8 2 2 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
-                @endforeach
+                    @foreach($categories as $category)
+                        <button type="button" data-category="{{ $category->id }}" role="option" aria-selected="false" class="catalog-category-card">
+                            <span class="catalog-category-image"><x-ui.catalog-category-icon :code="$category->code" /></span>
+                            <span class="catalog-category-copy"><span class="catalog-category-name">{{ $category->label }}</span><span data-category-count class="catalog-category-count">— тов.</span></span>
+                            <svg data-category-selected class="catalog-category-selected" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5 8 2 2 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                    @endforeach
+                </div>
+                <div class="catalog-category-controls" role="group" aria-label="Прокрутка категорий">
+                    <button type="button" data-category-scroll="previous" class="catalog-category-scroll-button" aria-label="Предыдущие категории" title="Предыдущие категории">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <button type="button" data-category-scroll="next" class="catalog-category-scroll-button" aria-label="Следующие категории" title="Следующие категории">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                    </button>
+                </div>
             </div>
         </div>
     </section>

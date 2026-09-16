@@ -138,6 +138,8 @@ export function initializeCatalogSearch(root) {
     const loadStatus = root.querySelector('[data-catalog-load-status]');
     const dialog = root.querySelector('[data-dialog="catalog-filters"]');
     const filterOpen = root.querySelector('[data-filter-open]');
+    const categoryList = root.querySelector('[data-category-list]');
+    const categoryScrollButtons = [...root.querySelectorAll('[data-category-scroll]')];
     let appliedModal = { sort: 'price_asc', cities: [], suppliers: [] };
     let lastProductView = 'list';
 
@@ -208,7 +210,18 @@ export function initializeCatalogSearch(root) {
         const supplier = event.target.closest('[data-supplier-open]'); if (supplier) { controller.view = lastProductView; controller.setFilter('suppliers', [supplier.dataset.supplierOpen]); }
         if (event.target.closest('[data-catalog-retry]')) controller.retry();
     });
-    root.querySelector('[data-category-list]').addEventListener('keydown', (event) => { const buttons = [...event.currentTarget.querySelectorAll('[data-category]')]; const index = buttons.indexOf(document.activeElement); const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : event.key === 'ArrowRight' ? Math.min(index + 1, buttons.length - 1) : event.key === 'ArrowLeft' ? Math.max(index - 1, 0) : null; if (next !== null) { event.preventDefault(); buttons[next].focus(); } });
+    categoryList.addEventListener('keydown', (event) => { const buttons = [...event.currentTarget.querySelectorAll('[data-category]')]; const index = buttons.indexOf(document.activeElement); const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : event.key === 'ArrowRight' ? Math.min(index + 1, buttons.length - 1) : event.key === 'ArrowLeft' ? Math.max(index - 1, 0) : null; if (next !== null) { event.preventDefault(); buttons[next].focus(); } });
+    const updateCategoryScrollButtons = () => {
+        const maximumScroll = categoryList.scrollWidth - categoryList.clientWidth;
+        categoryScrollButtons.forEach((button) => { button.disabled = button.dataset.categoryScroll === 'previous' ? categoryList.scrollLeft <= 1 : categoryList.scrollLeft >= maximumScroll - 1; });
+    };
+    categoryScrollButtons.forEach((button) => button.addEventListener('click', () => {
+        const direction = button.dataset.categoryScroll === 'previous' ? -1 : 1;
+        categoryList.scrollBy({ left: direction * Math.max(categoryList.clientWidth * 0.8, 160), behavior: 'smooth' });
+    }));
+    categoryList.addEventListener('scroll', updateCategoryScrollButtons, { passive: true });
+    window.addEventListener('resize', updateCategoryScrollButtons);
+    requestAnimationFrame(updateCategoryScrollButtons);
 
     const syncDialog = () => { dialog.querySelector(`[name="filter_sort"][value="${appliedModal.sort}"]`)?.click(); ['cities', 'suppliers'].forEach((key) => dialog.querySelectorAll(`[name="filter_${key}[]"]`).forEach((input) => { input.checked = appliedModal[key].includes(input.value); })); };
     filterOpen.addEventListener('click', () => { appliedModal = { sort: controller.filters.sort ?? 'price_asc', cities: controller.filters.cities ?? [], suppliers: controller.filters.suppliers ?? [] }; syncDialog(); dialog.showModal(); document.body.classList.add('dialog-open'); });

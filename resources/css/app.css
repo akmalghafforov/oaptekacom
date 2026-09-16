@@ -39,9 +39,14 @@
     .catalog-view-button { @apply grid size-10 shrink-0 place-items-center rounded-control text-slate-600 transition hover:bg-slate-100 hover:text-brand-700; }
     .catalog-view-button svg { @apply size-5; }
     .catalog-view-button[aria-pressed="true"] { @apply bg-brand-600 text-white shadow-sm hover:bg-brand-700 hover:text-white; }
+    .catalog-category-navigation { @apply flex min-w-0 flex-1 gap-2; }
     .catalog-category-strip { @apply flex min-w-0 flex-1 snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain; scrollbar-width: thin; }
+    .catalog-category-controls { @apply hidden shrink-0 items-stretch overflow-hidden rounded-control border border-slate-200 sm:flex; }
+    .catalog-category-scroll-button { @apply grid min-h-10 w-10 place-items-center text-slate-600 transition hover:bg-slate-100 hover:text-brand-700 disabled:cursor-default disabled:text-slate-300 disabled:hover:bg-white; }
+    .catalog-category-scroll-button + .catalog-category-scroll-button { @apply border-l border-slate-200; }
+    .catalog-category-scroll-button svg { @apply size-5; }
     .catalog-category-card { @apply relative flex h-15 min-w-40 max-w-48 snap-start items-center gap-2 rounded-control border border-slate-200 bg-white py-1.5 pl-1.5 pr-6 text-left text-sm transition hover:border-brand-500 hover:shadow-sm; }
-    .catalog-category-card[aria-selected="true"] { @apply border-brand-600 bg-brand-50 text-brand-700 ring-1 ring-brand-600; }
+    .catalog-category-card[aria-selected="true"] { @apply border-brand-600 bg-brand-50 text-brand-700; }
     .catalog-category-image { @apply grid size-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-slate-100 text-brand-700; }
     .catalog-category-card[aria-selected="true"] .catalog-category-image { @apply bg-white; }
     .catalog-category-copy { @apply min-w-0 leading-tight; }
@@ -64,6 +69,8 @@
 
     @media (min-width: 640px) {
         .catalog-search-panel:not(.is-compact) [data-catalog-form] label { @apply sr-only; }
+        .catalog-category-strip { scrollbar-width: none; }
+        .catalog-category-strip::-webkit-scrollbar { display: none; }
     }
 }
 
