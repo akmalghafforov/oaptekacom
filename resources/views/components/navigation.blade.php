@@ -31,6 +31,8 @@
     @php
         $isCatalogActive = request()->routeIs('catalog*');
         $isCartActive = request()->routeIs('cart');
+        $isOrdersActive = request()->routeIs('orders.*');
+        $isAccountActive = request()->routeIs('dashboard', 'profile.*', 'subscription.*', 'payment-requests.*');
         $accountItems = [
             ['label' => 'Обзор', 'description' => 'Рабочий кабинет', 'route' => 'dashboard', 'active' => ['dashboard']],
             ['label' => 'Заказы', 'description' => 'История и статусы', 'route' => 'orders.index', 'active' => ['orders.*']],
@@ -41,15 +43,8 @@
         $accountIsActive = $user->hasActiveSubscription();
     @endphp
 
-    <nav class="flex items-center gap-1 text-sm" aria-label="Основная навигация" data-primary-nav>
-        <x-ui.icon-button label="Поиск" :href="route('catalog')" class="md:hidden {{ $isCatalogActive ? 'border-brand-500 bg-brand-50 text-brand-700' : '' }}" aria-current="{{ $isCatalogActive ? 'page' : 'false' }}" data-primary-link="catalog">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-5"><circle cx="11" cy="11" r="7" stroke-width="1.8" /><path stroke-linecap="round" stroke-width="1.8" d="m16.5 16.5 4 4" /></svg>
-        </x-ui.icon-button>
-        <x-ui.icon-button label="Корзина" :href="route('cart')" :badge="$cartTotal" class="md:hidden {{ $isCartActive ? 'border-brand-500 bg-brand-50 text-brand-700' : '' }}" aria-current="{{ $isCartActive ? 'page' : 'false' }}" data-primary-link="cart">
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L20.5 8H6.2M10 20h.01M17 20h.01" /></svg>
-        </x-ui.icon-button>
-
-        <div class="hidden items-center gap-1 md:flex">
+    <nav class="hidden items-center gap-1 text-sm md:flex" aria-label="Основная навигация" data-primary-nav>
+        <div class="flex items-center gap-1">
             <a href="{{ route('catalog') }}" data-primary-link="catalog" class="flex min-h-10 items-center rounded-control px-3 {{ $isCatalogActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" @if($isCatalogActive) aria-current="page" @endif>Поиск</a>
             <a href="{{ route('cart') }}" data-primary-link="cart" class="flex min-h-10 items-center gap-2 rounded-control px-3 {{ $isCartActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" @if($isCartActive) aria-current="page" @endif>Корзина @if($cartTotal)<span class="rounded-full bg-brand-600 px-2 py-0.5 text-xs font-semibold text-white">{{ $cartTotal }}</span>@endif</a>
             <button type="button" disabled data-primary-placeholder="partners" class="flex min-h-10 items-center rounded-control px-3 text-slate-400" title="Раздел готовится">Партнёры <span class="sr-only">недоступно</span></button>
@@ -59,6 +54,44 @@
         <x-ui.icon-button label="Открыть меню аккаунта" aria-controls="account-drawer" aria-expanded="false" data-drawer-open>
             <span aria-hidden="true" class="font-bold text-brand-700">{{ $accountInitial }}</span>
         </x-ui.icon-button>
+    </nav>
+
+    <div class="customer-mobile-header-actions md:hidden" aria-label="Быстрые действия">
+        <x-ui.icon-button label="Избранное — раздел готовится" disabled>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-4.5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5 1.1-1.1a5.5 5.5 0 0 0 0-7.8Z"/></svg>
+        </x-ui.icon-button>
+        <x-ui.icon-button label="Уведомления — раздел готовится" disabled>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-4.5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+        </x-ui.icon-button>
+        <x-ui.icon-button label="Открыть меню аккаунта" aria-controls="account-drawer" aria-expanded="false" data-drawer-open>
+            <span aria-hidden="true" class="text-xs font-bold text-brand-700">{{ $accountInitial }}</span>
+        </x-ui.icon-button>
+    </div>
+
+    <nav class="customer-mobile-nav md:hidden" aria-label="Мобильная навигация" data-customer-mobile-nav>
+        <a href="{{ route('catalog') }}" data-mobile-nav-link="catalog" class="customer-mobile-nav-link {{ $isCatalogActive ? 'is-active' : '' }}" @if($isCatalogActive) aria-current="page" @endif>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7" stroke-width="1.8" /><path stroke-linecap="round" stroke-width="1.8" d="m16.5 16.5 4 4" /></svg><span>Поиск</span>
+        </a>
+        @unless($isCatalogActive)
+        <a href="{{ route('cart') }}" data-mobile-nav-link="cart" class="customer-mobile-nav-link {{ $isCartActive ? 'is-active' : '' }}" @if($isCartActive) aria-current="page" @endif>
+            <span class="relative"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L20.5 8H6.2M10 20h.01M17 20h.01" /></svg><span class="mobile-cart-badge {{ $cartTotal ? '' : 'hidden' }}" data-cart-badge>{{ $cartTotal > 99 ? '99+' : $cartTotal }}</span></span><span>Корзина</span>
+        </a>
+        @endunless
+        @if($isCatalogActive)
+        <button type="button" disabled data-mobile-nav-placeholder="partners" class="customer-mobile-nav-link" title="Раздел готовится" aria-label="Партнёры — раздел готовится">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M16 19v-2a4 4 0 0 0-4-4H4a4 4 0 0 0-4 4v2m16-10a4 4 0 1 0 0-8M8 9a4 4 0 1 0 0-8m12 18v-2a4 4 0 0 0-3-3.87" transform="translate(2 2) scale(.85)"/></svg><span>Партнёры</span>
+        </button>
+        <button type="button" disabled data-mobile-nav-placeholder="questions" class="customer-mobile-nav-link" title="Раздел готовится" aria-label="Вопросы — раздел готовится">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9.5 9a2.5 2.5 0 1 1 4 2c-1.5 1-1.5 1.5-1.5 2.5M12 17h.01"/></svg><span>Вопросы</span>
+        </button>
+        @else
+        <a href="{{ route('orders.index') }}" data-mobile-nav-link="orders" class="customer-mobile-nav-link {{ $isOrdersActive ? 'is-active' : '' }}" @if($isOrdersActive) aria-current="page" @endif>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Zm3 5h6m-6 4h6" /></svg><span>Заказы</span>
+        </a>
+        <button type="button" data-mobile-nav-link="account" class="customer-mobile-nav-link {{ $isAccountActive ? 'is-active' : '' }}" aria-controls="account-drawer" aria-expanded="false" data-drawer-open>
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="8" r="4" stroke-width="1.8"/><path stroke-linecap="round" stroke-width="1.8" d="M4.5 21a7.5 7.5 0 0 1 15 0"/></svg><span>Аккаунт</span>
+        </button>
+        @endif
     </nav>
 
     <x-ui.drawer name="account-drawer" title="Меню аккаунта" data-account-drawer>

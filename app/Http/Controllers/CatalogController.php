@@ -41,6 +41,7 @@ class CatalogController extends Controller
         $viewData = ['offers' => $offers->getCollection(), 'cartQuantities' => $cartQuantities, 'canBuy' => $request->user()->canBuy()];
         $cards = view('catalog.partials.offer-cards', $viewData + ['layout' => $view])->render();
         $rows = $view === 'list' ? view('catalog.partials.offer-table-rows', $viewData)->render() : null;
+        $mobileRows = $view === 'list' ? view('catalog.partials.offer-mobile-rows', $viewData)->render() : null;
         $total = $catalogSearch->total($filters);
         $isFirstPage = empty($filters['cursor']);
 
@@ -48,7 +49,7 @@ class CatalogController extends Controller
             'html' => $cards,
             'next_cursor' => $offers->nextCursor()?->encode(),
             'has_more' => $offers->hasMorePages(),
-            'fragments' => ['desktop_rows' => $rows, 'cards' => $cards, 'supplier_cards' => $view === 'suppliers' ? view('catalog.partials.supplier-cards', $viewData)->render() : null],
+            'fragments' => ['desktop_rows' => $rows, 'mobile_rows' => $mobileRows, 'cards' => $cards, 'supplier_cards' => $view === 'suppliers' ? view('catalog.partials.supplier-cards', $viewData)->render() : null],
             'facets' => $isFirstPage ? (array_key_exists('view', $filters) ? [
                 'all_count' => $total,
                 'categories' => $catalogSearch->facets($filters)->values(),

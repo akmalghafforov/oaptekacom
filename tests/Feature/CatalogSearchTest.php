@@ -114,6 +114,8 @@ class CatalogSearchTest extends TestCase
 
         $response
             ->assertSee('data-search-panel', false)
+            ->assertSee('data-active-category-label', false)
+            ->assertSee('data-category-label', false)
             ->assertSee('data-search-actions', false)
             ->assertSee('aria-label="Фильтры"', false)
             ->assertSee('aria-label="Найти"', false)
@@ -152,6 +154,47 @@ class CatalogSearchTest extends TestCase
         $this->assertStringContainsString('Сегодня истекает', $response->json('html'));
         $this->assertStringNotContainsString('Просрочено', $response->json('html'));
         $this->assertStringNotContainsString('Старая загрузка', $response->json('html'));
+    }
+
+    public function test_list_search_returns_dedicated_mobile_rows_without_changing_existing_fragments(): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $offer = $this->offer($supplier, $import, 'Мобильный парацетамол', 'мобильный парацетамол', 14, 1);
+
+        $response = $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => 'мобильный', 'view' => 'list']));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('pagination.returned', 1);
+        $this->assertStringContainsString('data-mobile-offer-row', $response->json('fragments.mobile_rows'));
+        $this->assertStringContainsString('data-mobile-result-shell="list"', $response->json('fragments.mobile_rows'));
+        $this->assertStringContainsString('data-offer-id="'.$offer->id.'"', $response->json('fragments.mobile_rows'));
+        $this->assertStringContainsString('<tr', $response->json('fragments.desktop_rows'));
+        $this->assertStringContainsString('catalog-offer-card', $response->json('fragments.cards'));
+        $this->assertStringContainsString('data-mobile-result-shell="grid"', $response->json('fragments.cards'));
+    }
+
+    public function test_non_list_search_keeps_mobile_and_desktop_row_fragments_null(): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $this->offer($supplier, $import, 'Сеточный парацетамол', 'сеточный парацетамол', 14, 1);
+
+        $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => 'сеточный', 'view' => 'grid']))
+            ->assertOk()
+            ->assertJsonPath('fragments.mobile_rows', null)
+            ->assertJsonPath('fragments.desktop_rows', null);
+    }
+
+    public function test_supplier_search_renders_mobile_supplier_actions(): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $this->offer($supplier, $import, 'Мобильный поставщик', 'мобильный поставщик', 14, 1);
+
+        $response = $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => 'мобильный', 'view' => 'suppliers']));
+
+        $this->assertStringContainsString('data-mobile-result-shell="suppliers"', $response->json('fragments.supplier_cards'));
+        $this->assertStringContainsString('data-supplier-open="'.$supplier->id.'"', $response->json('fragments.supplier_cards'));
+        $this->assertStringContainsString('Информация', $response->json('fragments.supplier_cards'));
     }
 
     public function test_cursor_pages_are_stably_ordered_without_gaps_or_duplicates(): void

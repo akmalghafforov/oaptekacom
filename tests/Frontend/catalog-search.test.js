@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CatalogSearchController } from '../../resources/js/catalog-search.js';
+import { activeCategoryLabel, CatalogSearchController, catalogFragment } from '../../resources/js/catalog-search.js';
 
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const harness = (fetcher = async () => ({ fragments: { cards: '<article />' }, pagination: { next_cursor: null, has_more: false } })) => {
@@ -39,6 +39,18 @@ test('committed filters use arrays and reset pagination', async () => {
     assert.equal(filters.at(-1)[1], true);
 });
 
+test('category selection updates its label without changing the search request contract', async () => {
+    let requested;
+    const { controller } = harness(async (input) => { requested = input; return { fragments: { cards: '' }, pagination: { next_cursor: null, has_more: false } }; });
+    const categories = [{ value: '', label: 'Все товары' }, { value: '12', label: 'Таблетки' }];
+
+    await controller.setFilter('category', '12');
+
+    assert.equal(activeCategoryLabel(categories, controller.filters.category), 'Таблетки');
+    assert.equal(requested.category, '12');
+    assert.equal(requested.view, 'list');
+});
+
 test('late responses are ignored after a newer committed search', async () => {
     const first = deferred(); const second = deferred(); let index = 0;
     const { controller, data } = harness(() => [first, second][index++].promise);
@@ -64,4 +76,26 @@ test('view changes are requested but excluded from shareable filters', async () 
     await controller.setView('grid');
     assert.equal(requested.view, 'grid');
     assert.equal('view' in filters.at(-1)[0], false);
+});
+
+test('request reports mode-specific loading before results', async () => {
+    const request = deferred();
+    const { controller, states } = harness(() => request.promise);
+
+    const pending = controller.setView('suppliers');
+    assert.equal(states.at(-1), 'loading');
+    request.resolve({ fragments: { supplier_cards: '<article />' }, pagination: { next_cursor: null, has_more: false } });
+    await pending;
+
+    assert.equal(states.at(-1), 'complete');
+});
+
+test('fragment selection separates mobile rows from tablet cards and desktop rows', () => {
+    const response = { html: 'legacy', fragments: { mobile_rows: 'mobile', desktop_rows: 'desktop', cards: 'cards', supplier_cards: 'suppliers' } };
+
+    assert.equal(catalogFragment(response, 'list', 'mobile'), 'mobile');
+    assert.equal(catalogFragment(response, 'list'), 'cards');
+    assert.equal(catalogFragment(response, 'list', 'desktop'), 'desktop');
+    assert.equal(catalogFragment(response, 'grid'), 'cards');
+    assert.equal(catalogFragment(response, 'suppliers'), 'suppliers');
 });

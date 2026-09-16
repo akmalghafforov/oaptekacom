@@ -7,7 +7,7 @@
         $discount = $hasDiscount ? (int) round((1 - ((float) $offer->price / (float) $offer->old_price)) * 100) : null;
         $inCart = (int) ($cartQuantities[$offer->id] ?? 0);
     @endphp
-    <x-ui.card class="catalog-offer-card flex flex-col gap-4" data-offer-id="{{ $offer->id }}">
+    <x-ui.card class="catalog-offer-card flex flex-col gap-4" data-mobile-result-shell="grid" data-offer-id="{{ $offer->id }}">
         <div class="relative overflow-hidden rounded-panel bg-slate-50"><img src="{{ asset('images/catalog/product-placeholder.svg') }}" alt="" class="aspect-[4/3] w-full object-cover">@if($discount)<span class="absolute left-2 top-2 rounded-full bg-danger px-2 py-1 text-xs font-bold text-white">−{{ $discount }}%</span>@endif</div>
         <div><p class="text-lg font-bold text-ink">{{ $offer->medicine->name }}</p><p class="mt-1 text-sm text-slate-600">{{ collect([$offer->medicine->dosage, $offer->medicine->form])->filter()->join(' · ') ?: 'Форма не указана' }}</p><p class="mt-2 text-sm text-muted">{{ $offer->medicine->manufacturer ?: 'Производитель не указан' }}</p></div>
         <div class="rounded-control bg-slate-50 p-3"><p class="font-medium">{{ $offer->organization->name }}</p><p class="text-xs text-muted">{{ $offer->organization->city ?: 'Город не указан' }}</p><p class="mt-1 text-xs {{ $stale ? 'text-warning' : 'text-brand-700' }}">{{ $stale ? 'Данные старше 48 часов' : 'Обновлено '.$updatedAt?->diffForHumans() }}</p></div>

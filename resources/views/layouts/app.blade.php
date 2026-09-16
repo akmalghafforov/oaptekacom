@@ -2,9 +2,9 @@
 <html lang="ru">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OAPTEKA</title>@vite(['resources/css/app.css', 'resources/js/app.js'])</head>
 <body>
-<header class="border-b border-slate-200 bg-white"><div class="page-container flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
+<header class="app-header border-b border-slate-200 bg-white" data-app-header><div class="page-container flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
 <a href="{{ auth()->check() ? route(auth()->user()->defaultLandingRouteName()) : route('login') }}" aria-label="OAPTEKA — на главную">
-<img src="{{ asset('images/oapteka-logo-header.png') }}" alt="OAPTEKA" class="h-9 w-auto sm:h-10">
+<img src="{{ asset('images/oapteka-logo-header.png') }}" alt="OAPTEKA" class="app-header-logo h-9 w-auto sm:h-10">
 </a>
 @auth
 <x-navigation :cart-total="$navigationCartTotal ?? $cartTotal ?? 0" />
@@ -13,5 +13,5 @@
 <nav class="hidden items-center gap-1 text-sm md:flex" aria-label="Навигация"><a class="flex min-h-10 items-center rounded-control px-3 text-slate-600 hover:bg-slate-50" href="{{ route('login') }}">Войти</a><a class="flex min-h-10 items-center rounded-control bg-brand-600 px-3 font-medium text-white hover:bg-brand-700" href="{{ route('register') }}">Регистрация</a></nav>
 @endauth
 </div></header>
-<main class="page-container {{ request()->routeIs('login', 'login.otp.form', 'login.session.confirmation', 'admin.login', 'provider.*', 'register', 'register.*') ? 'max-w-lg py-10 sm:py-16' : 'py-6 sm:py-8' }}"><div class="mb-5 space-y-3" aria-live="polite">@if(session('success'))<x-ui.alert type="success">{{ session('success') }}</x-ui.alert>@endif @if(session('warning'))<x-ui.alert type="warning">{{ session('warning') }}</x-ui.alert>@endif @if($errors->any())<x-ui.alert type="danger">{{ $errors->first() }}</x-ui.alert>@endif</div>@yield('content')</main>
+<main class="page-container {{ request()->routeIs('login', 'login.otp.form', 'login.session.confirmation', 'admin.login', 'provider.*', 'register', 'register.*') ? 'max-w-lg py-10 sm:py-16' : 'py-6 sm:py-8' }} {{ auth()->user()?->isCustomer() ? 'customer-page' : '' }}"><div class="mb-5 space-y-3" aria-live="polite">@if(session('success'))<x-ui.alert type="success">{{ session('success') }}</x-ui.alert>@endif @if(session('warning'))<x-ui.alert type="warning">{{ session('warning') }}</x-ui.alert>@endif @if($errors->any())<x-ui.alert type="danger">{{ $errors->first() }}</x-ui.alert>@endif</div>@yield('content')</main>
 </body></html>

@@ -1,6 +1,18 @@
 const FILTER_KEYS = ['q', 'category', 'sort', 'cities', 'suppliers'];
 const VALID_VIEWS = ['list', 'grid', 'suppliers'];
 
+export const catalogFragment = (response, view, surface = 'cards') => {
+    const fragments = response.fragments ?? {};
+
+    if (view === 'suppliers') return fragments.supplier_cards ?? '';
+    if (view === 'list' && surface === 'mobile') return fragments.mobile_rows ?? '';
+    if (view === 'list' && surface === 'desktop') return fragments.desktop_rows ?? '';
+
+    return fragments.cards ?? response.html ?? '';
+};
+
+export const activeCategoryLabel = (categories, selectedCategory = '') => categories.find((category) => String(category.value) === String(selectedCategory))?.label ?? 'Все товары';
+
 export class CatalogSearchController {
     constructor({ fetcher, onState, onData, onFilters }) {
         this.fetcher = fetcher;
@@ -88,7 +100,7 @@ export class CatalogSearchController {
             this.hasMore = Boolean(pagination.has_more);
             this.lastFailedMode = null;
             this.onData(response, append);
-            const html = response.fragments?.cards ?? response.html ?? '';
+            const html = catalogFragment(response, this.view, this.view === 'list' ? 'mobile' : 'cards');
             this.onState(html || append ? (this.hasMore ? 'results' : 'complete') : 'empty');
         } catch (error) {
             if (generation !== this.generation || error?.name === 'AbortError') return;
@@ -139,6 +151,7 @@ export function initializeCatalogSearch(root) {
     const dialog = root.querySelector('[data-dialog="catalog-filters"]');
     const filterOpen = root.querySelector('[data-filter-open]');
     const categoryList = root.querySelector('[data-category-list]');
+    const activeCategory = root.querySelector('[data-active-category-label]');
     const categoryScrollButtons = [...root.querySelectorAll('[data-category-scroll]')];
     let appliedModal = { sort: 'price_asc', cities: [], suppliers: [] };
     let lastProductView = 'list';
@@ -155,6 +168,7 @@ export function initializeCatalogSearch(root) {
             queryInput.value = filters.q ?? '';
             toggleClear();
             root.querySelectorAll('[data-category]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.category) === String(filters.category ?? '') ? 'true' : 'false'));
+            activeCategory.textContent = activeCategoryLabel([...root.querySelectorAll('[data-category]')].map((button) => ({ value: button.dataset.category, label: button.querySelector('[data-category-label]')?.textContent.trim() })), filters.category);
             if (pushHistory) updateHistory(filters, 'pushState');
         },
         onData: (data, append) => renderData(data, append),
@@ -166,13 +180,15 @@ export function initializeCatalogSearch(root) {
     };
     const renderData = (data, append) => {
         const fragments = data.fragments ?? {};
-        const cards = fragments.cards ?? data.html ?? '';
+        const cards = catalogFragment(data, controller.view);
         const target = controller.view === 'grid' ? root.querySelector('[data-catalog-grid]') : controller.view === 'suppliers' ? root.querySelector('[data-catalog-suppliers]') : root.querySelector('[data-catalog-cards]');
-        const html = controller.view === 'suppliers' ? (fragments.supplier_cards ?? '') : cards;
+        const html = controller.view === 'suppliers' ? catalogFragment(data, controller.view) : cards;
         if (append) target.insertAdjacentHTML('beforeend', html); else target.innerHTML = html;
         if (controller.view === 'list') {
             const table = root.querySelector('[data-catalog-table]');
-            if (append) table.insertAdjacentHTML('beforeend', fragments.desktop_rows ?? ''); else table.innerHTML = fragments.desktop_rows ?? '';
+            if (append) table.insertAdjacentHTML('beforeend', catalogFragment(data, controller.view, 'desktop')); else table.innerHTML = catalogFragment(data, controller.view, 'desktop');
+            const mobileRows = root.querySelector('[data-catalog-mobile-rows]');
+            if (append) mobileRows.insertAdjacentHTML('beforeend', catalogFragment(data, controller.view, 'mobile')); else mobileRows.innerHTML = catalogFragment(data, controller.view, 'mobile');
         }
         if (data.facets) updateFacets(data.facets);
         root.querySelector('[data-result-count]').textContent = data.pagination ? `${data.pagination.total} предложений` : '';
@@ -181,7 +197,12 @@ export function initializeCatalogSearch(root) {
     const renderState = (name) => {
         region.setAttribute('aria-busy', ['loading', 'loadingMore'].includes(name) ? 'true' : 'false');
         const messages = { loading: ['Ищем предложения…', 'Загружаем актуальный каталог.'], invalid: ['Уточните запрос', 'Введите минимум 3 символа или очистите поле.'], empty: ['Предложений не найдено', 'Измените запрос или фильтры.'], error: ['Не удалось выполнить поиск', 'Проверьте соединение и повторите попытку.'] };
-        state.innerHTML = messages[name] ? emptyState(...messages[name], name === 'error') : '';
+        if (name === 'loading') {
+            const skeletonClass = controller.view === 'suppliers' ? 'catalog-skeleton-suppliers' : controller.view === 'grid' ? 'catalog-skeleton-grid' : 'catalog-skeleton-list';
+            state.innerHTML = `<div class="catalog-mobile-skeleton ${skeletonClass}" aria-hidden="true">${'<span></span>'.repeat(controller.view === 'grid' ? 4 : 3)}</div><div class="catalog-desktop-loading">${emptyState('Ищем предложения…', 'Загружаем актуальный каталог.')}</div>`;
+        } else {
+            state.innerHTML = messages[name] ? emptyState(...messages[name], name === 'error') : '';
+        }
         loadMore.classList.toggle('hidden', !controller.hasMore || name === 'loadingMore');
         loadStatus.textContent = name === 'loadingMore' ? 'Загружаем…' : name === 'complete' ? 'Все предложения загружены.' : name === 'loadMoreError' ? 'Не удалось загрузить следующую страницу.' : '';
         announcer.textContent = messages[name]?.[0] ?? (name === 'complete' ? 'Все предложения загружены.' : 'Предложения загружены.');
@@ -232,9 +253,9 @@ export function initializeCatalogSearch(root) {
     dialog.querySelector('[data-filter-reset]').addEventListener('click', () => { dialog.querySelector('[name="filter_sort"][value="price_asc"]').checked = true; dialog.querySelectorAll('[data-option-label] input').forEach((input) => { input.checked = false; }); });
     dialog.querySelector('[data-filter-apply]').addEventListener('click', () => { const values = (name) => [...dialog.querySelectorAll(`[name="filter_${name}[]"]:checked`)].map((input) => input.value); const filters = { sort: dialog.querySelector('[name="filter_sort"]:checked').value, cities: values('cities'), suppliers: values('suppliers') }; const count = filters.cities.length + filters.suppliers.length + (filters.sort === 'price_asc' ? 0 : 1); const badge = root.querySelector('[data-filter-count]'); badge.textContent = count; badge.classList.toggle('hidden', count === 0); dialog.close(); controller.setFilters(filters); });
 
-    root.addEventListener('submit', async (event) => { const cartForm = event.target.closest('[data-cart-form]'); if (!cartForm) return; event.preventDefault(); const button = cartForm.querySelector('button'); button.disabled = true; try { const response = await fetch(cartForm.action, { method: 'POST', headers: { Accept: 'application/json', 'X-CSRF-TOKEN': cartForm.querySelector('[name="_token"]').value, 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: Number(cartForm.elements.quantity.value) }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message); root.querySelectorAll('[data-cart-badge]').forEach((badge) => { badge.textContent = data.cart.total_quantity; }); announcer.textContent = data.message; button.textContent = 'Добавлено'; } catch { announcer.textContent = 'Не удалось добавить товар в корзину.'; } finally { button.disabled = false; } });
+    root.addEventListener('submit', async (event) => { const cartForm = event.target.closest('[data-cart-form]'); if (!cartForm) return; event.preventDefault(); const button = cartForm.querySelector('button'); const originalContent = button.innerHTML; button.disabled = true; try { const response = await fetch(cartForm.action, { method: 'POST', headers: { Accept: 'application/json', 'X-CSRF-TOKEN': cartForm.querySelector('[name="_token"]').value, 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: Number(cartForm.elements.quantity.value) }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message); document.querySelectorAll('[data-cart-badge]').forEach((badge) => { badge.textContent = data.cart.total_quantity > 99 ? '99+' : data.cart.total_quantity; badge.classList.toggle('hidden', data.cart.total_quantity === 0); }); announcer.textContent = data.message; button.classList.add('cart-added'); button.textContent = '✓'; window.setTimeout(() => { button.innerHTML = originalContent; button.classList.remove('cart-added'); }, 1200); } catch { announcer.textContent = 'Не удалось добавить товар в корзину.'; button.innerHTML = originalContent; } finally { button.disabled = false; } });
 
-    if ('IntersectionObserver' in window) new IntersectionObserver((entries) => { const panel = root.querySelector('[data-search-panel]'); panel.classList.toggle('is-compact', !entries[0].isIntersecting); }, { rootMargin: '-72px 0px 0px' }).observe(root.querySelector('[data-search-sentinel]'));
+    if ('IntersectionObserver' in window) new IntersectionObserver((entries) => { const panel = root.querySelector('[data-search-panel]'); panel.classList.toggle('is-compact', window.matchMedia('(min-width: 768px)').matches && !entries[0].isIntersecting); }, { rootMargin: '-72px 0px 0px' }).observe(root.querySelector('[data-search-sentinel]'));
     window.addEventListener('popstate', () => controller.restore(filtersFromUrl(), controller.view));
     const storedView = localStorage.getItem('oapteka.catalog.view.v1'); controller.view = VALID_VIEWS.includes(storedView) ? storedView : 'list'; root.querySelectorAll('[data-view]').forEach((button) => button.setAttribute('aria-pressed', button.dataset.view === controller.view ? 'true' : 'false')); updateHistory(filtersFromUrl(), 'replaceState'); controller.restore(filtersFromUrl(), controller.view);
     return controller;
