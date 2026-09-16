@@ -10,6 +10,7 @@ use App\Http\Requests\VerifyPhoneOtpRequest;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\PhoneOtpService;
+use App\Support\UserAgentFormatter;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
@@ -22,6 +23,8 @@ use Illuminate\View\View;
 
 class AuthController extends Controller
 {
+    public function __construct(private readonly UserAgentFormatter $userAgentFormatter) {}
+
     public function loginForm(): View
     {
         return view('auth.login');
@@ -178,7 +181,10 @@ class AuthController extends Controller
 
         return view('auth.session-confirmation', [
             'session' => $session,
+            'deviceSummary' => $this->userAgentFormatter->format($session->user_agent),
             'lastActivity' => now()->setTimestamp($session->last_activity)->format('d.m.Y H:i'),
+            'confirmRoute' => $role === UserRole::Pharmacy ? 'login.session.confirm' : 'provider.session.confirm',
+            'cancelRoute' => $role === UserRole::Pharmacy ? 'login.session.cancel' : 'provider.session.cancel',
         ]);
     }
 
@@ -200,6 +206,10 @@ class AuthController extends Controller
         Auth::login($user);
         $request->session()->regenerate();
         $request->session()->forget([$this->loginSessionKey($role), $this->pendingLoginSessionKey($role)]);
+
+        if ($role === UserRole::Pharmacy) {
+            return redirect()->route('catalog');
+        }
 
         return redirect()->intended(route($user->defaultLandingRouteName()));
     }

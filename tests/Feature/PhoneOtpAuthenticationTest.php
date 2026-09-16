@@ -214,7 +214,8 @@ class PhoneOtpAuthenticationTest extends TestCase
         $organization = Organization::factory()->pharmacy()->create();
         $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => null, 'email' => null]);
         OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
-        $this->createActiveSession($user, 'other-device-session', 'Firefox 143 / Ubuntu 24.04', '203.0.113.10', now()->subMinutes(10)->timestamp);
+        $rawUserAgent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0';
+        $this->createActiveSession($user, 'other-device-session', $rawUserAgent, '203.0.113.10', now()->subMinutes(10)->timestamp);
 
         $response = $this->withSession(['phone_otp.login' => $user->phone])
             ->post(route('login.otp.verify'), ['phone' => $user->phone, 'code' => '123456']);
@@ -227,9 +228,16 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
             ->get(route('login.session.confirmation'))
             ->assertViewIs('auth.session-confirmation')
-            ->assertSee('Firefox 143 / Ubuntu 24.04')
+            ->assertSee('Активный сеанс на другом устройстве')
+            ->assertSee('OAPTEKA не завершает другие сеансы автоматически')
+            ->assertSee('Firefox · Ubuntu')
+            ->assertDontSee($rawUserAgent)
             ->assertSee('203.0.113.10')
-            ->assertSee('11.09.2026 08:50');
+            ->assertSee('11.09.2026 08:50')
+            ->assertSee('action="'.route('login.session.cancel').'"', false)
+            ->assertSee('action="'.route('login.session.confirm').'"', false)
+            ->assertSee('Назад ко входу')
+            ->assertSee('Выйти с другого устройства и войти');
         $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
             ->post(route('login.session.cancel'))
             ->assertRedirectToRoute('login')
@@ -249,7 +257,10 @@ class PhoneOtpAuthenticationTest extends TestCase
         OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
         $this->createActiveSession($user, 'other-device-session', 'Firefox 143 / Ubuntu 24.04', '203.0.113.10', now()->subMinutes(10)->timestamp);
 
-        $otpResponse = $this->withSession(['phone_otp.login' => $user->phone])
+        $otpResponse = $this->withSession([
+            'phone_otp.login' => $user->phone,
+            'url.intended' => route('orders.index'),
+        ])
             ->post(route('login.otp.verify'), ['phone' => $user->phone, 'code' => '123456']);
         $otpResponse->assertRedirectToRoute('login.session.confirmation');
         $sessionId = $otpResponse->getCookie(config('session.cookie'), false)->getValue();
@@ -269,6 +280,61 @@ class PhoneOtpAuthenticationTest extends TestCase
             ->get(route('dashboard'))
             ->assertRedirectToRoute('login');
         $this->travelBack();
+    }
+
+    public function test_supplier_session_confirmation_uses_supplier_routes_and_cancel_keeps_original_session(): void
+    {
+        $this->useDatabaseSessions();
+        $this->travelTo('2026-09-11 09:00:00');
+        $supplier = User::factory()->wholesaler()->create(['phone' => '+992901234567', 'password' => null]);
+        OneTimePassword::factory()->create(['account_type' => UserRole::Wholesaler, 'phone' => $supplier->phone, 'code_hash' => Hash::make('123456')]);
+        $this->createActiveSession($supplier, 'supplier-device-session', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0', '198.51.100.20', now()->subMinutes(5)->timestamp);
+
+        $otpResponse = $this->withSession(['phone_otp.supplier_login' => $supplier->phone])
+            ->post(route('provider.otp.verify'), ['phone' => $supplier->phone, 'code' => '123456']);
+
+        $otpResponse->assertRedirectToRoute('provider.session.confirmation');
+        $sessionId = $otpResponse->getCookie(config('session.cookie'), false)->getValue();
+
+        $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
+            ->get(route('provider.session.confirmation'))
+            ->assertViewIs('auth.session-confirmation')
+            ->assertSee('Edge · Windows')
+            ->assertSee('198.51.100.20')
+            ->assertSee('11.09.2026 08:55')
+            ->assertSee('action="'.route('provider.session.cancel').'"', false)
+            ->assertSee('action="'.route('provider.session.confirm').'"', false)
+            ->assertDontSee('action="'.route('login.session.confirm').'"', false);
+
+        $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
+            ->post(route('provider.session.cancel'))
+            ->assertRedirectToRoute('provider.login')
+            ->assertSessionHas('warning');
+
+        $this->assertGuest();
+        $this->assertDatabaseHas('sessions', ['id' => 'supplier-device-session', 'user_id' => $supplier->id]);
+        $this->travelBack();
+    }
+
+    public function test_confirming_supplier_session_replacement_preserves_the_intended_destination(): void
+    {
+        $this->useDatabaseSessions();
+        $supplier = User::factory()->wholesaler()->create(['phone' => '+992901234567', 'password' => null]);
+        OneTimePassword::factory()->create(['account_type' => UserRole::Wholesaler, 'phone' => $supplier->phone, 'code_hash' => Hash::make('123456')]);
+        $this->createActiveSession($supplier, 'supplier-device-session', 'Custom Client', '198.51.100.20', now()->subMinutes(5)->timestamp);
+
+        $otpResponse = $this->withSession([
+            'phone_otp.supplier_login' => $supplier->phone,
+            'url.intended' => route('orders.index'),
+        ])->post(route('provider.otp.verify'), ['phone' => $supplier->phone, 'code' => '123456']);
+        $sessionId = $otpResponse->getCookie(config('session.cookie'), false)->getValue();
+
+        $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
+            ->post(route('provider.session.confirm'))
+            ->assertRedirect(route('orders.index'));
+
+        $this->assertAuthenticatedAs($supplier);
+        $this->assertDatabaseMissing('sessions', ['id' => 'supplier-device-session']);
     }
 
     public function test_wrong_codes_are_limited_to_five_attempts(): void
