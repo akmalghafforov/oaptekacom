@@ -157,11 +157,13 @@
         [data-catalog-search] .mobile-offer-row [data-cart-submit]:hover { background: var(--catalog-accent-dark); }
         [data-catalog-search] .mobile-offer-row p.shrink-0.text-brand-700,
         [data-catalog-search] [data-catalog-grid] .catalog-offer-card .text-2xl.text-brand-700 { color: var(--catalog-accent); }
-        [data-catalog-grid] { @apply grid-cols-1 gap-2; }
+        [data-catalog-grid] { @apply grid-cols-2 gap-2; }
         [data-catalog-grid] .catalog-offer-card { @apply gap-3 p-3; animation: catalog-result-in 180ms ease-out both; }
-        [data-catalog-grid] .catalog-offer-card > div:first-child img { @apply aspect-[16/7]; }
-        [data-catalog-grid] .catalog-offer-card .text-lg { @apply line-clamp-2 text-sm leading-tight; }
-        [data-catalog-grid] .catalog-offer-card .text-2xl { @apply text-lg; }
+        [data-catalog-grid] .catalog-offer-card > div:first-child img { @apply aspect-[4/3]; }
+        [data-catalog-grid] .catalog-offer-card .text-lg { @apply line-clamp-2 text-[0.8125rem] leading-tight; }
+        [data-catalog-grid] .catalog-offer-card .text-sm { @apply text-xs; }
+        [data-catalog-grid] .catalog-offer-card .rounded-control .font-medium { @apply text-xs; }
+        [data-catalog-grid] .catalog-offer-card .text-2xl { @apply text-base; }
         [data-catalog-grid] .catalog-offer-card form { @apply flex-col; }
         [data-catalog-grid] .catalog-offer-card form input { @apply w-full; }
         [data-catalog-suppliers] { @apply grid-cols-1 gap-2; }
@@ -187,7 +189,7 @@
         .catalog-mobile-skeleton { @apply grid gap-2; }
         .catalog-mobile-skeleton span { @apply block rounded-xl bg-slate-200; animation: catalog-skeleton-pulse 1.1s ease-in-out infinite alternate; }
         .catalog-skeleton-list span { @apply h-32; }
-        .catalog-skeleton-grid { @apply grid-cols-1; }
+        .catalog-skeleton-grid { @apply grid-cols-2; }
         .catalog-skeleton-grid span { @apply h-80; }
         .catalog-skeleton-suppliers span { @apply h-36; }
         .catalog-desktop-loading { @apply hidden; }
