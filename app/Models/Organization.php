@@ -55,6 +55,16 @@ class Organization extends Model
         return $this->hasMany(SupplierSenderAddress::class, 'supplier_organization_id');
     }
 
+    public function pharmacySuppliers(): HasMany
+    {
+        return $this->hasMany(PharmacySupplier::class, 'pharmacy_organization_id');
+    }
+
+    public function supplierInvitations(): HasMany
+    {
+        return $this->hasMany(SupplierInvitation::class, 'supplier_organization_id');
+    }
+
     public function activePriceListImport(): BelongsTo
     {
         return $this->belongsTo(PriceListImport::class, 'active_price_list_import_id');
@@ -67,6 +77,6 @@ class Organization extends Model
 
     protected function casts(): array
     {
-        return ['subscription_until' => 'datetime', 'type' => OrganizationType::class];
+        return ['subscription_until' => 'datetime', 'type' => OrganizationType::class, 'additional_phones' => 'array'];
     }
 }

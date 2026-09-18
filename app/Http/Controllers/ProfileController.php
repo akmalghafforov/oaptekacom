@@ -18,7 +18,7 @@ class ProfileController extends Controller
 {
     public function edit(Request $request): View
     {
-        return view('profile.edit', ['user' => $request->user(), 'organization' => $request->user()->organization]);
+        return view('profile.edit', ['user' => $request->user(), 'organization' => $request->user()->organization?->load('supplierInvitations')]);
     }
 
     public function update(UpdateProfileRequest $request, AuditLogger $auditLogger): RedirectResponse
@@ -81,15 +81,25 @@ class ProfileController extends Controller
         $user = $request->user();
         $organization = $user->organization;
         abort_unless($organization, 403);
-        $before = $organization->only('name', 'city', 'phone', 'minimum_order', 'delivery_conditions');
-        $organization->update($request->safe()->only(['name', 'city', 'minimum_order', 'delivery_conditions']));
+        $before = $organization->only('name', 'city', 'phone', 'minimum_order', 'delivery_conditions', 'contact_name', 'contact_email', 'whatsapp_phone', 'additional_phones');
+        $data = $request->safe()->only(['name', 'city', 'minimum_order', 'delivery_conditions']);
+        if ($user->isWholesaler()) {
+            $data += $request->safe()->only(['contact_name', 'contact_email', 'whatsapp_phone']);
+            $data['additional_phones'] = $this->phoneLines($request->input('additional_phones'));
+        }
+        $organization->update($data);
         if ($user->isWholesaler() && $request->filled('active_trade_mode')) {
             $mode = TradeMode::from($request->string('active_trade_mode')->toString());
             abort_unless($organization->permitsMode($mode), 422);
             $user->update(['active_trade_mode' => $mode]);
         }
-        $auditLogger->log('organization.updated', $organization, $before, $organization->fresh()->only('name', 'city', 'phone', 'minimum_order', 'delivery_conditions'));
+        $auditLogger->log('organization.updated', $organization, $before, $organization->fresh()->only(array_keys($before)));
 
         return back()->with('success', 'Настройки организации сохранены.');
+    }
+
+    private function phoneLines(?string $phones): array
+    {
+        return array_values(array_unique(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $phones ?? '')))));
     }
 }

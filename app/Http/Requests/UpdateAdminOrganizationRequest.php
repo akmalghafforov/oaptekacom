@@ -35,6 +35,10 @@ class UpdateAdminOrganizationRequest extends FormRequest
             'supplier_mode' => [Rule::requiredIf($organization->type === OrganizationType::Wholesaler), 'nullable', Rule::in(['supplier', 'both'])],
             'minimum_order' => [Rule::requiredIf($organization->type === OrganizationType::Wholesaler), 'nullable', 'numeric', 'min:0'],
             'delivery_conditions' => ['nullable', 'string', 'max:5000'],
+            'contact_name' => ['nullable', 'string', 'max:255'],
+            'contact_email' => ['nullable', 'email', 'max:255'],
+            'whatsapp_phone' => ['nullable', 'string', 'max:30'],
+            'additional_phones' => ['nullable', 'string', 'max:500'],
         ];
     }
 }

@@ -132,8 +132,14 @@ class OrganizationDirectoryController extends Controller
     private function update(UpdateAdminOrganizationRequest $request, Organization $organization, OrganizationType $type, AuditLogger $auditLogger): RedirectResponse
     {
         $organization = $this->organizationOfType($organization, $type);
-        $before = $organization->only(['name', 'city', 'phone', 'status', 'supplier_mode', 'minimum_order', 'delivery_conditions']);
-        $organization->update($request->validated());
+        $before = $organization->only(['name', 'city', 'phone', 'status', 'supplier_mode', 'minimum_order', 'delivery_conditions', 'contact_name', 'contact_email', 'whatsapp_phone', 'additional_phones']);
+        $data = $request->validated();
+        if ($type === OrganizationType::Wholesaler) {
+            $data['additional_phones'] = array_values(array_unique(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $data['additional_phones'] ?? '')))));
+        } else {
+            unset($data['contact_name'], $data['contact_email'], $data['whatsapp_phone'], $data['additional_phones']);
+        }
+        $organization->update($data);
         $auditLogger->log('organization.updated_by_admin', $organization, $before, $organization->fresh()->only(array_keys($before)));
 
         return redirect()->route($this->routePrefix($type).'.show', $organization)->with('success', 'Данные организации сохранены.');

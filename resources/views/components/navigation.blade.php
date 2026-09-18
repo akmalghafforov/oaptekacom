@@ -31,6 +31,7 @@
     @php
         $isCatalogActive = request()->routeIs('catalog*');
         $isCartActive = request()->routeIs('cart');
+        $isPartnersActive = request()->routeIs('partners.*');
         $isOrdersActive = request()->routeIs('orders.*');
         $isAccountActive = request()->routeIs('dashboard', 'profile.*', 'subscription.*', 'payment-requests.*');
         $accountItems = [
@@ -47,7 +48,7 @@
         <div class="flex items-center gap-1">
             <a href="{{ route('catalog') }}" data-primary-link="catalog" class="flex min-h-10 items-center rounded-control px-3 {{ $isCatalogActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" @if($isCatalogActive) aria-current="page" @endif>Поиск</a>
             <a href="{{ route('cart') }}" data-primary-link="cart" class="flex min-h-10 items-center gap-2 rounded-control px-3 {{ $isCartActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" @if($isCartActive) aria-current="page" @endif>Корзина @if($cartTotal)<span class="rounded-full bg-brand-600 px-2 py-0.5 text-xs font-semibold text-white">{{ $cartTotal }}</span>@endif</a>
-            <button type="button" disabled data-primary-placeholder="partners" class="flex min-h-10 items-center rounded-control px-3 text-slate-400" title="Раздел готовится">Партнёры <span class="sr-only">недоступно</span></button>
+            <a href="{{ route('partners.index') }}" data-primary-link="partners" class="flex min-h-10 items-center rounded-control px-3 {{ $isPartnersActive ? 'bg-brand-50 font-semibold text-brand-700' : 'text-slate-600 hover:bg-slate-50' }}" @if($isPartnersActive) aria-current="page" @endif>Партнёры</a>
             <button type="button" disabled data-primary-placeholder="questions" class="flex min-h-10 items-center rounded-control px-3 text-slate-400" title="Раздел готовится">Вопросы <span class="sr-only">недоступно</span></button>
         </div>
 
@@ -77,10 +78,10 @@
             <span class="relative"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L20.5 8H6.2M10 20h.01M17 20h.01" /></svg><span class="mobile-cart-badge {{ $cartTotal ? '' : 'hidden' }}" data-cart-badge>{{ $cartTotal > 99 ? '99+' : $cartTotal }}</span></span><span>Корзина</span>
         </a>
         @endunless
-        @if($isCatalogActive)
-        <button type="button" disabled data-mobile-nav-placeholder="partners" class="customer-mobile-nav-link" title="Раздел готовится" aria-label="Партнёры — раздел готовится">
+        @if($isCatalogActive || $isPartnersActive)
+        <a href="{{ route('partners.index') }}" data-mobile-nav-link="partners" class="customer-mobile-nav-link {{ $isPartnersActive ? 'is-active' : '' }}" @if($isPartnersActive) aria-current="page" @endif>
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M16 19v-2a4 4 0 0 0-4-4H4a4 4 0 0 0-4 4v2m16-10a4 4 0 1 0 0-8M8 9a4 4 0 1 0 0-8m12 18v-2a4 4 0 0 0-3-3.87" transform="translate(2 2) scale(.85)"/></svg><span>Партнёры</span>
-        </button>
+        </a>
         <button type="button" disabled data-mobile-nav-placeholder="questions" class="customer-mobile-nav-link" title="Раздел готовится" aria-label="Вопросы — раздел готовится">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M9.5 9a2.5 2.5 0 1 1 4 2c-1.5 1-1.5 1.5-1.5 2.5M12 17h.01"/></svg><span>Вопросы</span>
         </button>

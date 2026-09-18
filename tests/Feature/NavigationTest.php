@@ -22,7 +22,7 @@ class NavigationTest extends TestCase
         $response
             ->assertSeeText(['Поиск', 'Корзина', 'Партнёры', 'Вопросы', 'Меню аккаунта', 'Обзор', 'Заказы', 'Профиль', 'Мой тариф', 'Выйти', 'Аптека Навигация'])
             ->assertDontSeeText(['Операционный центр', 'Пользователи', 'Подписки', 'Модули'])
-            ->assertSeeHtml(['data-primary-nav', 'data-primary-link="catalog"', 'data-primary-link="cart"', 'data-primary-placeholder="partners"', 'data-primary-placeholder="questions"', 'aria-controls="account-drawer"', 'data-account-drawer="data-account-drawer"'])
+            ->assertSeeHtml(['data-primary-nav', 'data-primary-link="catalog"', 'data-primary-link="cart"', 'data-primary-link="partners"', 'data-primary-placeholder="questions"', 'aria-controls="account-drawer"', 'data-account-drawer="data-account-drawer"'])
             ->assertSeeHtml(['data-customer-mobile-nav', 'data-mobile-nav-link="catalog"', 'data-mobile-nav-link="cart"', 'data-mobile-nav-link="orders"', 'data-mobile-nav-link="account"'])
             ->assertDontSeeHtml(['data-primary-link="dashboard"', 'data-primary-link="orders.index"', 'data-primary-link="profile.edit"', 'data-primary-link="subscription.create"'])
             ->assertSeeHtml(['data-account-link="dashboard"', 'data-account-link="orders.index"', 'data-account-link="profile.edit"', 'data-account-link="subscription.create"', 'data-account-logout="data-account-logout"'])
@@ -39,7 +39,7 @@ class NavigationTest extends TestCase
             ->assertSee('data-app-header', false)
             ->assertSee('data-search-panel', false)
             ->assertSee('data-customer-mobile-nav', false)
-            ->assertSee('data-mobile-nav-placeholder="partners"', false)
+            ->assertSee('data-mobile-nav-link="partners"', false)
             ->assertSee('data-mobile-nav-placeholder="questions"', false)
             ->assertDontSee('data-mobile-nav-link="cart"', false)
             ->assertDontSee('data-mobile-nav-link="orders"', false)

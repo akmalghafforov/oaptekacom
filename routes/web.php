@@ -10,11 +10,13 @@ use App\Http\Controllers\CartController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\PaymentReceiptController;
 use App\Http\Controllers\PriceListImportController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SubscriptionRequestController;
+use App\Http\Controllers\SupplierInvitationController;
 use App\Http\Controllers\TwoFactorController;
 use App\Services\PhoneOtpService;
 use Illuminate\Http\Request;
@@ -71,6 +73,16 @@ Route::middleware('auth')->group(function () {
     Route::post('/two-factor/recovery', [TwoFactorController::class, 'recovery'])->middleware('throttle:5,1')->name('two-factor.recovery');
 });
 Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function () {
+    Route::middleware('role:pharmacy')->group(function () {
+        Route::get('/partners', [PartnerController::class, 'index'])->name('partners.index');
+        Route::post('/partners/phone', [PartnerController::class, 'linkPhone'])->middleware('throttle:10,1')->name('partners.phone');
+        Route::post('/partners/code', [PartnerController::class, 'redeem'])->middleware('throttle:5,1')->name('partners.code');
+        Route::patch('/partners/{supplier}/discount', [PartnerController::class, 'updateDiscount'])->name('partners.discount');
+    });
+    Route::middleware('role:wholesaler')->group(function () {
+        Route::post('/supplier/invitations', [SupplierInvitationController::class, 'store'])->middleware('throttle:10,1')->name('supplier.invitations.store');
+        Route::post('/supplier/invitations/{invitation}/revoke', [SupplierInvitationController::class, 'revoke'])->name('supplier.invitations.revoke');
+    });
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog');
     Route::get('/catalog/search', [CatalogController::class, 'search'])->name('catalog.search');
