@@ -24,7 +24,9 @@ class PartnerController extends Controller
             ->when($request->filled('name'), fn ($query) => $query->where('name', 'like', '%'.$request->string('name')->toString().'%'))
             ->when($request->filled('city'), fn ($query) => $query->where('city', $request->string('city')->toString()))
             ->with(['senderAddresses' => fn ($query) => $query->orderBy('id')])
+            ->with('activePriceListImport')
             ->with(['priceListImports' => fn ($query) => $query->orderByRaw('COALESCE(received_at, created_at) DESC')->orderByDesc('id')->limit(1)])
+            ->withExists(['offers as has_available_catalog' => fn ($query) => $query->currentAvailable()])
             ->orderBy('name')->orderBy('id')->paginate(20)->withQueryString();
         $links = $request->user()->organization->pharmacySuppliers()->whereIn('supplier_organization_id', $suppliers->pluck('id'))->get()->keyBy('supplier_organization_id');
 

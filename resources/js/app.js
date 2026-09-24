@@ -187,3 +187,39 @@ document.querySelectorAll('[data-drawer]').forEach((drawer) => {
         returnFocus?.focus();
     });
 });
+
+document.querySelectorAll('[data-dialog-open]').forEach((opener) => {
+    const dialog = document.getElementById(opener.getAttribute('aria-controls'));
+
+    if (!dialog) {
+        return;
+    }
+
+    const closeDialog = () => {
+        if (dialog.open) {
+            dialog.close();
+        }
+    };
+
+    opener.addEventListener('click', () => {
+        dialog.showModal();
+        document.body.classList.add('dialog-open');
+        dialog.querySelector('[data-dialog-close]')?.focus();
+    });
+    dialog.querySelectorAll('[data-dialog-close]').forEach((button) => button.addEventListener('click', closeDialog));
+    dialog.addEventListener('click', (event) => {
+        if (event.target === dialog) {
+            closeDialog();
+        }
+    });
+    dialog.addEventListener('close', () => {
+        document.body.classList.remove('dialog-open');
+        opener.focus();
+    });
+});
+
+document.querySelectorAll('[data-dialog-auto-open]').forEach((dialog) => {
+    dialog.showModal();
+    document.body.classList.add('dialog-open');
+    dialog.querySelector('input')?.focus();
+});
