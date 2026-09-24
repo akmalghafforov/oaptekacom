@@ -3,7 +3,7 @@ COMMAND ?=
 
 .DEFAULT_GOAL := help
 
-.PHONY: help network up down restart build ps logs shell artisan composer test migrate migrate-fresh cache-clear queue-restart db
+.PHONY: help network up down restart build watch ps logs shell artisan composer test migrate migrate-fresh cache-clear queue-restart db
 
 help: ## Show available commands.
 	@awk 'BEGIN {FS = ":.*##"}; /^[a-zA-Z_-]+:.*##/ {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -22,6 +22,9 @@ restart: ## Restart all services.
 
 build: ## Build service images.
 	$(COMPOSE) build
+
+watch: ## Start the stack, synchronize code, and run Vite inside Docker.
+	$(COMPOSE) watch
 
 ps: ## Show service status.
 	$(COMPOSE) ps

@@ -26,6 +26,38 @@ services:
       postgres:
         condition: service_healthy
     networks: [traefik-net, internal]
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /var/www
+          ignore:
+            - .git/
+            - node_modules/
+            - public/hot
+            - storage/
+            - vendor/
+        - action: rebuild
+          path: Dockerfile
+        - action: rebuild
+          path: composer.json
+        - action: rebuild
+          path: composer.lock
+
+  vite:
+    image: node:22-alpine
+    restart: unless-stopped
+    working_dir: /var/www
+    command: >-
+      sh -c 'npm ci && npm run dev -- --host 0.0.0.0'
+    volumes:
+      - ./:/var/www
+      - node_modules:/var/www/node_modules
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "5173:5173"
+    networks: [internal]
 
   nginx:
     image: nginx:1.27-alpine
@@ -113,5 +145,6 @@ networks:
   internal:
 
 volumes:
+  node_modules:
   postgres-data:
   vendor:
