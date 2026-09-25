@@ -43,7 +43,7 @@ class PriceListImportController extends Controller
             $query->where('supplier_organization_id', $request->user()->organization_id);
         }
 
-        return view('price-list-imports.index', ['imports' => $query->paginate(20), 'suppliers' => $request->user()->isAdmin() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->orderBy('name')->get() : collect()]);
+        return view('price-list-imports.index', ['imports' => $query->paginate(20), 'suppliers' => $request->user()->isAdmin() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
     }
 
     public function store(StorePriceListImportRequest $request, SupplierPriceListIngestor $ingestor): RedirectResponse

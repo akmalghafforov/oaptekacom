@@ -4,7 +4,22 @@
 
     @if(auth()->user()->isAdmin())
         <x-ui.card class="mt-6"><h2 class="font-bold">Новый поставщик</h2><form method="post" action="{{ route('admin.suppliers.store') }}" class="mt-4 grid gap-4 md:grid-cols-4 md:items-end">@csrf<x-ui.input name="name" label="Название" required /><x-ui.input name="city" label="Город" /><x-ui.input name="phone" label="Телефон" /><x-ui.button>Создать</x-ui.button></form></x-ui.card>
-        <x-ui.card class="mt-4"><h2 class="font-bold">Профили поставщиков</h2><div class="mt-3 flex flex-wrap gap-2">@foreach($suppliers as $supplier)<a class="flex min-h-10 items-center rounded-control border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50" href="{{ route('admin.supplier-import-profiles.edit', $supplier) }}">{{ $supplier->name }}</a>@endforeach</div></x-ui.card>
+        <x-ui.card class="mt-4">
+            <h2 class="font-bold">Профили поставщиков</h2>
+            <div class="mt-3 flex flex-wrap gap-2">
+                @foreach($suppliers as $supplier)
+                    @php($hasActiveImportProfile = $supplier->importProfile?->is_active)
+                    <a @class([
+                        'flex min-h-10 flex-col items-start justify-center gap-0.5 rounded-control border px-3 py-1.5 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2',
+                        'border-emerald-200 bg-emerald-50 text-emerald-800 hover:border-emerald-300 hover:bg-emerald-100 focus-visible:outline-emerald-600' => $hasActiveImportProfile,
+                        'border-red-200 bg-red-50 text-danger hover:border-red-300 hover:bg-red-100 focus-visible:outline-red-600' => ! $hasActiveImportProfile,
+                    ]) href="{{ route('admin.supplier-import-profiles.edit', $supplier) }}">
+                        <span>{{ $supplier->name }}</span>
+                        <span class="text-xs font-medium">{{ $hasActiveImportProfile ? 'Активный профиль' : 'Нет активного профиля' }}</span>
+                    </a>
+                @endforeach
+            </div>
+        </x-ui.card>
     @endif
 
     <x-ui.card class="mt-6">

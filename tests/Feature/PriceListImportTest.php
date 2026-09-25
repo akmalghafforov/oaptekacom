@@ -31,6 +31,43 @@ class PriceListImportTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_admin_sees_supplier_import_profile_statuses(): void
+    {
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $activeSupplier = Organization::factory()->wholesaler()->create(['name' => 'A Active supplier']);
+        $inactiveSupplier = Organization::factory()->wholesaler()->create(['name' => 'B Inactive supplier']);
+        $supplierWithoutProfile = Organization::factory()->wholesaler()->create(['name' => 'C No profile supplier']);
+        SupplierImportProfile::factory()->for($activeSupplier, 'supplier')->create(['is_active' => true]);
+        SupplierImportProfile::factory()->for($inactiveSupplier, 'supplier')->create(['is_active' => false]);
+
+        $response = $this->actingAs($admin)->get(route('price-list-imports.index'));
+
+        $response->assertSeeInOrder([
+            $activeSupplier->name,
+            'Активный профиль',
+            $inactiveSupplier->name,
+            'Нет активного профиля',
+            $supplierWithoutProfile->name,
+            'Нет активного профиля',
+        ]);
+        $response->assertSee('border-emerald-200');
+        $response->assertSee('bg-emerald-50');
+        $response->assertSee('border-red-200');
+        $response->assertSee('bg-red-50');
+    }
+
+    public function test_wholesaler_does_not_see_admin_supplier_profile_statuses(): void
+    {
+        $supplier = Organization::factory()->wholesaler()->create();
+        $user = User::factory()->wholesaler($supplier)->create();
+
+        $response = $this->actingAs($user)->get(route('price-list-imports.index'));
+
+        $response->assertDontSee('Профили поставщиков');
+        $response->assertDontSee('Активный профиль');
+        $response->assertDontSee('Нет активного профиля');
+    }
+
     public function test_supplier_upload_is_private_deduplicated_and_queued(): void
     {
         Storage::fake('local');
