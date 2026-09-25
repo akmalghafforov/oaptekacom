@@ -33,13 +33,19 @@ class CatalogController extends Controller
         $pharmacyOrganizationId = $request->user()->isCustomer() ? $request->user()->organization_id : null;
         $offers = $catalogSearch->search($filters, $pharmacyOrganizationId);
         $view = $filters['view'] ?? 'list';
-        $cartQuantities = $request->user()->canBuy()
-            ? CartItem::query()->whereHas('cart', fn ($query) => $query->where('user_id', $request->user()->id))->whereIn('offer_id', $offers->getCollection()->pluck('id'))->pluck('quantity', 'offer_id')
+        $cartItems = $request->user()->canBuy()
+            ? CartItem::query()
+                ->whereHas('cart', fn ($query) => $query->where('user_id', $request->user()->id))
+                ->whereIn('offer_id', $offers->getCollection()->pluck('id'))
+                ->get(['id', 'offer_id', 'quantity'])
+                ->keyBy('offer_id')
             : collect();
+        $cartQuantities = $cartItems->mapWithKeys(fn (CartItem $item): array => [$item->offer_id => $item->quantity]);
+        $cartItemIds = $cartItems->mapWithKeys(fn (CartItem $item): array => [$item->offer_id => $item->id]);
         $cartTotal = $request->user()->canBuy()
             ? (int) CartItem::query()->whereHas('cart', fn ($query) => $query->where('user_id', $request->user()->id))->sum('quantity')
             : 0;
-        $viewData = ['offers' => $offers->getCollection(), 'cartQuantities' => $cartQuantities, 'canBuy' => $request->user()->canBuy()];
+        $viewData = ['offers' => $offers->getCollection(), 'cartQuantities' => $cartQuantities, 'cartItemIds' => $cartItemIds, 'canBuy' => $request->user()->canBuy()];
         $cards = view('catalog.partials.offer-cards', $viewData + ['layout' => $view])->render();
         $rows = $view === 'list' ? view('catalog.partials.offer-table-rows', $viewData)->render() : null;
         $mobileRows = $view === 'list' ? view('catalog.partials.offer-mobile-rows', $viewData)->render() : null;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeCategoryLabel, CatalogSearchController, catalogFragment } from '../../resources/js/catalog-search.js';
+import { activeCategoryLabel, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
 
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const harness = (fetcher = async () => ({ fragments: { cards: '<article />' }, pagination: { next_cursor: null, has_more: false } })) => {
@@ -98,4 +98,42 @@ test('fragment selection separates mobile rows from tablet cards and desktop row
     assert.equal(catalogFragment(response, 'list', 'desktop'), 'desktop');
     assert.equal(catalogFragment(response, 'grid'), 'cards');
     assert.equal(catalogFragment(response, 'suppliers'), 'suppliers');
+});
+
+test('cart responses persistently synchronize every rendered offer state and basket badge', () => {
+    const classList = () => ({ hidden: false, toggle(_name, hidden) { this.hidden = hidden; } });
+    const addInput = { disabled: false };
+    const addButton = { disabled: false };
+    const quantity = { textContent: '1' };
+    const removeButton = { disabled: true };
+    const removeForm = { action: '', querySelectorAll: (selector) => selector === 'button' ? [removeButton] : [] };
+    const addControls = { classList: classList(), querySelectorAll: () => [addInput, addButton] };
+    const inCartControls = {
+        classList: classList(),
+        querySelectorAll: (selector) => selector === '[data-cart-quantity]' ? [quantity] : [],
+        querySelector: (selector) => selector === '[data-cart-remove-form]' ? removeForm : null,
+    };
+    const offer = { querySelector: (selector) => selector === '[data-cart-add-controls]' ? addControls : inCartControls };
+    const root = { querySelectorAll: (selector) => selector === '[data-offer-id="42"]' ? [offer, offer] : [] };
+    const badge = { textContent: '', classList: classList() };
+    const documentRoot = { querySelectorAll: () => [badge] };
+
+    updateCatalogOfferCartState(root, { offer_id: 42, quantity: 3, remove_url: '/cart/items/9' });
+    updateCartBadges(documentRoot, 3);
+
+    assert.equal(addControls.classList.hidden, true);
+    assert.equal(inCartControls.classList.hidden, false);
+    assert.equal(addInput.disabled, true);
+    assert.equal(quantity.textContent, 3);
+    assert.equal(removeForm.action, '/cart/items/9');
+    assert.equal(badge.textContent, 3);
+
+    updateCatalogOfferCartState(root, { offer_id: 42 });
+    updateCartBadges(documentRoot, 0);
+
+    assert.equal(addControls.classList.hidden, false);
+    assert.equal(inCartControls.classList.hidden, true);
+    assert.equal(addInput.disabled, false);
+    assert.equal(removeButton.disabled, true);
+    assert.equal(badge.classList.hidden, true);
 });

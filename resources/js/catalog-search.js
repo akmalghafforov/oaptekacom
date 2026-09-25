@@ -13,6 +13,32 @@ export const catalogFragment = (response, view, surface = 'cards') => {
 
 export const activeCategoryLabel = (categories, selectedCategory = '') => categories.find((category) => String(category.value) === String(selectedCategory))?.label ?? 'Все товары';
 
+export const updateCartBadges = (documentRoot, totalQuantity) => {
+    documentRoot.querySelectorAll('[data-cart-badge]').forEach((badge) => {
+        badge.textContent = totalQuantity > 99 ? '99+' : totalQuantity;
+        badge.classList.toggle('hidden', totalQuantity === 0);
+    });
+};
+
+export const updateCatalogOfferCartState = (root, { offer_id: offerId, quantity = 0, remove_url: removeUrl = '' }) => {
+    const inCart = quantity > 0;
+
+    root.querySelectorAll(`[data-offer-id="${offerId}"]`).forEach((offer) => {
+        const addControls = offer.querySelector('[data-cart-add-controls]');
+        const inCartControls = offer.querySelector('[data-cart-in-cart-controls]');
+        addControls?.classList.toggle('hidden', inCart);
+        inCartControls?.classList.toggle('hidden', !inCart);
+        const canAdd = addControls?.dataset?.cartCanAdd !== 'false';
+        addControls?.querySelectorAll('input').forEach((input) => { input.disabled = inCart; });
+        addControls?.querySelectorAll('button').forEach((button) => { button.disabled = inCart || !canAdd; });
+        inCartControls?.querySelectorAll('[data-cart-quantity]').forEach((element) => { element.textContent = quantity; });
+
+        const removeForm = inCartControls?.querySelector('[data-cart-remove-form]');
+        if (removeForm && removeUrl) removeForm.action = removeUrl;
+        removeForm?.querySelectorAll('button').forEach((button) => { button.disabled = !inCart; });
+    });
+};
+
 export class CatalogSearchController {
     constructor({ fetcher, onState, onData, onFilters }) {
         this.fetcher = fetcher;
@@ -253,7 +279,35 @@ export function initializeCatalogSearch(root) {
     dialog.querySelector('[data-filter-reset]').addEventListener('click', () => { dialog.querySelector('[name="filter_sort"][value="price_asc"]').checked = true; dialog.querySelectorAll('[data-option-label] input').forEach((input) => { input.checked = false; }); });
     dialog.querySelector('[data-filter-apply]').addEventListener('click', () => { const values = (name) => [...dialog.querySelectorAll(`[name="filter_${name}[]"]:checked`)].map((input) => input.value); const filters = { sort: dialog.querySelector('[name="filter_sort"]:checked').value, cities: values('cities'), suppliers: values('suppliers') }; const count = filters.cities.length + filters.suppliers.length + (filters.sort === 'price_asc' ? 0 : 1); const badge = root.querySelector('[data-filter-count]'); badge.textContent = count; badge.classList.toggle('hidden', count === 0); dialog.close(); controller.setFilters(filters); });
 
-    root.addEventListener('submit', async (event) => { const cartForm = event.target.closest('[data-cart-form]'); if (!cartForm) return; event.preventDefault(); const button = cartForm.querySelector('button'); const originalContent = button.innerHTML; button.disabled = true; try { const response = await fetch(cartForm.action, { method: 'POST', headers: { Accept: 'application/json', 'X-CSRF-TOKEN': cartForm.querySelector('[name="_token"]').value, 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: Number(cartForm.elements.quantity.value) }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message); document.querySelectorAll('[data-cart-badge]').forEach((badge) => { badge.textContent = data.cart.total_quantity > 99 ? '99+' : data.cart.total_quantity; badge.classList.toggle('hidden', data.cart.total_quantity === 0); }); announcer.textContent = data.message; button.classList.add('cart-added'); button.textContent = '✓'; window.setTimeout(() => { button.innerHTML = originalContent; button.classList.remove('cart-added'); }, 1200); } catch { announcer.textContent = 'Не удалось добавить товар в корзину.'; button.innerHTML = originalContent; } finally { button.disabled = false; } });
+    root.addEventListener('submit', async (event) => {
+        const cartForm = event.target.closest('[data-cart-form]');
+        const removeForm = event.target.closest('[data-cart-remove-form]');
+        if (!cartForm && !removeForm) return;
+        event.preventDefault();
+
+        const form = cartForm ?? removeForm;
+        const button = form.querySelector('button');
+        button.disabled = true;
+        try {
+            const response = await fetch(form.action, cartForm ? {
+                method: 'POST',
+                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quantity: Number(form.elements.quantity.value) }),
+            } : {
+                method: 'DELETE',
+                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value },
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message);
+
+            updateCatalogOfferCartState(root, { ...data.item, quantity: cartForm ? data.item.quantity : 0 });
+            updateCartBadges(document, data.cart.total_quantity);
+            announcer.textContent = data.message;
+        } catch {
+            announcer.textContent = cartForm ? 'Не удалось добавить товар в корзину.' : 'Не удалось удалить товар из корзины.';
+            button.disabled = false;
+        }
+    });
 
     if ('IntersectionObserver' in window) new IntersectionObserver((entries) => { const panel = root.querySelector('[data-search-panel]'); panel.classList.toggle('is-compact', window.matchMedia('(min-width: 768px)').matches && !entries[0].isIntersecting); }, { rootMargin: '-72px 0px 0px' }).observe(root.querySelector('[data-search-sentinel]'));
     window.addEventListener('popstate', () => controller.restore(filtersFromUrl(), controller.view));

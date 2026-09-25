@@ -72,6 +72,46 @@ class SupplierRequestCartTest extends TestCase
         $this->assertSame([$secondOffer->id], $cart->items()->pluck('offer_id')->all());
     }
 
+    public function test_json_cart_item_removal_deletes_the_item_and_returns_the_offer_and_remaining_total(): void
+    {
+        [$user, , $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $firstOffer), ['quantity' => 2]);
+        $this->actingAs($user)->post(route('cart.add', $secondOffer), ['quantity' => 1]);
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->where('offer_id', $firstOffer->id)->sole();
+
+        $this->actingAs($user)->deleteJson(route('cart.items.destroy', $item))
+            ->assertOk()
+            ->assertJsonPath('item.offer_id', $firstOffer->id)
+            ->assertJsonPath('cart.total_quantity', 1);
+
+        $this->assertModelMissing($item);
+        $this->assertDatabaseHas('cart_items', ['offer_id' => $secondOffer->id, 'quantity' => 1]);
+    }
+
+    public function test_json_cart_item_removal_is_forbidden_for_another_users_cart(): void
+    {
+        [$owner, , $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($owner)->post(route('cart.add', $offer));
+        $item = Cart::query()->where('user_id', $owner->id)->sole()->items()->sole();
+
+        $this->actingAs($this->pharmacyUser())->deleteJson(route('cart.items.destroy', $item))->assertForbidden();
+
+        $this->assertModelExists($item);
+    }
+
+    public function test_standard_cart_item_removal_keeps_the_redirect_and_success_feedback(): void
+    {
+        [$user, , $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer));
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->sole();
+
+        $this->actingAs($user)->delete(route('cart.items.destroy', $item))
+            ->assertRedirect()
+            ->assertSessionHas('success', 'Позиция удалена из корзины.');
+
+        $this->assertModelMissing($item);
+    }
+
     public function test_quantity_update_rejects_a_value_above_the_supplier_stock(): void
     {
         [$user, , $offer] = $this->cartWithTwoSuppliers();

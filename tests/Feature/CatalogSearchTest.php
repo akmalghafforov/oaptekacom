@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Enums\PriceListImportStatus;
+use App\Models\Cart;
+use App\Models\CartItem;
 use App\Models\Medicine;
 use App\Models\Offer;
 use App\Models\Organization;
@@ -193,6 +195,32 @@ class CatalogSearchTest extends TestCase
         $this->assertStringContainsString('<tr', $response->json('fragments.desktop_rows'));
         $this->assertStringContainsString('catalog-offer-card', $response->json('fragments.cards'));
         $this->assertStringContainsString('data-mobile-result-shell="grid"', $response->json('fragments.cards'));
+    }
+
+    public function test_existing_cart_items_render_persistent_in_cart_controls_in_every_catalog_fragment(): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $offer = $this->offer($supplier, $import, 'Корзина парацетамол', 'корзина парацетамол', 14, 1);
+        $user = $this->pharmacyUser();
+        $cart = Cart::create(['user_id' => $user->id]);
+        $item = CartItem::create([
+            'cart_id' => $cart->id,
+            'offer_id' => $offer->id,
+            'quantity' => 3,
+            'unit_price' => '14.00',
+            'snapshot' => [],
+        ]);
+
+        $response = $this->actingAs($user)->getJson(route('catalog.search', ['q' => 'корзина', 'view' => 'list']))->assertOk();
+
+        foreach (['desktop_rows', 'mobile_rows', 'cards'] as $fragment) {
+            $html = $response->json('fragments.'.$fragment);
+            $this->assertStringContainsString('aria-label="Товар в корзине: 3 шт."', $html);
+            $this->assertStringContainsString('data-cart-quantity>3</span>', $html);
+            $this->assertStringContainsString('data-cart-remove-form', $html);
+            $this->assertStringContainsString('action="'.route('cart.items.destroy', $item).'"', $html);
+            $this->assertStringNotContainsString('Добавить ещё', $html);
+        }
     }
 
     public function test_non_list_search_keeps_mobile_and_desktop_row_fragments_null(): void

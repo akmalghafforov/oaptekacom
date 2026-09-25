@@ -85,7 +85,7 @@ class CartController extends Controller
             return response()->json([
                 'message' => 'Товар добавлен в корзину.',
                 'cart' => ['total_quantity' => (int) $cartItem->cart->items()->sum('quantity')],
-                'item' => ['offer_id' => $offer->id, 'quantity' => $cartItem->quantity],
+                'item' => ['offer_id' => $offer->id, 'quantity' => $cartItem->quantity, 'remove_url' => route('cart.items.destroy', $cartItem)],
             ]);
         }
 
@@ -104,10 +104,20 @@ class CartController extends Controller
         return back();
     }
 
-    public function destroy(CartItem $item, Request $request): RedirectResponse
+    public function destroy(CartItem $item, Request $request): RedirectResponse|JsonResponse
     {
         $this->authorize('update', $item->cart);
+        $cart = $item->cart;
+        $offerId = $item->offer_id;
         $item->delete();
+
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => 'Позиция удалена из корзины.',
+                'cart' => ['total_quantity' => (int) $cart->items()->sum('quantity')],
+                'item' => ['offer_id' => $offerId],
+            ]);
+        }
 
         return back()->with('success', 'Позиция удалена из корзины.');
     }
