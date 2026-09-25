@@ -60,6 +60,11 @@
     .catalog-search-panel.is-compact label, .catalog-search-panel.is-compact [id$="-hint"] { @apply sr-only; }
     .catalog-dialog[open] { animation: catalog-dialog-in 160ms ease-out; }
     .catalog-mobile-skeleton { @apply hidden; }
+    [data-catalog-search] [data-mobile-offer-row] [data-cart-submit] { @apply size-10 min-h-0 min-w-0 rounded-lg border-green-100 bg-green-600 text-white shadow-sm; }
+    [data-catalog-search] [data-mobile-offer-row] [data-cart-submit]:hover { @apply border-green-600 bg-green-700 text-white; }
+    [data-catalog-search] [data-mobile-offer-row] [data-cart-submit]:focus-visible { @apply outline-green-600; }
+    [data-catalog-search] [data-mobile-offer-row] [data-cart-submit]:disabled { @apply cursor-not-allowed border-green-100 bg-green-600 text-white opacity-50; }
+    [data-catalog-search] [data-mobile-offer-row] [data-cart-submit].cart-added { @apply bg-green-600 text-white; }
     body:has([data-catalog-search]) [data-account-logout] { background: var(--color-brand-600); }
     body:has([data-catalog-search]) [data-account-logout]:hover { background: var(--color-brand-700); }
     body.dialog-open { overflow: hidden; }
@@ -155,8 +160,6 @@
         .mobile-offer-row:nth-child(3) { animation-delay: 60ms; }
         .mobile-offer-image { @apply size-16 shrink-0 rounded-lg bg-slate-50 object-cover; }
         .mobile-offer-badge { @apply rounded-md border border-current/10 px-1.5 py-1 text-[0.6875rem] leading-tight; }
-        [data-catalog-search] .mobile-offer-row [data-cart-submit] { border-color: var(--color-brand-100); background: var(--catalog-accent); color: white; }
-        [data-catalog-search] .mobile-offer-row [data-cart-submit]:hover { background: var(--catalog-accent-dark); }
         [data-catalog-search] .mobile-offer-row p.shrink-0.text-brand-700,
         [data-catalog-search] [data-catalog-grid] .catalog-offer-card .text-2xl.text-brand-700 { color: var(--catalog-accent); }
         [data-catalog-grid] { @apply grid-cols-2 gap-2; }
@@ -210,7 +213,6 @@
         .mobile-offer-row:nth-child(3) { animation-delay: 60ms; }
         .mobile-offer-image { @apply size-16 shrink-0 rounded-lg bg-slate-50 object-cover; }
         .mobile-offer-badge { @apply rounded-md border border-current/10 px-1.5 py-1 text-[0.6875rem] leading-tight; }
-        [data-catalog-search] .mobile-offer-row [data-cart-submit] { @apply border-brand-100 bg-brand-600 text-white hover:bg-brand-700; }
         .catalog-mobile-skeleton { @apply grid gap-2; }
         .catalog-mobile-skeleton span { @apply block rounded-xl bg-slate-200; animation: catalog-skeleton-pulse 1.1s ease-in-out infinite alternate; }
         .catalog-skeleton-list span { @apply h-32; }

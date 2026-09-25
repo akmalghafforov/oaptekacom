@@ -187,6 +187,9 @@ class CatalogSearchTest extends TestCase
         $this->assertStringContainsString('data-mobile-offer-row', $response->json('fragments.mobile_rows'));
         $this->assertStringContainsString('data-mobile-result-shell="list"', $response->json('fragments.mobile_rows'));
         $this->assertStringContainsString('data-offer-id="'.$offer->id.'"', $response->json('fragments.mobile_rows'));
+        $this->assertStringContainsString('type="submit"', $response->json('fragments.mobile_rows'));
+        $this->assertStringContainsString('data-cart-submit', $response->json('fragments.mobile_rows'));
+        $this->assertStringContainsString('aria-label="Добавить в корзину"', $response->json('fragments.mobile_rows'));
         $this->assertStringContainsString('<tr', $response->json('fragments.desktop_rows'));
         $this->assertStringContainsString('catalog-offer-card', $response->json('fragments.cards'));
         $this->assertStringContainsString('data-mobile-result-shell="grid"', $response->json('fragments.cards'));

@@ -30,8 +30,8 @@
                 </div>
                 <form method="post" action="{{ route('cart.add', $offer) }}" data-cart-form class="flex items-center gap-1.5">@csrf
                     <input type="number" name="quantity" value="1" min="1" max="999" class="min-h-10 w-14 rounded-control border border-slate-300 px-2 text-center text-sm" aria-label="Количество {{ $offer->medicine->name }}">
-                    <x-ui.icon-button label="{{ $inCart ? 'Добавить ещё' : 'Добавить в корзину' }}" :disabled="! $canBuy || ! $available" data-cart-submit>
-                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L20.5 8H6.2M12 9v5m-2.5-2.5h5" /></svg>
+                    <x-ui.icon-button type="submit" label="{{ $inCart ? 'Добавить ещё' : 'Добавить в корзину' }}" :disabled="! $canBuy || ! $available" class="!size-10 !min-h-0 !min-w-0 !rounded-lg !border-green-100 !bg-green-600 !text-white hover:!border-green-600 hover:!bg-green-700 disabled:!bg-green-600" data-cart-submit>
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 9V7a4 4 0 0 1 8 0v2M5 9h14l-1 10H6L5 9Zm4 4v3m6-3v3" /></svg>
                     </x-ui.icon-button>
                 </form>
             </div>
