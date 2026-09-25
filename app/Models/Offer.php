@@ -68,6 +68,8 @@ class Offer extends Model
             'old_price' => 'decimal:2',
             'quantity' => 'decimal:3',
             'total_value' => 'decimal:2',
+            'effective_price' => 'decimal:2',
+            'applied_supplier_discount_percent' => 'decimal:2',
         ];
     }
 }

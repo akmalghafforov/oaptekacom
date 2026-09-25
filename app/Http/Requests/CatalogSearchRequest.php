@@ -60,7 +60,7 @@ class CatalogSearchRequest extends FormRequest
             $sortKeys = match ($sort) {
                 'name_asc' => ['normalized_name', 'id'],
                 'updated_desc' => ['updated_at', 'id'],
-                default => ['price', 'id'],
+                default => ['effective_price', 'id'],
             };
 
             if (! is_numeric($id) || collect($sortKeys)->contains(fn (string $key): bool => ! array_key_exists($key, $parameters) && ! array_key_exists('offers.'.$key, $parameters))) {

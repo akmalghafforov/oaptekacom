@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class SupplierInvitation extends Model
+class PharmacySupplierDiscount extends Model
 {
     protected $guarded = [];
 
@@ -16,6 +16,6 @@ class SupplierInvitation extends Model
 
     protected function casts(): array
     {
-        return ['expires_at' => 'datetime', 'redeemed_at' => 'datetime', 'revoked_at' => 'datetime'];
+        return ['supplier_discount_percent' => 'decimal:2'];
     }
 }

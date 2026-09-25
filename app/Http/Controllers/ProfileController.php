@@ -18,7 +18,7 @@ class ProfileController extends Controller
 {
     public function edit(Request $request): View
     {
-        return view('profile.edit', ['user' => $request->user(), 'organization' => $request->user()->organization?->load('supplierInvitations')]);
+        return view('profile.edit', ['user' => $request->user(), 'organization' => $request->user()->organization]);
     }
 
     public function update(UpdateProfileRequest $request, AuditLogger $auditLogger): RedirectResponse

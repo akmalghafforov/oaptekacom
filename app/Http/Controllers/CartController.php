@@ -7,6 +7,8 @@ use App\Models\CartItem;
 use App\Models\Offer;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\PharmacySupplierDiscount;
+use App\Services\SupplierDiscountPrice;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -30,7 +32,7 @@ class CartController extends Controller
         return view('orders.cart', ['cart' => $cart->load('items.offer.medicine', 'items.offer.organization'), 'removedStaleItems' => $removed]);
     }
 
-    public function add(Offer $offer, Request $request): RedirectResponse|JsonResponse
+    public function add(Offer $offer, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse|JsonResponse
     {
         $this->authorize('view', $offer);
         abort_unless($request->user()->canBuy() && $this->isCurrent($offer), 404);
@@ -40,8 +42,27 @@ class CartController extends Controller
         if ($offer->quantity !== null && $cartItem->quantity > (float) $offer->quantity) {
             throw ValidationException::withMessages(['quantity' => 'Запрошенное количество превышает остаток поставщика.']);
         }
-        $cartItem->unit_price = $offer->price;
-        $cartItem->snapshot = ['medicine' => $offer->medicine->name, 'supplier' => $offer->organization->name, 'price' => $offer->price, 'source_name' => $offer->source_name, 'batch' => $offer->batch, 'expires_at' => $offer->expires_at?->toDateString()];
+        if (! $cartItem->exists) {
+            $supplierDiscountPercent = $request->user()->isCustomer()
+                ? PharmacySupplierDiscount::query()
+                    ->where('pharmacy_organization_id', $request->user()->organization_id)
+                    ->where('supplier_organization_id', $offer->organization_id)
+                    ->value('supplier_discount_percent')
+                : null;
+            $unitPrice = $supplierDiscountPrice->effectivePrice((string) $offer->price, $supplierDiscountPercent);
+
+            $cartItem->unit_price = $unitPrice;
+            $cartItem->snapshot = [
+                'medicine' => $offer->medicine->name,
+                'supplier' => $offer->organization->name,
+                'price' => $offer->price,
+                'raw_price' => $offer->price,
+                'supplier_discount_percent' => $supplierDiscountPercent,
+                'source_name' => $offer->source_name,
+                'batch' => $offer->batch,
+                'expires_at' => $offer->expires_at?->toDateString(),
+            ];
+        }
         $cartItem->save();
 
         if ($request->expectsJson()) {
@@ -67,12 +88,12 @@ class CartController extends Controller
         return back();
     }
 
-    public function checkout(Request $request): RedirectResponse
+    public function checkout(Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse
     {
         abort_unless($request->user()->canBuy(), 403);
         $cart = $this->cart($request)->load('items.offer');
         abort_if($cart->items->isEmpty(), 422);
-        DB::transaction(function () use ($cart, $request): void {
+        DB::transaction(function () use ($cart, $request, $supplierDiscountPrice): void {
             foreach ($cart->items as $cartItem) {
                 $offer = Offer::query()->lockForUpdate()->findOrFail($cartItem->offer_id);
                 if (! $this->isCurrent($offer) || ($offer->quantity !== null && $cartItem->quantity > (float) $offer->quantity)) {
@@ -81,7 +102,10 @@ class CartController extends Controller
             }
             $checkoutId = DB::table('checkouts')->insertGetId(['buyer_organization_id' => $request->user()->organization_id, 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
             foreach ($cart->items->groupBy(fn (CartItem $cartItem) => $cartItem->offer->organization_id) as $supplierOrganizationId => $cartItems) {
-                $total = $cartItems->sum(fn (CartItem $cartItem) => $cartItem->quantity * $cartItem->unit_price);
+                $total = $cartItems->reduce(
+                    fn (string $total, CartItem $cartItem): string => bcadd($total, $supplierDiscountPrice->lineTotal($cartItem->quantity, (string) $cartItem->unit_price), 2),
+                    '0.00',
+                );
                 $order = Order::create(['checkout_id' => $checkoutId, 'buyer_organization_id' => $request->user()->organization_id, 'supplier_organization_id' => $supplierOrganizationId, 'total' => $total]);
                 foreach ($cartItems as $cartItem) {
                     OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'medicine_id' => $cartItem->offer->medicine_id, 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);

@@ -6,13 +6,12 @@ use App\Enums\PriceListImportStatus;
 use App\Models\Medicine;
 use App\Models\Offer;
 use App\Models\Organization;
-use App\Models\PharmacySupplier;
 use App\Models\PriceListImport;
 use App\Models\Subscription;
-use App\Models\SupplierInvitation;
 use App\Models\SupplierSenderAddress;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class PartnersTest extends TestCase
@@ -121,7 +120,7 @@ class PartnersTest extends TestCase
             ->assertDontSee('href="mailto:not-an-email"', false);
     }
 
-    public function test_phone_link_discount_and_pharmacy_isolation(): void
+    public function test_pharmacies_can_save_their_own_discounts_without_linking(): void
     {
         $pharmacy = Organization::factory()->pharmacy()->create();
         $other = Organization::factory()->pharmacy()->create();
@@ -129,36 +128,23 @@ class PartnersTest extends TestCase
         $otherUser = User::factory()->pharmacy($other)->create();
         Subscription::factory()->for($user)->create();
         Subscription::factory()->for($otherUser)->create();
-        $supplier = Organization::factory()->wholesaler()->create(['phone' => '+992901234567']);
+        $supplier = Organization::factory()->wholesaler()->create();
 
-        $this->actingAs($user)->post(route('partners.phone'), ['phone' => '+992901234567'])->assertRedirect();
-        $this->actingAs($user)->patch(route('partners.discount', $supplier), ['discount_percent' => '0.00'])->assertRedirect();
-        $this->assertDatabaseHas('pharmacy_suppliers', ['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id, 'discount_percent' => 0]);
-        $this->actingAs($user)->get(route('partners.index'))->assertSeeText('Согласованная скидка')->assertSeeText('Скидка сохраняется только как договорённость');
-        $this->actingAs($otherUser)->patch(route('partners.discount', $supplier), ['discount_percent' => '40.00'])->assertNotFound();
-        $this->actingAs($otherUser)->get(route('partners.index'))->assertSeeText('Добавьте поставщика по телефону организации или коду приглашения, чтобы указать скидку.')->assertDontSeeText('0.00%');
+        $this->actingAs($user)->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '0.00'])->assertRedirect();
+        $this->actingAs($otherUser)->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '40.00'])->assertRedirect();
+
+        $this->assertDatabaseHas('pharmacy_supplier_discounts', ['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => 0]);
+        $this->assertDatabaseHas('pharmacy_supplier_discounts', ['pharmacy_organization_id' => $other->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => 40]);
+        $this->actingAs($user)->get(route('partners.index'))->assertSeeText('Ваша скидка от поставщика, %')->assertSeeText('Оставьте поле пустым, чтобы удалить договорённость.');
+        $this->actingAs($otherUser)->get(route('partners.index'))->assertSee('value="40.00"', false)->assertDontSee('add-partner', false);
     }
 
-    public function test_invitation_is_single_use_and_expiry_is_enforced(): void
+    public function test_linking_and_invitation_routes_are_absent(): void
     {
-        $supplier = Organization::factory()->wholesaler()->create();
-        $supplierUser = User::factory()->wholesaler($supplier)->create();
-        $pharmacy = Organization::factory()->pharmacy()->create();
-        $pharmacyUser = User::factory()->pharmacy($pharmacy)->create();
-        $other = Organization::factory()->pharmacy()->create();
-        $otherUser = User::factory()->pharmacy($other)->create();
-        Subscription::factory()->for($pharmacyUser)->create();
-        Subscription::factory()->for($otherUser)->create();
-
-        $this->actingAs($supplierUser)->post(route('supplier.invitations.store'))->assertSessionHas('invitation_code');
-        $code = session('invitation_code');
-        $this->assertDatabaseHas('supplier_invitations', ['supplier_organization_id' => $supplier->id, 'code_hash' => hash('sha256', $code)]);
-        $this->actingAs($pharmacyUser)->post(route('partners.code'), ['code' => $code])->assertSessionHas('success');
-        $this->actingAs($otherUser)->post(route('partners.code'), ['code' => $code])->assertSessionHasErrors('code');
-        $expired = SupplierInvitation::create(['supplier_organization_id' => $supplier->id, 'code_hash' => hash('sha256', 'EXPIRED'), 'expires_at' => now()->subDay()]);
-        $this->actingAs($otherUser)->post(route('partners.code'), ['code' => 'EXPIRED'])->assertSessionHasErrors('code');
-        $this->assertNull($expired->fresh()->redeemed_at);
-        $this->assertSame(1, PharmacySupplier::count());
+        $this->assertFalse(Route::has('partners.phone'));
+        $this->assertFalse(Route::has('partners.code'));
+        $this->assertFalse(Route::has('supplier.invitations.store'));
+        $this->assertFalse(Route::has('supplier.invitations.revoke'));
     }
 
     public function test_directory_paginates_and_displays_import_and_contact_fallbacks(): void
@@ -176,21 +162,19 @@ class PartnersTest extends TestCase
             ->assertSee('page=2', false);
     }
 
-    public function test_discount_rejects_out_of_range_values_and_invalid_phone(): void
+    public function test_discount_rejects_out_of_range_values_without_creating_an_agreement(): void
     {
         $pharmacy = Organization::factory()->pharmacy()->create();
         $user = User::factory()->pharmacy($pharmacy)->create();
         Subscription::factory()->for($user)->create();
-        $supplier = Organization::factory()->wholesaler()->create(['phone' => null]);
-        $this->actingAs($user)->from(route('partners.index'))->post(route('partners.phone'), ['phone' => 'bad'])->assertSessionHasErrors('phone');
-        $this->assertDatabaseCount('pharmacy_suppliers', 0);
-        PharmacySupplier::create(['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id]);
-        $this->actingAs($user)->from(route('partners.index'))->patch(route('partners.discount', $supplier), ['supplier_id' => $supplier->id, 'discount_percent' => '100.01'])->assertSessionHasErrors('discount_percent');
-        $this->actingAs($user)->patch(route('partners.discount', $supplier), ['discount_percent' => '100.00'])->assertSessionHas('success');
-        $this->assertDatabaseHas('pharmacy_suppliers', ['pharmacy_organization_id' => $pharmacy->id, 'discount_percent' => 100]);
+        $supplier = Organization::factory()->wholesaler()->create();
+        $this->actingAs($user)->from(route('partners.index'))->patch(route('partners.discount', $supplier), ['supplier_id' => $supplier->id, 'supplier_discount_percent' => '100.01'])->assertSessionHasErrors('supplier_discount_percent');
+        $this->assertDatabaseCount('pharmacy_supplier_discounts', 0);
+        $this->actingAs($user)->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '100.00'])->assertSessionHas('success');
+        $this->assertDatabaseHas('pharmacy_supplier_discounts', ['pharmacy_organization_id' => $pharmacy->id, 'supplier_discount_percent' => 100]);
     }
 
-    public function test_supplier_can_edit_directory_contacts_and_revoke_an_invitation(): void
+    public function test_supplier_can_edit_directory_contacts_without_invitation_controls(): void
     {
         $supplier = Organization::factory()->wholesaler()->create();
         $user = User::factory()->wholesaler($supplier)->create();
@@ -205,9 +189,6 @@ class PartnersTest extends TestCase
         ])->assertSessionHas('success');
         $this->assertSame(['+992901111111', '+992902222222'], $supplier->fresh()->additional_phones);
 
-        $this->actingAs($user)->post(route('supplier.invitations.store'))->assertSessionHas('invitation_code');
-        $invitation = SupplierInvitation::query()->firstOrFail();
-        $this->actingAs($user)->post(route('supplier.invitations.revoke', $invitation))->assertSessionHas('success');
-        $this->assertNotNull($invitation->fresh()->revoked_at);
+        $this->actingAs($user)->get(route('profile.edit'))->assertDontSeeText('Коды приглашения');
     }
 }

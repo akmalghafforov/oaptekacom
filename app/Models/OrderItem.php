@@ -10,6 +10,6 @@ class OrderItem extends Model
 
     protected function casts(): array
     {
-        return ['snapshot' => 'array'];
+        return ['snapshot' => 'array', 'unit_price' => 'decimal:2'];
     }
 }

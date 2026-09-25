@@ -55,14 +55,9 @@ class Organization extends Model
         return $this->hasMany(SupplierSenderAddress::class, 'supplier_organization_id');
     }
 
-    public function pharmacySuppliers(): HasMany
+    public function pharmacySupplierDiscounts(): HasMany
     {
-        return $this->hasMany(PharmacySupplier::class, 'pharmacy_organization_id');
-    }
-
-    public function supplierInvitations(): HasMany
-    {
-        return $this->hasMany(SupplierInvitation::class, 'supplier_organization_id');
+        return $this->hasMany(PharmacySupplierDiscount::class, 'pharmacy_organization_id');
     }
 
     public function activePriceListImport(): BelongsTo

@@ -30,7 +30,8 @@ class CatalogController extends Controller
     public function search(CatalogSearchRequest $request, CatalogSearchService $catalogSearch): JsonResponse
     {
         $filters = $request->validated();
-        $offers = $catalogSearch->search($filters);
+        $pharmacyOrganizationId = $request->user()->isCustomer() ? $request->user()->organization_id : null;
+        $offers = $catalogSearch->search($filters, $pharmacyOrganizationId);
         $view = $filters['view'] ?? 'list';
         $cartQuantities = $request->user()->canBuy()
             ? CartItem::query()->whereHas('cart', fn ($query) => $query->where('user_id', $request->user()->id))->whereIn('offer_id', $offers->getCollection()->pluck('id'))->pluck('quantity', 'offer_id')
@@ -42,7 +43,7 @@ class CatalogController extends Controller
         $cards = view('catalog.partials.offer-cards', $viewData + ['layout' => $view])->render();
         $rows = $view === 'list' ? view('catalog.partials.offer-table-rows', $viewData)->render() : null;
         $mobileRows = $view === 'list' ? view('catalog.partials.offer-mobile-rows', $viewData)->render() : null;
-        $total = $catalogSearch->total($filters);
+        $total = $catalogSearch->total($filters, $pharmacyOrganizationId);
         $isFirstPage = empty($filters['cursor']);
 
         return response()->json([
@@ -52,10 +53,10 @@ class CatalogController extends Controller
             'fragments' => ['desktop_rows' => $rows, 'mobile_rows' => $mobileRows, 'cards' => $cards, 'supplier_cards' => $view === 'suppliers' ? view('catalog.partials.supplier-cards', $viewData)->render() : null],
             'facets' => $isFirstPage ? (array_key_exists('view', $filters) ? [
                 'all_count' => $total,
-                'categories' => $catalogSearch->facets($filters)->values(),
-                'cities' => $catalogSearch->cities($filters)->values(),
-                'suppliers' => $catalogSearch->suppliers($filters)->values(),
-            ] : $catalogSearch->facets($filters)->values()) : null,
+                'categories' => $catalogSearch->facets($filters, $pharmacyOrganizationId)->values(),
+                'cities' => $catalogSearch->cities($filters, $pharmacyOrganizationId)->values(),
+                'suppliers' => $catalogSearch->suppliers($filters, $pharmacyOrganizationId)->values(),
+            ] : $catalogSearch->facets($filters, $pharmacyOrganizationId)->values()) : null,
             'pagination' => ['next_cursor' => $offers->nextCursor()?->encode(), 'has_more' => $offers->hasMorePages(), 'returned' => $offers->count(), 'total' => $total],
             'cart' => ['total_quantity' => $cartTotal],
             'applied' => ['sort' => $filters['sort'] ?? 'price_asc'],

@@ -5,6 +5,7 @@
         $available = ($offer->quantity === null || $offer->quantity >= 1) && ! $stale;
         $inCart = (int) ($cartQuantities[$offer->id] ?? 0);
         $expiresSoon = $offer->expires_at?->lt(now()->addMonths(config('catalog.expiration_warning_months')));
+        $hasSupplierDiscount = $offer->applied_supplier_discount_percent !== null && bccomp($offer->applied_supplier_discount_percent, '0', 2) === 1;
     @endphp
     <article class="mobile-offer-row" data-mobile-result-shell="list" data-mobile-offer-row data-offer-id="{{ $offer->id }}">
         <img src="{{ asset('images/catalog/product-placeholder.svg') }}" alt="" class="mobile-offer-image">
@@ -14,7 +15,7 @@
                     <h3 class="line-clamp-2 text-sm font-bold leading-tight text-ink">{{ $offer->medicine->name }}</h3>
                     <p class="mt-1 truncate text-xs text-muted">{{ collect([$offer->medicine->dosage, $offer->medicine->form])->filter()->join(' · ') ?: 'Форма не указана' }}</p>
                 </div>
-                <p class="shrink-0 whitespace-nowrap text-base font-extrabold text-brand-700">{{ $offer->price }} <span class="text-xs">TJS</span></p>
+                <div class="shrink-0 text-right"><p class="whitespace-nowrap text-base font-extrabold text-brand-700">{{ $offer->effective_price }} <span class="text-xs">TJS</span></p>@if($hasSupplierDiscount)<p class="mt-0.5 whitespace-nowrap text-[10px] text-muted">{{ $offer->price }} TJS · Ваша скидка {{ $offer->applied_supplier_discount_percent }}%</p>@endif</div>
             </div>
             <div class="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
                 <div class="min-w-0 text-xs">

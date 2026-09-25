@@ -1,13 +1,7 @@
 @extends('layouts.app')
 
 @section('content')
-<x-ui.page-header title="Партнёры" description="Контакты поставщиков, доступность прайс-листов и согласованные условия для вашей аптеки.">
-    <x-slot:actions>
-        <x-ui.button type="button" aria-label="Добавить поставщика" aria-controls="add-partner" data-dialog-open class="!size-11 !min-h-11 !rounded-full !px-0 text-xl">
-            <span aria-hidden="true">+</span>
-        </x-ui.button>
-    </x-slot:actions>
-</x-ui.page-header>
+<x-ui.page-header title="Партнёры" description="Контакты поставщиков, доступность прайс-листов и согласованные условия для вашей аптеки." />
 
 <x-ui.card>
     <form method="get" action="{{ route('partners.index') }}" class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
@@ -38,7 +32,7 @@
 <div class="mt-3 grid gap-3">
 @forelse($suppliers as $supplier)
     @php
-        $link = $links->get($supplier->id);
+        $discount = $discounts->get($supplier->id);
         $activeImport = $supplier->activePriceListImport;
         $activeImportUpdatedAt = $activeImport ? ($activeImport->received_at ?? $activeImport->activated_at ?? $activeImport->created_at) : null;
         $email = $supplier->contact_email ?: $supplier->senderAddresses->first()?->email;
@@ -92,7 +86,7 @@
         </div>
     </x-ui.card>
 
-    <x-ui.dialog name="partner-{{ $supplier->id }}" :open-on-load="$errors->has('discount_percent') && (int) old('supplier_id') === $supplier->id" class="!w-[min(28rem,calc(100%-2rem))]">
+    <x-ui.dialog name="partner-{{ $supplier->id }}" :open-on-load="$errors->has('supplier_discount_percent') && (int) old('supplier_id') === $supplier->id" class="!w-[min(28rem,calc(100%-2rem))]">
         <x-slot:header class="border-b-0 pb-3">
             <div class="flex min-w-0 items-center gap-3">
                 <div class="grid size-11 shrink-0 place-items-center rounded-xl border border-brand-100 bg-brand-50 text-base font-bold text-brand-700" aria-hidden="true">{{ $initial }}</div>
@@ -128,22 +122,13 @@
                 </div>
             @endif
 
-            @if($link)
-                <x-ui.card class="!p-4">
-                    <p class="text-sm text-muted">Согласованная скидка</p>
-                    <p class="mt-1 font-semibold text-brand-700">{{ $link->discount_percent !== null ? number_format((float) $link->discount_percent, 2, '.', '').'%' : 'Не указана' }}</p>
-                </x-ui.card>
-                <form method="post" action="{{ route('partners.discount', $supplier) }}" class="space-y-3">
-                    @csrf
-                    @method('PATCH')
-                    <input type="hidden" name="supplier_id" value="{{ $supplier->id }}">
-                    <x-ui.input id="discount-percent-{{ $supplier->id }}" name="discount_percent" type="number" min="0" max="100" step="0.01" label="Согласованная скидка, %" :value="$link->discount_percent" required />
-                    <p class="text-xs text-muted">Скидка сохраняется только как договорённость и не меняет цены в каталоге или при оформлении заказа.</p>
-                    <x-ui.button>Сохранить скидку</x-ui.button>
-                </form>
-            @else
-                <p class="text-sm text-muted">Добавьте поставщика по телефону организации или коду приглашения, чтобы указать скидку.</p>
-            @endif
+            <form method="post" action="{{ route('partners.discount', $supplier) }}" class="space-y-3">
+                @csrf
+                @method('PATCH')
+                <input type="hidden" name="supplier_id" value="{{ $supplier->id }}">
+                <x-ui.input id="supplier-discount-percent-{{ $supplier->id }}" name="supplier_discount_percent" type="number" min="0" max="100" step="0.01" label="Ваша скидка от поставщика, %" :value="old('supplier_discount_percent', $discount?->supplier_discount_percent)" hint="Оставьте поле пустым, чтобы удалить договорённость." />
+                <x-ui.button>Сохранить скидку</x-ui.button>
+            </form>
         </div>
     </x-ui.dialog>
 @empty
@@ -193,18 +178,4 @@
     </x-ui.card>
 @endif
 
-<x-ui.dialog name="add-partner" title="Добавить поставщика" description="Найдите организацию по телефону или используйте код приглашения." :open-on-load="$errors->has('phone') || $errors->has('code')">
-    <div class="min-h-0 overflow-y-auto p-5">
-        <form method="post" action="{{ route('partners.phone') }}" class="space-y-3">
-            @csrf
-            <x-ui.input name="phone" label="Телефон организации" placeholder="+992901234567" required />
-            <x-ui.button class="w-full">Добавить по телефону</x-ui.button>
-        </form>
-        <form method="post" action="{{ route('partners.code') }}" class="mt-5 space-y-3 border-t border-slate-200 pt-5">
-            @csrf
-            <x-ui.input name="code" label="Код приглашения" required />
-            <x-ui.button variant="secondary" class="w-full">Добавить по коду</x-ui.button>
-        </form>
-    </div>
-</x-ui.dialog>
 @endsection

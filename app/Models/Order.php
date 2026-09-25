@@ -24,4 +24,9 @@ class Order extends Model
     {
         return $this->belongsTo(Organization::class, 'buyer_organization_id');
     }
+
+    protected function casts(): array
+    {
+        return ['total' => 'decimal:2'];
+    }
 }

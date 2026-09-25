@@ -4,13 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Enums\OrganizationType;
 use App\Models\Organization;
-use App\Models\PharmacySupplier;
-use App\Models\SupplierInvitation;
+use App\Models\PharmacySupplierDiscount;
 use App\Services\AuditLogger;
-use App\Support\PhoneNormalizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class PartnerController extends Controller
@@ -27,69 +24,46 @@ class PartnerController extends Controller
             ->with('activePriceListImport')
             ->withExists(['offers as has_available_catalog' => fn ($query) => $query->currentAvailable()])
             ->orderBy('name')->orderBy('id')->paginate(20)->withQueryString();
-        $links = $request->user()->organization->pharmacySuppliers()->whereIn('supplier_organization_id', $suppliers->pluck('id'))->get()->keyBy('supplier_organization_id');
+        $discounts = $request->user()->organization->pharmacySupplierDiscounts()->whereIn('supplier_organization_id', $suppliers->pluck('id'))->get()->keyBy('supplier_organization_id');
 
-        return view('partners.index', compact('cities', 'suppliers', 'links'));
-    }
-
-    public function linkPhone(Request $request, AuditLogger $auditLogger): RedirectResponse
-    {
-        $request->validate(['phone' => ['required', 'string']]);
-        $phone = PhoneNormalizer::normalize($request->string('phone')->toString());
-        if ($phone === null) {
-            return back()->withErrors(['phone' => 'Введите действительный номер телефона.']);
-        }
-        $supplier = Organization::query()->where('type', OrganizationType::Wholesaler)->where('status', 'active')->where('phone', $phone)->first();
-        if (! $supplier) {
-            return back()->withErrors(['phone' => 'Активный поставщик с таким телефоном не найден.']);
-        }
-        $this->link($request, $supplier, $auditLogger);
-
-        return back()->with('success', 'Поставщик добавлен.');
-    }
-
-    public function redeem(Request $request, AuditLogger $auditLogger): RedirectResponse
-    {
-        $request->validate(['code' => ['required', 'string', 'max:100']]);
-        $hash = hash('sha256', strtoupper(trim($request->string('code')->toString())));
-        $linked = DB::transaction(function () use ($request, $auditLogger, $hash): bool {
-            $invitation = SupplierInvitation::query()->where('code_hash', $hash)->lockForUpdate()->first();
-            if (! $invitation || $invitation->redeemed_at || $invitation->revoked_at || $invitation->expires_at->isPast()) {
-                return false;
-            }
-            $supplier = Organization::query()->whereKey($invitation->supplier_organization_id)->where('type', OrganizationType::Wholesaler)->where('status', 'active')->first();
-            if (! $supplier) {
-                return false;
-            }
-            $this->link($request, $supplier, $auditLogger);
-            $invitation->update(['redeemed_at' => now(), 'redeemed_by_pharmacy_id' => $request->user()->organization_id]);
-            $auditLogger->log('supplier_invitation.redeemed', $invitation);
-
-            return true;
-        });
-
-        return $linked ? back()->with('success', 'Поставщик добавлен.') : back()->withErrors(['code' => 'Код недействителен или истёк.']);
+        return view('partners.index', compact('cities', 'suppliers', 'discounts'));
     }
 
     public function updateDiscount(Request $request, Organization $supplier, AuditLogger $auditLogger): RedirectResponse
     {
-        $data = $request->validate(['discount_percent' => ['required', 'numeric', 'between:0,100', 'decimal:0,2']]);
-        $link = $request->user()->organization->pharmacySuppliers()->where('supplier_organization_id', $supplier->id)->firstOrFail();
-        $before = $link->only('discount_percent');
-        $link->update(['discount_percent' => $data['discount_percent']]);
-        $auditLogger->log('pharmacy_supplier.discount_updated', $link, $before, $link->fresh()->only('discount_percent'));
+        $value = $request->input('supplier_discount_percent');
+        if (is_string($value) && trim($value) === '') {
+            $request->merge(['supplier_discount_percent' => null]);
+        }
+
+        $data = $request->validate(['supplier_discount_percent' => ['nullable', 'numeric', 'between:0,100', 'decimal:0,2']]);
+        abort_unless($supplier->type === OrganizationType::Wholesaler && $supplier->status === 'active', 404);
+        $discount = $request->user()->organization->pharmacySupplierDiscounts()->where('supplier_organization_id', $supplier->id)->first();
+        $supplierDiscountPercent = $data['supplier_discount_percent'] ?? null;
+
+        if ($supplierDiscountPercent === null) {
+            if ($discount) {
+                $before = $discount->only('supplier_discount_percent');
+                $discount->delete();
+                $auditLogger->log('pharmacy_supplier_discount.cleared', $discount, $before);
+            }
+
+            return back()->with('success', 'Согласованная скидка удалена.');
+        }
+
+        if ($discount) {
+            $before = $discount->only('supplier_discount_percent');
+            $discount->update(['supplier_discount_percent' => $supplierDiscountPercent]);
+            $auditLogger->log('pharmacy_supplier_discount.updated', $discount, $before, $discount->fresh()->only('supplier_discount_percent'));
+        } else {
+            $discount = PharmacySupplierDiscount::query()->create([
+                'pharmacy_organization_id' => $request->user()->organization_id,
+                'supplier_organization_id' => $supplier->id,
+                'supplier_discount_percent' => $supplierDiscountPercent,
+            ]);
+            $auditLogger->log('pharmacy_supplier_discount.created', $discount, [], $discount->only('supplier_discount_percent'));
+        }
 
         return back()->with('success', 'Согласованная скидка сохранена.');
-    }
-
-    private function link(Request $request, Organization $supplier, AuditLogger $auditLogger): void
-    {
-        $link = PharmacySupplier::query()->firstOrCreate([
-            'pharmacy_organization_id' => $request->user()->organization_id,
-            'supplier_organization_id' => $supplier->id,
-        ]);
-        if ($link->wasRecentlyCreated) {
-            $auditLogger->log('pharmacy_supplier.linked', $link);
-        }
     }
 }
