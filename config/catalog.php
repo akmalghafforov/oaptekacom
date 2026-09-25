@@ -4,7 +4,6 @@ return [
     'page_size' => 50,
     'supplier_page_size' => 24,
     'expiration_warning_months' => 5,
-    'supplier_stale_hours' => 48,
     'sorts' => [
         'price_asc' => 'Сначала дешевле',
         'price_desc' => 'Сначала дороже',

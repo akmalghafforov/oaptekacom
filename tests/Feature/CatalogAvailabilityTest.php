@@ -37,6 +37,42 @@ class CatalogAvailabilityTest extends TestCase
         $this->assertDatabaseMissing('cart_items', ['offer_id' => $offer->id]);
     }
 
+    public function test_old_active_import_does_not_block_cart_and_catalog_shows_offer_creation_date(): void
+    {
+        $this->travelTo('2026-09-15 12:00:00');
+        $pharmacy = Organization::factory()->pharmacy()->create();
+        $user = User::factory()->pharmacy($pharmacy)->create();
+        Subscription::factory()->for($user)->create();
+        $supplier = Organization::factory()->wholesaler()->create();
+        $import = PriceListImport::factory()->for($supplier, 'supplier')->create([
+            'status' => PriceListImportStatus::Completed,
+            'created_at' => '2026-09-12 11:00:00',
+            'updated_at' => '2026-09-12 11:00:00',
+        ]);
+        $supplier->update(['active_price_list_import_id' => $import->id]);
+        $medicine = Medicine::factory()->create(['supplier_organization_id' => $supplier->id, 'name' => 'Амоксициллин', 'search_text' => 'амоксициллин']);
+        $offer = Offer::factory()->for($supplier, 'organization')->for($medicine)->create([
+            'price_list_import_id' => $import->id,
+            'quantity' => 2,
+            'created_at' => '2026-09-10 08:30:00',
+            'updated_at' => '2026-09-10 08:30:00',
+        ]);
+
+        $response = $this->actingAs($user)->getJson(route('catalog.search', ['q' => 'амоксициллин', 'view' => 'list']))->assertOk();
+
+        foreach (['desktop_rows', 'mobile_rows', 'cards'] as $fragment) {
+            $html = $response->json('fragments.'.$fragment);
+            $this->assertStringContainsString('Добавлен в систему: 10.09.2026', $html);
+            $this->assertStringNotContainsString('Данные старше 48 часов', $html);
+            $this->assertStringNotContainsString('Данные требуют обновления', $html);
+            $this->assertStringNotContainsString('Требует обновления', $html);
+        }
+
+        $this->assertStringNotContainsString(' disabled=', $response->json('fragments.desktop_rows'));
+        $this->actingAs($user)->post(route('cart.add', $offer))->assertSessionHas('success');
+        $this->assertDatabaseHas('cart_items', ['offer_id' => $offer->id, 'quantity' => 1]);
+    }
+
     public function test_expired_offer_can_be_added_retained_and_checked_out(): void
     {
         $this->travelTo('2026-09-15 12:00:00');

@@ -15,7 +15,7 @@ class CatalogSearchService
     public function search(array $filters, ?int $pharmacyOrganizationId = null): CursorPaginator
     {
         $query = $this->offersQuery($filters, true, $pharmacyOrganizationId)
-            ->with(['medicine.categories', 'organization', 'import']);
+            ->with(['medicine.categories', 'organization']);
 
         match ($filters['sort'] ?? 'price_asc') {
             'price_desc' => $query->orderByDesc('effective_price')->orderByDesc('offers.id'),
