@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\OrganizationType;
 use App\Models\Organization;
 use App\Models\PharmacySupplierDiscount;
+use App\Models\PriceListImport;
 use App\Services\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,7 +24,14 @@ class PartnerController extends Controller
             ->with(['senderAddresses' => fn ($query) => $query->orderBy('id')])
             ->with('activePriceListImport')
             ->withExists(['offers as has_available_catalog' => fn ($query) => $query->currentAvailable()])
-            ->orderBy('name')->orderBy('id')->paginate(20)->withQueryString();
+            ->orderByRaw('case when active_price_list_import_id is null then 1 else 0 end')
+            ->orderByDesc(
+                PriceListImport::query()
+                    ->selectRaw('coalesce(received_at, activated_at, created_at)')
+                    ->whereColumn('price_list_imports.id', 'organizations.active_price_list_import_id')
+            )
+            ->paginate(20)
+            ->withQueryString();
         $discounts = $request->user()->organization->pharmacySupplierDiscounts()->whereIn('supplier_organization_id', $suppliers->pluck('id'))->get()->keyBy('supplier_organization_id');
 
         return view('partners.index', compact('cities', 'suppliers', 'discounts'));

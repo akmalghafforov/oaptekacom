@@ -6,6 +6,7 @@ use App\Enums\PriceListImportStatus;
 use App\Models\Medicine;
 use App\Models\Offer;
 use App\Models\Organization;
+use App\Models\PharmacySupplierDiscount;
 use App\Models\PriceListImport;
 use App\Models\Subscription;
 use App\Models\SupplierSenderAddress;
@@ -88,6 +89,77 @@ class PartnersTest extends TestCase
         $this->actingAs($user)->get(route('partners.index'))
             ->assertOk()
             ->assertSeeTextInOrder(['А Доступный', 'Прайс обновлён 20.09.2026 11:15', 'Прайс доступен', 'Прайс открыт', '20.09.2026 11:15', 'Б Недоступный', 'Прайс недоступен', 'Прайс закрыт']);
+    }
+
+    public function test_directory_orders_active_price_lists_by_displayed_update_and_scopes_discounts_to_the_pharmacy(): void
+    {
+        $pharmacy = Organization::factory()->pharmacy()->create();
+        $otherPharmacy = Organization::factory()->pharmacy()->create();
+        $user = User::factory()->pharmacy($pharmacy)->create();
+        $otherUser = User::factory()->pharmacy($otherPharmacy)->create();
+        Subscription::factory()->for($user)->create();
+        Subscription::factory()->for($otherUser)->create();
+
+        $newestSupplier = Organization::factory()->wholesaler()->create(['name' => 'Я Свежий поставщик']);
+        $newestImport = PriceListImport::factory()->for($newestSupplier, 'supplier')->create([
+            'status' => PriceListImportStatus::Completed,
+            'received_at' => '2026-09-24 08:00:00',
+        ]);
+        $newestSupplier->update(['active_price_list_import_id' => $newestImport->id]);
+
+        $olderSupplier = Organization::factory()->wholesaler()->create(['name' => 'Б Старый поставщик']);
+        $olderImport = PriceListImport::factory()->for($olderSupplier, 'supplier')->create([
+            'status' => PriceListImportStatus::Completed,
+            'activated_at' => '2026-09-23 08:00:00',
+        ]);
+        $olderSupplier->update(['active_price_list_import_id' => $olderImport->id]);
+
+        $createdAtSupplier = Organization::factory()->wholesaler()->create(['name' => 'Г Созданный поставщик']);
+        $createdAtImport = PriceListImport::factory()->for($createdAtSupplier, 'supplier')->create([
+            'status' => PriceListImportStatus::Completed,
+            'received_at' => null,
+            'activated_at' => null,
+            'created_at' => '2026-09-22 08:00:00',
+        ]);
+        $createdAtSupplier->update(['active_price_list_import_id' => $createdAtImport->id]);
+
+        $inactivePriceListSupplier = Organization::factory()->wholesaler()->create(['name' => 'А Неактивный прайс']);
+        PriceListImport::factory()->for($inactivePriceListSupplier, 'supplier')->create([
+            'status' => PriceListImportStatus::Completed,
+            'received_at' => '2026-09-25 08:00:00',
+        ]);
+        $noPriceListSupplier = Organization::factory()->wholesaler()->create(['name' => 'В Без прайса']);
+
+        PharmacySupplierDiscount::query()->create([
+            'pharmacy_organization_id' => $pharmacy->id,
+            'supplier_organization_id' => $newestSupplier->id,
+            'supplier_discount_percent' => '12.50',
+        ]);
+        PharmacySupplierDiscount::query()->create([
+            'pharmacy_organization_id' => $otherPharmacy->id,
+            'supplier_organization_id' => $newestSupplier->id,
+            'supplier_discount_percent' => '7.25',
+        ]);
+
+        $this->actingAs($user)->get(route('partners.index'))
+            ->assertOk()
+            ->assertSeeTextInOrder([
+                'Я Свежий поставщик',
+                'Ваша скидка 12.50%',
+                'Б Старый поставщик',
+                'Г Созданный поставщик',
+            ])
+            ->assertSeeTextInOrder(['Г Созданный поставщик', 'А Неактивный прайс'])
+            ->assertSeeTextInOrder(['Г Созданный поставщик', 'В Без прайса'])
+            ->assertSee('value="12.50"', false)
+            ->assertDontSeeText('Ваша скидка 7.25%');
+
+        $this->actingAs($otherUser)->get(route('partners.index'))
+            ->assertOk()
+            ->assertSeeTextInOrder(['Я Свежий поставщик', 'Ваша скидка 7.25%', 'Б Старый поставщик', 'Г Созданный поставщик'])
+            ->assertSee('value="7.25"', false)
+            ->assertDontSee('value="12.50"', false)
+            ->assertDontSeeText('Ваша скидка 12.50%');
     }
 
     public function test_directory_only_creates_links_for_valid_contact_values(): void
