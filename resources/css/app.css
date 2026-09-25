@@ -149,8 +149,8 @@
         [data-catalog-region] > div:nth-child(2) p { @apply text-xs; }
         [data-catalog-region] > div:last-child { margin-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 
-        .mobile-catalog-results { @apply grid gap-2; }
-        .mobile-offer-row { @apply flex gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm; animation: catalog-result-in 180ms ease-out both; }
+        .mobile-catalog-results { @apply grid min-w-0 gap-2; }
+        .mobile-offer-row { @apply flex min-w-0 max-w-full gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm; animation: catalog-result-in 180ms ease-out both; }
         .mobile-offer-row:nth-child(2) { animation-delay: 30ms; }
         .mobile-offer-row:nth-child(3) { animation-delay: 60ms; }
         .mobile-offer-image { @apply size-16 shrink-0 rounded-lg bg-slate-50 object-cover; }
@@ -198,9 +198,23 @@
         .cart-added { animation: catalog-cart-feedback 220ms ease-out; }
     }
 
-    @media (max-width: 359px) {
+    @media (max-width: 374px) {
         .mobile-offer-row > div > div:last-child { grid-template-columns: minmax(0, 1fr); }
         .mobile-offer-row [data-cart-form] { justify-content: flex-end; }
+    }
+
+    @media (min-width: 768px) and (max-width: 1023px) {
+        .mobile-catalog-results { @apply grid min-w-0 gap-2; }
+        .mobile-offer-row { @apply flex min-w-0 max-w-full gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm; animation: catalog-result-in 180ms ease-out both; }
+        .mobile-offer-row:nth-child(2) { animation-delay: 30ms; }
+        .mobile-offer-row:nth-child(3) { animation-delay: 60ms; }
+        .mobile-offer-image { @apply size-16 shrink-0 rounded-lg bg-slate-50 object-cover; }
+        .mobile-offer-badge { @apply rounded-md border border-current/10 px-1.5 py-1 text-[0.6875rem] leading-tight; }
+        [data-catalog-search] .mobile-offer-row [data-cart-submit] { @apply border-brand-100 bg-brand-600 text-white hover:bg-brand-700; }
+        .catalog-mobile-skeleton { @apply grid gap-2; }
+        .catalog-mobile-skeleton span { @apply block rounded-xl bg-slate-200; animation: catalog-skeleton-pulse 1.1s ease-in-out infinite alternate; }
+        .catalog-skeleton-list span { @apply h-32; }
+        .catalog-desktop-loading { @apply hidden; }
     }
 
     @media (min-width: 640px) {

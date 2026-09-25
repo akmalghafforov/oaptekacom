@@ -75,7 +75,7 @@
         </div>
     </section>
     <section aria-busy="false" data-catalog-region><div class="sr-only" aria-live="polite" data-catalog-announcer></div><div class="mb-3 flex items-center justify-between gap-3"><h2 class="text-lg font-bold">Предложения</h2><p data-result-count class="text-sm text-muted"></p></div><div data-catalog-state></div>
-        <div data-list-view class="hidden"><div data-catalog-mobile-rows class="mobile-catalog-results md:hidden"></div><div class="table-wrap hidden lg:block"><table class="data-table"><thead><tr><th>Фото</th><th>Товар</th><th>Производитель</th><th>Срок</th><th>Поставщик</th><th>Цена</th><th>Заказ</th></tr></thead><tbody data-catalog-table></tbody></table></div><div data-catalog-cards class="hidden gap-4 md:grid lg:hidden"></div></div>
+        <div data-list-view class="hidden"><div data-catalog-mobile-rows class="mobile-catalog-results lg:hidden"></div><div class="table-wrap hidden lg:block"><table class="data-table"><thead><tr><th>Фото</th><th>Товар</th><th>Производитель</th><th>Срок</th><th>Поставщик</th><th>Цена</th><th>Заказ</th></tr></thead><tbody data-catalog-table></tbody></table></div><div data-catalog-cards class="hidden"></div></div>
         <div data-grid-view class="hidden"><div data-catalog-grid class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"></div></div>
         <div data-suppliers-view class="hidden"><div data-catalog-suppliers class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div></div>
         <div class="mt-6 text-center"><x-ui.button type="button" variant="secondary" data-load-more class="hidden">Загрузить ещё</x-ui.button><p data-catalog-load-status class="mt-2 text-sm text-muted" aria-live="polite"></p></div>
