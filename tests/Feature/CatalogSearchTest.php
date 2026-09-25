@@ -139,7 +139,7 @@ class CatalogSearchTest extends TestCase
         $this->assertSame(1, preg_match('/data-category="'.$category->id.'".*?src="[^"]*images\/catalog\/categories\/medicine\.webp".*?width="32".*?height="32"/s', $response->getContent()));
     }
 
-    public function test_preserves_current_catalog_availability_contract(): void
+    public function test_current_catalog_includes_expired_offers_and_excludes_superseded_imports(): void
     {
         [$supplier, $activeImport] = $this->activeImport();
         $oldImport = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Superseded]);
@@ -152,8 +152,26 @@ class CatalogSearchTest extends TestCase
 
         $this->assertStringContainsString('Нулевой остаток', $response->json('html'));
         $this->assertStringContainsString('Сегодня истекает', $response->json('html'));
-        $this->assertStringNotContainsString('Просрочено', $response->json('html'));
+        $this->assertStringContainsString('Просрочено', $response->json('html'));
         $this->assertStringNotContainsString('Старая загрузка', $response->json('html'));
+    }
+
+    public function test_catalog_fragments_render_expired_known_and_missing_expiration_dates(): void
+    {
+        $this->travelTo('2026-09-15 12:00:00');
+        [$supplier, $import] = $this->activeImport();
+        $this->offer($supplier, $import, 'Просроченный', 'проверка срока', 10, 1, ['expires_at' => '2026-09-14']);
+        $this->offer($supplier, $import, 'С указанным сроком', 'проверка срока', 11, 2, ['expires_at' => '2027-01-15']);
+        $this->offer($supplier, $import, 'Без срока', 'проверка срока', 12, 3);
+
+        $response = $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => 'проверка', 'view' => 'list']))->assertOk();
+
+        foreach (['desktop_rows', 'mobile_rows', 'cards'] as $fragment) {
+            $html = $response->json('fragments.'.$fragment);
+            $this->assertStringContainsString('Срок годности истёк: 14.09.2026', $html);
+            $this->assertStringContainsString('15.01.2027', $html);
+            $this->assertStringContainsString('Неуказан', $html);
+        }
     }
 
     public function test_list_search_returns_dedicated_mobile_rows_without_changing_existing_fragments(): void

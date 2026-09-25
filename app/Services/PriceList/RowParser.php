@@ -52,7 +52,7 @@ class RowParser
                 ? $this->shelfLifeDate($expiration, $profile)
                 : $this->normalizer->date($expiration, $profile['date_formats']);
             if ($parsedExpiration === null) {
-                $errors[] = 'Не удалось распознать срок годности.';
+                $values['expiration'] = null;
             } else {
                 $values['expiration'] = $parsedExpiration->toDateString();
                 $today = CarbonImmutable::now(config('price-list-imports.timezone'))->startOfDay();

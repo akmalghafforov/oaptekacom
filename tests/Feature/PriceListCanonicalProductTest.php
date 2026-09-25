@@ -73,7 +73,7 @@ class PriceListCanonicalProductTest extends TestCase
         $this->assertSame([$currentOffer->id], Offer::query()->currentCatalog()->pluck('id')->all());
     }
 
-    public function test_catalog_lists_zero_stock_and_today_expiry_but_purchase_scope_does_not(): void
+    public function test_catalog_and_purchase_scopes_include_expired_offers_but_exclude_zero_stock_from_purchase(): void
     {
         $this->travelTo('2026-09-15 12:00:00');
         $supplier = Organization::factory()->wholesaler()->create();
@@ -82,10 +82,10 @@ class PriceListCanonicalProductTest extends TestCase
         $medicine = Medicine::factory()->create(['supplier_organization_id' => $supplier->id]);
         $zeroStock = Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $current->id, 'source_row' => 2, 'quantity' => 0, 'expires_at' => '2026-09-15']);
         $inStock = Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $current->id, 'source_row' => 3, 'quantity' => 2, 'expires_at' => '2026-09-15']);
-        Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $current->id, 'source_row' => 4, 'quantity' => 2, 'expires_at' => '2026-09-14']);
+        $expired = Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $current->id, 'source_row' => 4, 'quantity' => 2, 'expires_at' => '2026-09-14']);
 
-        $this->assertSame([$zeroStock->id, $inStock->id], Offer::query()->currentCatalog()->orderBy('id')->pluck('id')->all());
-        $this->assertSame([$inStock->id], Offer::query()->currentAvailable()->pluck('id')->all());
+        $this->assertSame([$zeroStock->id, $inStock->id, $expired->id], Offer::query()->currentCatalog()->orderBy('id')->pluck('id')->all());
+        $this->assertSame([$inStock->id, $expired->id], Offer::query()->currentAvailable()->orderBy('id')->pluck('id')->all());
     }
 
     /** @param list<string> $names */

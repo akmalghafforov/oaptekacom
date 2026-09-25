@@ -52,7 +52,26 @@ class PriceListParsingTest extends TestCase
 
         $this->assertSame(PriceListRowDisposition::Warning, $result['disposition']);
         $this->assertSame(0.0, $result['parsed_values']['quantity']);
+        $this->assertSame('2026-09-14', $result['parsed_values']['expiration']);
         $this->assertSame(['Срок годности истёк.'], $result['warnings']);
+    }
+
+    public function test_row_parser_treats_absent_and_unparseable_expiration_as_undetected(): void
+    {
+        $profile = array_replace(ProfileValidator::defaults(), [
+            'mapping' => ['name' => 'A', 'price' => 'B', 'expiration' => 'C'],
+        ]);
+        $parser = app(RowParser::class);
+
+        $absent = $parser->parse(['A' => 'Аспирин', 'B' => '12.50', 'C' => ''], 2, $profile);
+        $unparseable = $parser->parse(['A' => 'Ибупрофен', 'B' => '15.00', 'C' => 'неизвестно'], 3, $profile);
+
+        $this->assertSame(PriceListRowDisposition::Valid, $absent['disposition']);
+        $this->assertNull($absent['parsed_values']['expiration']);
+        $this->assertSame([], $absent['warnings']);
+        $this->assertSame(PriceListRowDisposition::Valid, $unparseable['disposition']);
+        $this->assertNull($unparseable['parsed_values']['expiration']);
+        $this->assertSame([], $unparseable['warnings']);
     }
 
     public function test_profile_rejects_unexpected_configuration_and_operators(): void

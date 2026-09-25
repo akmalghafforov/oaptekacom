@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\PriceListImportStatus;
 use App\Models\Medicine;
 use App\Models\Offer;
+use App\Models\Order;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\Subscription;
@@ -34,5 +35,27 @@ class CatalogAvailabilityTest extends TestCase
         $this->assertStringContainsString('Нет в наличии', $response->json('html'));
         $this->actingAs($user)->post(route('cart.add', $offer))->assertNotFound();
         $this->assertDatabaseMissing('cart_items', ['offer_id' => $offer->id]);
+    }
+
+    public function test_expired_offer_can_be_added_retained_and_checked_out(): void
+    {
+        $this->travelTo('2026-09-15 12:00:00');
+        $pharmacy = Organization::factory()->pharmacy()->create();
+        $user = User::factory()->pharmacy($pharmacy)->create();
+        Subscription::factory()->for($user)->create();
+        $supplier = Organization::factory()->wholesaler()->create();
+        $import = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Completed]);
+        $supplier->update(['active_price_list_import_id' => $import->id]);
+        $medicine = Medicine::factory()->create(['supplier_organization_id' => $supplier->id]);
+        $offer = Offer::factory()->for($supplier, 'organization')->for($medicine)->create(['price_list_import_id' => $import->id, 'quantity' => 2, 'expires_at' => '2026-09-14']);
+
+        $this->actingAs($user)->post(route('cart.add', $offer))->assertSessionHas('success');
+        $this->actingAs($user)->get(route('cart'))->assertSee($medicine->name);
+
+        $this->assertDatabaseHas('cart_items', ['offer_id' => $offer->id, 'quantity' => 1]);
+
+        $this->actingAs($user)->post(route('cart.suppliers.checkout', $supplier))->assertRedirect(route('orders.index'));
+
+        $this->assertSame($offer->id, Order::query()->sole()->items()->sole()->offer_id);
     }
 }

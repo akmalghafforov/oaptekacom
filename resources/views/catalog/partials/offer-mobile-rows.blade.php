@@ -4,7 +4,8 @@
         $stale = ! $updatedAt || $updatedAt->lt(now()->subHours(config('catalog.supplier_stale_hours')));
         $available = ($offer->quantity === null || $offer->quantity >= 1) && ! $stale;
         $inCart = (int) ($cartQuantities[$offer->id] ?? 0);
-        $expiresSoon = $offer->expires_at?->lt(now()->addMonths(config('catalog.expiration_warning_months')));
+        $expired = $offer->expires_at?->lt(now()->startOfDay());
+        $expiresSoon = $offer->expires_at?->lte(now()->addMonths(config('catalog.expiration_warning_months')));
         $hasSupplierDiscount = $offer->applied_supplier_discount_percent !== null && bccomp($offer->applied_supplier_discount_percent, '0', 2) === 1;
     @endphp
     <article class="mobile-offer-row" data-mobile-result-shell="list" data-mobile-offer-row data-offer-id="{{ $offer->id }}">
@@ -21,7 +22,10 @@
                 <div class="min-w-0 text-xs">
                     <p class="truncate font-medium">{{ $offer->organization->name }} <span class="font-normal text-muted">· {{ $offer->organization->city ?: 'Город не указан' }}</span></p>
                     <div class="mt-2 flex flex-wrap gap-1.5">
-                        <span class="mobile-offer-badge {{ $expiresSoon ? 'bg-amber-50 text-warning' : 'bg-slate-50 text-slate-600' }}">Срок: {{ $offer->expires_at?->format('d.m.Y') ?: 'не указан' }}</span>
+                        @if($expired)<span class="mobile-offer-badge bg-amber-50 text-warning">Срок годности истёк: {{ $offer->expires_at->format('d.m.Y') }}</span>
+                        @elseif($offer->expires_at)<span class="mobile-offer-badge {{ $expiresSoon ? 'bg-amber-50 text-warning' : 'bg-slate-50 text-slate-600' }}">Срок: {{ $offer->expires_at->format('d.m.Y') }}</span>
+                        @else<span class="mobile-offer-badge bg-slate-50 text-slate-600">Неуказан</span>
+                        @endif
                         <span class="mobile-offer-badge {{ $available ? 'bg-brand-50 text-brand-700' : 'bg-amber-50 text-warning' }}">{{ $offer->quantity === null ? 'Остаток уточняется' : ($offer->quantity >= 1 ? 'В наличии: '.(int) $offer->quantity : 'Нет в наличии') }}</span>
                     </div>
                 </div>

@@ -10,6 +10,7 @@ use App\Jobs\FinalizePriceListImportPreview;
 use App\Jobs\MaterializePriceListImportChunk;
 use App\Jobs\PreparePriceListImport;
 use App\Models\Medicine;
+use App\Models\Offer;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\PriceListImportRow;
@@ -133,6 +134,27 @@ class PriceListImportTest extends TestCase
         $this->assertSame(1, $import->fresh()->valid_rows);
         $this->assertSame(1, $import->fresh()->skipped_rows);
         $this->assertDatabaseHas('price_list_import_rows', ['price_list_import_id' => $import->id, 'source_row' => 3, 'disposition' => PriceListRowDisposition::Skipped->value]);
+    }
+
+    public function test_import_stores_expired_dates_and_treats_undetected_dates_as_null(): void
+    {
+        Storage::fake('local');
+        $this->travelTo('2026-09-15 12:00:00');
+        $supplier = Organization::factory()->wholesaler()->create();
+        $configuration = array_replace(ProfileValidator::defaults(), [
+            'mapping' => ['name' => 'A', 'price' => 'B', 'expiration' => 'C'],
+        ]);
+        $profile = SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['file_type' => 'csv', 'configuration' => $configuration]);
+        $path = 'price-list-imports/'.$supplier->id.'/expiration.csv';
+        Storage::disk('local')->put($path, "name,price,expiration\nПросроченный,12.50,14.09.2026\nБез срока,13.50,\nНеизвестный,14.50,неизвестно\n");
+        $import = PriceListImport::create(['supplier_organization_id' => $supplier->id, 'supplier_import_profile_id' => $profile->id, 'profile_snapshot' => $configuration, 'source_type' => 'manual', 'file_path' => $path, 'original_filename' => 'expiration.csv', 'mime_type' => 'text/csv', 'file_size' => 100, 'sha256' => hash('sha256', 'expiration'), 'status' => PriceListImportStatus::Pending, 'summary' => []]);
+
+        (new PreparePriceListImport($import))->handle(app(WorkbookReader::class), app(ValueNormalizer::class));
+
+        $this->assertSame(PriceListImportStatus::Completed, $import->fresh()->status);
+        $this->assertSame('2026-09-14', Offer::query()->where('source_name', 'Просроченный')->sole()->expires_at->toDateString());
+        $this->assertNull(Offer::query()->where('source_name', 'Без срока')->sole()->expires_at);
+        $this->assertNull(Offer::query()->where('source_name', 'Неизвестный')->sole()->expires_at);
     }
 
     public function test_finalization_ignores_legacy_manual_thresholds_and_queues_activation(): void
