@@ -24,13 +24,28 @@ class PartnersTest extends TestCase
         $pharmacy = Organization::factory()->pharmacy()->create();
         $user = User::factory()->pharmacy($pharmacy)->create();
         Subscription::factory()->for($user)->create();
-        Organization::factory()->wholesaler()->create(['name' => 'Первый поставщик', 'city' => 'Душанбе']);
+        $supplier = Organization::factory()->wholesaler()->create(['name' => 'Первый поставщик', 'city' => 'Душанбе', 'phone' => '+992901234567']);
         Organization::factory()->wholesaler()->create(['name' => 'Другой поставщик', 'city' => 'Худжанд']);
         Organization::factory()->wholesaler()->blocked()->create(['name' => 'Скрытый поставщик', 'city' => 'Душанбе']);
 
         $this->actingAs($user)->get(route('partners.index', ['name' => 'Первый', 'city' => 'Душанбе']))
-            ->assertOk()->assertSeeText('Первый поставщик')->assertSeeText('Контактное лицо')->assertSeeText('Не указана')
+            ->assertOk()->assertSeeText('Первый поставщик')->assertSeeText('Город')->assertSeeText('Срок доступа')->assertSeeText('Без ограничения по сроку')
+            ->assertSee('id="partner-'.$supplier->id.'-contacts"', false)->assertSee('data-contact-details hidden', false)
             ->assertDontSeeText('Другой поставщик')->assertDontSeeText('Скрытый поставщик');
+    }
+
+    public function test_directory_cards_open_supplier_dialogs_without_a_details_button(): void
+    {
+        $pharmacy = Organization::factory()->pharmacy()->create();
+        $user = User::factory()->pharmacy($pharmacy)->create();
+        Subscription::factory()->for($user)->create();
+        $supplier = Organization::factory()->wholesaler()->create();
+
+        $this->actingAs($user)->get(route('partners.index'))
+            ->assertOk()
+            ->assertSee('aria-controls="partner-'.$supplier->id.'"', false)
+            ->assertSee('data-dialog-open', false)
+            ->assertDontSeeText('Подробнее');
     }
 
     public function test_combined_filters_are_preserved_by_city_links_search_and_pagination(): void
@@ -73,7 +88,7 @@ class PartnersTest extends TestCase
 
         $this->actingAs($user)->get(route('partners.index'))
             ->assertOk()
-            ->assertSeeTextInOrder(['А Доступный', 'Прайс обновлён 20.09.2026 11:15', 'Прайс доступен', 'Б Недоступный', 'Прайс недоступен']);
+            ->assertSeeTextInOrder(['А Доступный', 'Прайс обновлён 20.09.2026 11:15', 'Прайс доступен', 'Прайс открыт', '20.09.2026 11:15', 'Б Недоступный', 'Прайс недоступен', 'Прайс закрыт']);
     }
 
     public function test_directory_only_creates_links_for_valid_contact_values(): void
@@ -119,8 +134,9 @@ class PartnersTest extends TestCase
         $this->actingAs($user)->post(route('partners.phone'), ['phone' => '+992901234567'])->assertRedirect();
         $this->actingAs($user)->patch(route('partners.discount', $supplier), ['discount_percent' => '0.00'])->assertRedirect();
         $this->assertDatabaseHas('pharmacy_suppliers', ['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id, 'discount_percent' => 0]);
+        $this->actingAs($user)->get(route('partners.index'))->assertSeeText('Согласованная скидка')->assertSeeText('Скидка сохраняется только как договорённость');
         $this->actingAs($otherUser)->patch(route('partners.discount', $supplier), ['discount_percent' => '40.00'])->assertNotFound();
-        $this->actingAs($otherUser)->get(route('partners.index'))->assertSeeText('Не указана')->assertDontSeeText('0.00%');
+        $this->actingAs($otherUser)->get(route('partners.index'))->assertSeeText('Добавьте поставщика по телефону организации или коду приглашения, чтобы указать скидку.')->assertDontSeeText('0.00%');
     }
 
     public function test_invitation_is_single_use_and_expiry_is_enforced(): void
@@ -156,7 +172,7 @@ class PartnersTest extends TestCase
         Organization::factory()->wholesaler()->count(20)->create(['city' => 'Душанбе']);
 
         $this->actingAs($user)->get(route('partners.index'))
-            ->assertOk()->assertSeeText('Альфа')->assertSeeText('sender@example.com')->assertSeeText('15.09.2026 13:30')->assertSeeText('Активен')
+            ->assertOk()->assertSeeText('Альфа')->assertSeeText('sender@example.com')->assertSeeText('Прайс закрыт')->assertSeeText('Активный прайс-лист не загружен')
             ->assertSee('page=2', false);
     }
 

@@ -39,7 +39,6 @@
 @forelse($suppliers as $supplier)
     @php
         $link = $links->get($supplier->id);
-        $latestImport = $supplier->priceListImports->first();
         $activeImport = $supplier->activePriceListImport;
         $activeImportUpdatedAt = $activeImport ? ($activeImport->received_at ?? $activeImport->activated_at ?? $activeImport->created_at) : null;
         $email = $supplier->contact_email ?: $supplier->senderAddresses->first()?->email;
@@ -50,7 +49,8 @@
         $hasContacts = $validPhones->isNotEmpty() || $whatsAppPhone || $isValidEmail;
         $initial = str($supplier->name)->trim()->substr(0, 1)->upper();
     @endphp
-    <x-ui.card class="!p-4 sm:!p-5">
+    <x-ui.card class="relative cursor-pointer !p-4 transition hover:border-brand-200 hover:shadow-md sm:!p-5">
+        <button type="button" class="absolute inset-0 z-0 rounded-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600" aria-label="Открыть сведения о поставщике {{ $supplier->name }}" aria-controls="partner-{{ $supplier->id }}" data-dialog-open></button>
         <div class="flex items-start gap-3 sm:gap-4">
             <div class="grid size-12 shrink-0 place-items-center rounded-xl border border-brand-100 bg-brand-50 text-lg font-bold text-brand-700" aria-hidden="true">{{ $initial }}</div>
             <div class="min-w-0 flex-1">
@@ -69,7 +69,7 @@
 
         <div class="mt-4 border-t border-slate-200 pt-4">
             @if($hasContacts)
-                <div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                <div class="relative z-10 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                     @foreach($validPhones as $phone)
                         <a href="tel:{{ $phone }}" class="inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-control border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">
                             <span aria-hidden="true">☎</span><span class="truncate">{{ $phone }}</span>
@@ -89,38 +89,60 @@
             @else
                 <p class="text-sm text-muted">Контакты не указаны</p>
             @endif
-
-            <div class="mt-4 flex justify-end">
-                <x-ui.button type="button" variant="secondary" aria-controls="partner-{{ $supplier->id }}" data-dialog-open>Подробнее</x-ui.button>
-            </div>
         </div>
     </x-ui.card>
 
-    <x-ui.dialog name="partner-{{ $supplier->id }}" :title="$supplier->name" :description="$supplier->city ?: 'Город не указан'" :open-on-load="$errors->has('discount_percent') && (int) old('supplier_id') === $supplier->id">
-        <div class="min-h-0 overflow-y-auto p-5">
-            <dl class="grid gap-4 text-sm sm:grid-cols-2">
-                <div><dt class="text-muted">Контактное лицо</dt><dd class="mt-1 font-medium">{{ $supplier->contact_name ?: '—' }}</dd></div>
-                <div><dt class="text-muted">Партнёрство</dt><dd class="mt-1 font-medium">{{ $link ? 'Добавлен в партнёры' : 'Не добавлен' }}</dd></div>
-                <div><dt class="text-muted">Телефоны</dt><dd class="mt-1 break-words font-medium">{{ $storedPhones ? implode(', ', $storedPhones) : '—' }}</dd></div>
-                <div><dt class="text-muted">WhatsApp</dt><dd class="mt-1 break-words font-medium">{{ $supplier->whatsapp_phone ?: '—' }}</dd></div>
-                <div><dt class="text-muted">Email</dt><dd class="mt-1 break-words font-medium">{{ $email ?: '—' }}</dd></div>
-                <div><dt class="text-muted">Доступность прайса</dt><dd class="mt-1 font-medium">{{ $supplier->has_available_catalog ? 'Прайс доступен' : 'Прайс недоступен' }}</dd></div>
-                <div><dt class="text-muted">Последний импорт</dt><dd class="mt-1 font-medium">{{ $latestImport ? ($latestImport->received_at ?? $latestImport->created_at)->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : '—' }}</dd></div>
-                <div><dt class="text-muted">Статус импорта</dt><dd class="mt-1">@if($latestImport)<x-ui.status-badge :status="$latestImport->status->value" :label="$latestImport->status->label()" />@else<span class="font-medium">Нет импортов</span>@endif</dd></div>
-                <div><dt class="text-muted">Согласованная скидка</dt><dd class="mt-1 font-semibold text-brand-700">{{ $link?->discount_percent !== null ? number_format((float) $link->discount_percent, 2, '.', '').'%' : 'Не указана' }}</dd></div>
-            </dl>
+    <x-ui.dialog name="partner-{{ $supplier->id }}" :open-on-load="$errors->has('discount_percent') && (int) old('supplier_id') === $supplier->id" class="!w-[min(28rem,calc(100%-2rem))]">
+        <x-slot:header class="border-b-0 pb-3">
+            <div class="flex min-w-0 items-center gap-3">
+                <div class="grid size-11 shrink-0 place-items-center rounded-xl border border-brand-100 bg-brand-50 text-base font-bold text-brand-700" aria-hidden="true">{{ $initial }}</div>
+                <div class="min-w-0"><h2 id="partner-{{ $supplier->id }}-title" class="truncate text-lg font-bold">{{ $supplier->name }}</h2><p class="mt-0.5 truncate text-sm text-muted">{{ $supplier->city ?: 'Город не указан' }}</p></div>
+            </div>
+            <x-ui.icon-button label="Закрыть" data-dialog-close>×</x-ui.icon-button>
+        </x-slot:header>
+
+        <div class="min-h-0 space-y-3 overflow-y-auto px-5 pb-5">
+            <x-ui.card class="!p-4">
+                <p class="text-sm text-muted">Доступность прайса</p>
+                <p class="mt-1 font-semibold {{ $supplier->has_available_catalog ? 'text-brand-700' : 'text-slate-700' }}">{{ $supplier->has_available_catalog ? 'Прайс открыт' : 'Прайс закрыт' }}</p>
+                <p class="mt-1 text-xs text-muted">{{ $supplier->has_available_catalog ? 'Актуальные предложения доступны для просмотра.' : 'Актуальные предложения пока недоступны.' }}</p>
+            </x-ui.card>
+
+            <x-ui.card class="!p-4">
+                <dl class="space-y-3 text-sm">
+                    <div><dt class="text-muted">Город</dt><dd class="mt-1 font-medium">{{ $supplier->city ?: 'Не указан' }}</dd></div>
+                    <div><dt class="text-muted">Обновление прайс-листа</dt><dd class="mt-1 font-medium">{{ $activeImportUpdatedAt ? $activeImportUpdatedAt->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : 'Активный прайс-лист не загружен' }}</dd></div>
+                    <div><dt class="text-muted">Срок доступа</dt><dd class="mt-1 font-medium">Без ограничения по сроку</dd></div>
+                </dl>
+            </x-ui.card>
+
+            @if($hasContacts || $supplier->contact_name)
+                <div>
+                    <x-ui.button type="button" variant="secondary" class="w-full" aria-controls="partner-{{ $supplier->id }}-contacts" aria-expanded="false" data-contact-toggle data-show-label="Показать контакты" data-hide-label="Скрыть контакты">Показать контакты</x-ui.button>
+                    <div id="partner-{{ $supplier->id }}-contacts" class="mt-3 space-y-2" data-contact-details hidden>
+                        @if($supplier->contact_name)<p class="text-sm"><span class="text-muted">Контактное лицо:</span> <span class="font-medium">{{ $supplier->contact_name }}</span></p>@endif
+                        @foreach($validPhones as $phone)<a href="tel:{{ $phone }}" class="flex min-h-10 items-center rounded-control border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{{ $phone }}</a>@endforeach
+                        @if($whatsAppPhone)<a href="https://wa.me/{{ ltrim($whatsAppPhone, '+') }}" class="flex min-h-10 items-center rounded-control border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">WhatsApp</a>@endif
+                        @if($isValidEmail)<a href="mailto:{{ $email }}" class="flex min-h-10 items-center rounded-control border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{{ $email }}</a>@endif
+                    </div>
+                </div>
+            @endif
 
             @if($link)
-                <form method="post" action="{{ route('partners.discount', $supplier) }}" class="mt-5 space-y-3 border-t border-slate-200 pt-5">
+                <x-ui.card class="!p-4">
+                    <p class="text-sm text-muted">Согласованная скидка</p>
+                    <p class="mt-1 font-semibold text-brand-700">{{ $link->discount_percent !== null ? number_format((float) $link->discount_percent, 2, '.', '').'%' : 'Не указана' }}</p>
+                </x-ui.card>
+                <form method="post" action="{{ route('partners.discount', $supplier) }}" class="space-y-3">
                     @csrf
                     @method('PATCH')
                     <input type="hidden" name="supplier_id" value="{{ $supplier->id }}">
                     <x-ui.input id="discount-percent-{{ $supplier->id }}" name="discount_percent" type="number" min="0" max="100" step="0.01" label="Согласованная скидка, %" :value="$link->discount_percent" required />
-                    <p class="text-xs text-muted">Скидка сохраняется как договорённость и пока не меняет цены в каталоге и при оформлении заказа.</p>
+                    <p class="text-xs text-muted">Скидка сохраняется только как договорённость и не меняет цены в каталоге или при оформлении заказа.</p>
                     <x-ui.button>Сохранить скидку</x-ui.button>
                 </form>
             @else
-                <p class="mt-5 border-t border-slate-200 pt-5 text-sm text-muted">Добавьте поставщика по телефону организации или коду приглашения, чтобы указать скидку.</p>
+                <p class="text-sm text-muted">Добавьте поставщика по телефону организации или коду приглашения, чтобы указать скидку.</p>
             @endif
         </div>
     </x-ui.dialog>

@@ -201,10 +201,20 @@ document.querySelectorAll('[data-dialog-open]').forEach((opener) => {
         }
     };
 
-    opener.addEventListener('click', () => {
+    const openDialog = () => {
         dialog.showModal();
         document.body.classList.add('dialog-open');
         dialog.querySelector('[data-dialog-close]')?.focus();
+    };
+
+    opener.addEventListener('click', (event) => {
+        const nestedControl = event.target.closest('a, button, input, select, textarea, label');
+
+        if (nestedControl && nestedControl !== opener) {
+            return;
+        }
+
+        openDialog();
     });
     dialog.querySelectorAll('[data-dialog-close]').forEach((button) => button.addEventListener('click', closeDialog));
     dialog.addEventListener('click', (event) => {
@@ -222,4 +232,20 @@ document.querySelectorAll('[data-dialog-auto-open]').forEach((dialog) => {
     dialog.showModal();
     document.body.classList.add('dialog-open');
     dialog.querySelector('input')?.focus();
+});
+
+document.querySelectorAll('[data-contact-toggle]').forEach((toggle) => {
+    const details = document.getElementById(toggle.getAttribute('aria-controls'));
+
+    if (!details) {
+        return;
+    }
+
+    toggle.addEventListener('click', () => {
+        const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+
+        details.hidden = isExpanded;
+        toggle.setAttribute('aria-expanded', String(!isExpanded));
+        toggle.textContent = isExpanded ? toggle.dataset.showLabel : toggle.dataset.hideLabel;
+    });
 });
