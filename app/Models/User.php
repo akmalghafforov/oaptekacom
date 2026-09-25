@@ -40,6 +40,11 @@ class User extends Authenticatable
         return $this->hasMany(PaymentRequest::class);
     }
 
+    public function supplierRequests(): HasMany
+    {
+        return $this->hasMany(SupplierRequest::class);
+    }
+
     public function isAdmin(): bool
     {
         return $this->role === UserRole::Admin;

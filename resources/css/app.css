@@ -56,6 +56,7 @@
     .catalog-category-card[aria-selected="true"] .catalog-category-selected { @apply visible; }
     .catalog-search-panel.is-compact [data-search-expanded] { @apply hidden; }
     .catalog-search-panel.is-compact [data-catalog-form] { @apply mt-0; }
+    .cart-summary { @apply sticky top-3 z-10; }
     .catalog-search-panel.is-compact label, .catalog-search-panel.is-compact [id$="-hint"] { @apply sr-only; }
     .catalog-dialog[open] { animation: catalog-dialog-in 160ms ease-out; }
     .catalog-mobile-skeleton { @apply hidden; }
@@ -66,6 +67,7 @@
     body.drawer-open { overflow: hidden; }
 
     @media (max-width: 767px) {
+        .cart-summary { @apply static; }
         body:has([data-catalog-search]) { --catalog-mobile-header-height: 3rem; --catalog-mobile-search-offset: calc(var(--catalog-mobile-header-height) + 0.75rem); --catalog-accent: var(--color-brand-600); --catalog-accent-dark: var(--color-brand-700); --catalog-accent-soft: var(--color-brand-50); }
         body:has([data-catalog-search]) .app-header { @apply fixed inset-x-0 top-0 z-30 h-auto bg-white; }
         .app-header > .page-container { @apply min-h-12 flex-nowrap px-3 py-1.5; }

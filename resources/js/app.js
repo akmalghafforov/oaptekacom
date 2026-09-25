@@ -249,3 +249,60 @@ document.querySelectorAll('[data-contact-toggle]').forEach((toggle) => {
         toggle.textContent = isExpanded ? toggle.dataset.showLabel : toggle.dataset.hideLabel;
     });
 });
+
+document.querySelectorAll('[data-quantity-stepper]').forEach((stepper) => {
+    const input = stepper.querySelector('[data-quantity-input]');
+
+    stepper.querySelectorAll('[data-quantity-step]').forEach((button) => button.addEventListener('click', () => {
+        const minimum = Number(input.min || 1);
+        const maximum = Number(input.max || 999);
+        const nextValue = Math.max(minimum, Math.min(maximum, Number(input.value || minimum) + Number(button.dataset.quantityStep)));
+
+        input.value = String(nextValue);
+        input.focus();
+    }));
+});
+
+document.querySelectorAll('[data-supplier-share]').forEach((button) => button.addEventListener('click', async () => {
+    const text = button.dataset.shareText;
+    let sharedVia = null;
+
+    try {
+        if (navigator.share) {
+            await navigator.share({ title: 'Заявка OAPTEKA', text });
+            sharedVia = 'native';
+        } else if (navigator.clipboard) {
+            await navigator.clipboard.writeText(text);
+            sharedVia = 'clipboard';
+        }
+    } catch (error) {
+        return;
+    }
+
+    if (! sharedVia) {
+        return;
+    }
+
+    button.disabled = true;
+
+    try {
+        const response = await fetch(button.dataset.shareUrl, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': button.dataset.csrfToken,
+            },
+            body: new URLSearchParams({ shared_via: sharedVia }),
+        });
+
+        if (! response.ok) {
+            throw new Error('Unable to save the supplier request.');
+        }
+
+        window.location.assign(response.url);
+    } catch (error) {
+        button.disabled = false;
+        window.alert('Не удалось сохранить заявку. Позиции остались в корзине.');
+    }
+}));
