@@ -48,6 +48,7 @@ class SupplierDiscountPricingTest extends TestCase
 
     public function test_cart_and_order_snapshot_the_effective_price_without_repricing_existing_lines(): void
     {
+        config()->set('orders.placement_enabled', true);
         [$pharmacy, $user] = $this->pharmacyUser();
         [$supplier, $import] = $this->activeImport();
         $discount = PharmacySupplierDiscount::create([

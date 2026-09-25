@@ -75,6 +75,7 @@ class CatalogAvailabilityTest extends TestCase
 
     public function test_expired_offer_can_be_added_retained_and_checked_out(): void
     {
+        config()->set('orders.placement_enabled', true);
         $this->travelTo('2026-09-15 12:00:00');
         $pharmacy = Organization::factory()->pharmacy()->create();
         $user = User::factory()->pharmacy($pharmacy)->create();

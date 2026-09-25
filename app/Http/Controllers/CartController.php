@@ -162,6 +162,10 @@ class CartController extends Controller
     public function checkoutSupplier(Organization $supplier, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse
     {
         abort_unless($request->user()->canBuy(), 403);
+        if (! config('orders.placement_enabled')) {
+            return redirect()->route('cart')->with('warning', 'Оформление заказов временно недоступно. Вы можете поделиться заявкой.');
+        }
+
         $cart = $this->cart($request);
 
         DB::transaction(function () use ($cart, $supplier, $request, $supplierDiscountPrice): void {
@@ -239,6 +243,10 @@ class CartController extends Controller
     public function checkout(Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse
     {
         abort_unless($request->user()->canBuy(), 403);
+        if (! config('orders.placement_enabled')) {
+            return redirect()->route('cart')->with('warning', 'Оформление заказов временно недоступно. Вы можете поделиться заявкой.');
+        }
+
         $cart = $this->cart($request)->load('items.offer');
         abort_if($cart->items->isEmpty(), 422);
         DB::transaction(function () use ($cart, $request, $supplierDiscountPrice): void {

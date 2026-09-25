@@ -80,6 +80,7 @@ class SupplierRequestCartTest extends TestCase
 
     public function test_supplier_checkout_creates_one_order_and_preserves_other_supplier_items(): void
     {
+        config()->set('orders.placement_enabled', true);
         [$user, $firstSupplier, $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();
         $this->actingAs($user)->post(route('cart.add', $firstOffer), ['quantity' => 2]);
         $this->actingAs($user)->post(route('cart.add', $secondOffer), ['quantity' => 1]);
@@ -94,6 +95,41 @@ class SupplierRequestCartTest extends TestCase
 
         $cart = Cart::query()->where('user_id', $user->id)->sole();
         $this->assertSame([$secondOffer->id], $cart->items()->pluck('offer_id')->all());
+    }
+
+    public function test_checkout_routes_are_disabled_by_default_and_keep_cart_items(): void
+    {
+        [$user, $supplier, $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $firstOffer));
+        $this->actingAs($user)->post(route('cart.add', $secondOffer));
+
+        foreach ([route('cart.checkout'), route('cart.suppliers.checkout', $supplier)] as $checkoutUrl) {
+            $this->actingAs($user)->post($checkoutUrl)
+                ->assertRedirect(route('cart'))
+                ->assertSessionHas('warning', 'Оформление заказов временно недоступно. Вы можете поделиться заявкой.');
+        }
+
+        $this->assertDatabaseCount('checkouts', 0);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('order_items', 0);
+        $this->assertEqualsCanonicalizing([$firstOffer->id, $secondOffer->id], Cart::query()->where('user_id', $user->id)->sole()->items()->pluck('offer_id')->all());
+    }
+
+    public function test_cart_shows_sharing_and_archiving_without_checkout_when_disabled(): void
+    {
+        [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer));
+
+        $this->actingAs($user)->get(route('cart'))
+            ->assertSee('Оформление заказов временно недоступно.')
+            ->assertSee('Поделиться')
+            ->assertSee('В архив')
+            ->assertDontSee('Оформить заказ')
+            ->assertDontSee('Оформить все');
+
+        $this->actingAs($user)->post(route('cart.suppliers.share', $supplier), ['shared_via' => 'clipboard'])
+            ->assertRedirect(route('cart'));
+        $this->assertDatabaseHas('cart_items', ['offer_id' => $offer->id]);
     }
 
     public function test_clearing_a_supplier_request_preserves_other_supplier_items(): void
