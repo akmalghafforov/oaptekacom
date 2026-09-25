@@ -86,8 +86,10 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::patch('/cart/items/{item}', [CartController::class, 'update'])->name('cart.update');
     Route::delete('/cart/items/{item}', [CartController::class, 'destroy'])->name('cart.items.destroy');
     Route::delete('/cart/suppliers/{supplier}', [CartController::class, 'destroySupplier'])->name('cart.suppliers.destroy');
+    Route::delete('/cart/items', [CartController::class, 'destroyAll'])->name('cart.destroy');
     Route::post('/cart/suppliers/{supplier}/checkout', [CartController::class, 'checkoutSupplier'])->name('cart.suppliers.checkout');
     Route::post('/cart/suppliers/{supplier}/share', [CartController::class, 'shareSupplier'])->name('cart.suppliers.share');
+    Route::post('/cart/suppliers/{supplier}/archive', [CartController::class, 'archiveSupplier'])->name('cart.suppliers.archive');
     Route::get('/supplier-requests', [SupplierRequestController::class, 'index'])->name('supplier-requests.index');
     Route::get('/supplier-requests/{supplierRequest}', [SupplierRequestController::class, 'show'])->name('supplier-requests.show');
     Route::get('/supplier-requests/{supplierRequest}/print', [SupplierRequestController::class, 'print'])->name('supplier-requests.print');

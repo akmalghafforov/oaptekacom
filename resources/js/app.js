@@ -1,4 +1,4 @@
-import { initializeCatalogSearch } from './catalog-search.js';
+import { initializeCatalogSearch, updateCartBadges } from './catalog-search.js';
 
 const formatPhone = (value, showCountryCode = false) => {
     let digits = value.replace(/\D/g, '');
@@ -223,7 +223,9 @@ document.querySelectorAll('[data-dialog-open]').forEach((opener) => {
         }
     });
     dialog.addEventListener('close', () => {
-        document.body.classList.remove('dialog-open');
+        if (!document.querySelector('dialog[open]')) {
+            document.body.classList.remove('dialog-open');
+        }
         opener.focus();
     });
 });
@@ -260,7 +262,126 @@ document.querySelectorAll('[data-quantity-stepper]').forEach((stepper) => {
 
         input.value = String(nextValue);
         input.focus();
+
+        if (stepper.closest('[data-cart-quantity-form]')) {
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
     }));
+});
+
+const formatCartAmount = (value) => `${Number(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} TJS`;
+const cartQuantityGroups = new Map();
+let cartQuantitySaveQueue = Promise.resolve();
+
+document.querySelectorAll('[data-cart-quantity-form]').forEach((form) => {
+    const itemId = form.dataset.cartItemId;
+    const input = form.querySelector('[data-quantity-input]');
+    const group = cartQuantityGroups.get(itemId) ?? { forms: [], confirmed: Number(input.value), desired: Number(input.value), saving: false, timer: null };
+
+    group.forms.push({ form, input, status: form.querySelector('[data-cart-quantity-status]') });
+    cartQuantityGroups.set(itemId, group);
+});
+
+cartQuantityGroups.forEach((group) => {
+    const setInputs = (quantity) => group.forms.forEach(({ input }) => { input.value = String(quantity); });
+    const setStatus = (message, isError = false) => group.forms.forEach(({ status }) => {
+        status.textContent = message;
+        status.classList.toggle('text-danger', isError);
+    });
+
+    const save = async () => {
+        if (group.saving || group.desired === group.confirmed) {
+            return;
+        }
+
+        const quantity = group.desired;
+        const form = group.forms[0].form;
+        group.saving = true;
+        setStatus('Сохраняем…');
+
+        try {
+            const response = await fetch(form.action, {
+                method: 'PATCH',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': form.querySelector('input[name="_token"]').value,
+                },
+                body: new URLSearchParams({ quantity: String(quantity) }),
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok || !data.item) {
+                throw new Error(data.errors?.quantity?.[0] ?? 'Не удалось обновить количество.');
+            }
+
+            group.confirmed = Number(data.item.quantity);
+            document.querySelectorAll(`[data-cart-item-line-total="${data.item.id}"]`).forEach((element) => { element.textContent = formatCartAmount(data.item.line_total); });
+            document.querySelectorAll(`[data-cart-item-quantity="${data.item.id}"]`).forEach((element) => { element.textContent = `${data.item.quantity} шт.`; });
+            document.querySelectorAll(`[data-cart-supplier-total="${data.supplier.id}"]`).forEach((element) => { element.textContent = formatCartAmount(data.supplier.total); });
+            document.querySelectorAll('[data-cart-total]').forEach((element) => { element.textContent = formatCartAmount(data.cart.total); });
+            updateCartBadges(document, data.cart.total_quantity);
+
+            const supplierShare = document.querySelector(`[data-supplier-share][data-supplier-id="${data.supplier.id}"]`);
+            if (supplierShare) {
+                supplierShare.dataset.shareText = data.supplier.share_text;
+                supplierShare.disabled = false;
+                supplierShare.textContent = 'Поделиться';
+            }
+
+            const cartShare = document.querySelector('[data-cart-share]');
+            if (cartShare) {
+                cartShare.dataset.shareText = data.cart.share_text;
+                cartShare.textContent = 'Поделиться';
+            }
+
+            if (group.desired === quantity) {
+                setInputs(group.confirmed);
+                setStatus('');
+            }
+        } catch (error) {
+            group.desired = group.confirmed;
+            setInputs(group.confirmed);
+            setStatus(error.message || 'Не удалось обновить количество.', true);
+        } finally {
+            group.saving = false;
+
+            if (group.desired !== group.confirmed) {
+                queueSave();
+            }
+        }
+    };
+
+    const queueSave = () => {
+        cartQuantitySaveQueue = cartQuantitySaveQueue.then(save, save);
+    };
+
+    const schedule = (input) => {
+        const quantity = Number(input.value);
+        const maximum = Number(input.max || 999);
+
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > maximum) {
+            group.desired = group.confirmed;
+            setInputs(group.confirmed);
+            setStatus(`Укажите количество от 1 до ${maximum}.`, true);
+
+            return;
+        }
+
+        group.desired = quantity;
+        setInputs(quantity);
+        setStatus('');
+        clearTimeout(group.timer);
+        group.timer = setTimeout(queueSave, 180);
+    };
+
+    group.forms.forEach(({ form, input }) => {
+        input.addEventListener('change', () => schedule(input));
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            schedule(input);
+        });
+    });
 });
 
 document.querySelectorAll('[data-supplier-share]').forEach((button) => button.addEventListener('click', async () => {
@@ -300,9 +421,26 @@ document.querySelectorAll('[data-supplier-share]').forEach((button) => button.ad
             throw new Error('Unable to save the supplier request.');
         }
 
-        window.location.assign(response.url);
+        button.textContent = sharedVia === 'clipboard' ? 'Скопировано' : 'Отправлено';
     } catch (error) {
         button.disabled = false;
-        window.alert('Не удалось сохранить заявку. Позиции остались в корзине.');
+        window.alert('Не удалось подтвердить отправку. Позиции остались в корзине.');
+    }
+}));
+
+document.querySelectorAll('[data-cart-share]').forEach((button) => button.addEventListener('click', async () => {
+    try {
+        if (navigator.share) {
+            await navigator.share({ title: 'Заявки OAPTEKA', text: button.dataset.shareText });
+        } else if (navigator.clipboard) {
+            await navigator.clipboard.writeText(button.dataset.shareText);
+            button.textContent = 'Скопировано';
+        } else {
+            window.alert('Функция «Поделиться» недоступна в этом браузере.');
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            window.alert('Не удалось поделиться заявками.');
+        }
     }
 }));

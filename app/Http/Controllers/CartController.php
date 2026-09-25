@@ -92,7 +92,7 @@ class CartController extends Controller
         return back()->with('success', 'Товар добавлен в корзину.');
     }
 
-    public function update(CartItem $item, Request $request): RedirectResponse
+    public function update(CartItem $item, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse|JsonResponse
     {
         $this->authorize('update', $item->cart);
         $validated = $request->validate(['quantity' => 'required|integer|min:1|max:999']);
@@ -100,6 +100,25 @@ class CartController extends Controller
             throw ValidationException::withMessages(['quantity' => 'Предложение устарело или нужное количество больше остатка.']);
         }
         $item->update($validated);
+
+        if ($request->expectsJson()) {
+            $cartItems = $item->cart->items()->with('offer.organization')->get();
+            $supplierItems = $cartItems->filter(fn (CartItem $cartItem): bool => $cartItem->offer->organization_id === $item->offer->organization_id);
+            $supplierTotal = $this->totalFor($supplierItems, $supplierDiscountPrice);
+            $cartTotal = $this->totalFor($cartItems, $supplierDiscountPrice);
+            $supplierShareText = "Заявка OAPTEKA\nПоставщик: {$item->offer->organization->name}\n".$supplierItems->map(fn (CartItem $cartItem): string => "{$cartItem->snapshot['medicine']} — {$cartItem->quantity} × {$cartItem->unit_price} TJS")->implode("\n")."\nИтого: {$supplierTotal} TJS";
+            $allShareText = "Заявки OAPTEKA\n".$cartItems->groupBy(fn (CartItem $cartItem): int => $cartItem->offer->organization_id)->map(function ($items) use ($supplierDiscountPrice): string {
+                $total = $this->totalFor($items, $supplierDiscountPrice);
+
+                return $items->first()->offer->organization->name."\n".$items->map(fn (CartItem $cartItem): string => "{$cartItem->snapshot['medicine']} — {$cartItem->quantity} × {$cartItem->unit_price} TJS")->implode("\n")."\nИтого: {$total} TJS";
+            })->implode("\n\n")."\nОбщий итог: {$cartTotal} TJS";
+
+            return response()->json([
+                'item' => ['id' => $item->id, 'quantity' => (int) $item->quantity, 'line_total' => $supplierDiscountPrice->lineTotal($item->quantity, (string) $item->unit_price)],
+                'supplier' => ['id' => $item->offer->organization_id, 'total' => $supplierTotal, 'share_text' => $supplierShareText],
+                'cart' => ['total' => $cartTotal, 'total_quantity' => (int) $cartItems->sum('quantity'), 'share_text' => $allShareText],
+            ]);
+        }
 
         return back();
     }
@@ -132,6 +151,14 @@ class CartController extends Controller
         return back()->with('success', 'Заявка поставщику очищена.');
     }
 
+    public function destroyAll(Request $request): RedirectResponse
+    {
+        abort_unless($request->user()->canBuy(), 403);
+        $this->cart($request)->items()->delete();
+
+        return redirect()->route('cart')->with('success', 'Корзина очищена.');
+    }
+
     public function checkoutSupplier(Organization $supplier, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse
     {
         abort_unless($request->user()->canBuy(), 403);
@@ -155,13 +182,26 @@ class CartController extends Controller
         return redirect()->route('orders.index')->with('success', 'Заказ передан поставщику.');
     }
 
-    public function shareSupplier(Organization $supplier, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse
+    public function shareSupplier(Organization $supplier, Request $request): RedirectResponse|JsonResponse
     {
         abort_unless($request->user()->canBuy(), 403);
-        $validated = $request->validate(['shared_via' => 'required|in:native,clipboard']);
+        $request->validate(['shared_via' => 'required|in:native,clipboard']);
+        $cart = $this->cart($request);
+        abort_if($this->supplierItems($cart, $supplier)->doesntExist(), 404);
+
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Заявкой поделились. Позиции остались в корзине.']);
+        }
+
+        return redirect()->route('cart')->with('success', 'Заявкой поделились. Позиции остались в корзине.');
+    }
+
+    public function archiveSupplier(Organization $supplier, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse
+    {
+        abort_unless($request->user()->canBuy(), 403);
         $cart = $this->cart($request);
 
-        DB::transaction(function () use ($cart, $supplier, $request, $validated, $supplierDiscountPrice): void {
+        DB::transaction(function () use ($cart, $supplier, $request, $supplierDiscountPrice): void {
             $cartItems = $this->supplierItems($cart, $supplier)->with('offer.medicine')->get();
             abort_if($cartItems->isEmpty(), 404);
             $this->validateCurrentItems($cartItems);
@@ -173,7 +213,7 @@ class CartController extends Controller
                 'supplier_name' => $supplier->name,
                 'item_count' => $cartItems->sum('quantity'),
                 'total' => $this->totalFor($cartItems, $supplierDiscountPrice),
-                'shared_via' => $validated['shared_via'],
+                'shared_via' => 'archive',
                 'shared_at' => now(),
             ]);
 

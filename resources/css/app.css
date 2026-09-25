@@ -28,6 +28,63 @@
 }
 
 @layer components {
+    .cart-page { font-family: Manrope, 'Instrument Sans', ui-sans-serif, system-ui, sans-serif; }
+    .cart-page-summary { @apply border-brand-100 bg-white; }
+    .cart-page-summary > div { @apply grid grid-cols-3 gap-3; }
+    .cart-page-summary > div > div { @apply border-r border-slate-100 last:border-0; }
+    .cart-request-list { @apply pb-32; }
+    .cart-request-row { @apply flex min-h-24 w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-brand-50; }
+    .cart-request-avatar { @apply grid size-12 shrink-0 place-items-center rounded-xl bg-brand-50 font-bold text-brand-700; }
+    .cart-request-meta { @apply flex shrink-0 items-center gap-4; }
+    .cart-dialog-footer { @apply flex flex-wrap items-center gap-2 border-t border-slate-200 bg-white px-5 py-4; }
+    .cart-action-bar { @apply fixed inset-x-0 bottom-0 z-20 mx-auto flex max-w-7xl items-center justify-between gap-4 rounded-b-none border-b-0 bg-white/95 backdrop-blur; }
+    .cart-request-dialog { width: min(56rem, calc(100% - 2rem)) !important; }
+    .cart-request-dialog > div { @apply max-h-[calc(100dvh-2rem)] overflow-hidden; }
+    .cart-request-dialog header { @apply shrink-0 items-center gap-3 px-4 py-3; }
+    .cart-request-heading { @apply flex min-w-0 items-center gap-3; }
+    .cart-request-heading .cart-request-avatar { @apply size-10 rounded-lg; }
+    .cart-request-heading-meta { @apply flex shrink-0 items-center gap-3; }
+    .cart-request-items { @apply min-h-0 flex-1; }
+    .cart-request-table-wrap { @apply rounded-none border-0 shadow-none; }
+    .cart-request-table { @apply table-fixed; }
+    .cart-request-table th { @apply px-3 py-2 text-xs uppercase tracking-wide; }
+    .cart-request-table td { @apply px-3 py-3; }
+    .cart-request-table th:first-child { width: 30%; }
+    .cart-request-table th:nth-child(2) { width: 17%; }
+    .cart-request-table th:nth-child(3) { width: 31%; }
+    .cart-request-table th:nth-child(4) { width: 15%; }
+    .cart-request-table th:last-child { width: 7%; }
+    .cart-request-stock { @apply mt-1 inline-flex rounded-lg bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700; }
+    .cart-request-discount { @apply mt-1 block text-xs text-muted; }
+    .cart-request-quantity { @apply flex flex-wrap items-end gap-2; }
+    .cart-request-quantity [data-quantity-stepper] { @apply gap-1; }
+    .cart-request-quantity [data-quantity-input] { @apply w-14 px-1 text-center; }
+    .cart-request-quantity [data-quantity-stepper] label { @apply text-xs; }
+    .cart-request-quantity-status { @apply block w-full text-xs; }
+    .cart-request-dialog .cart-dialog-footer { @apply shrink-0 px-4 py-3; }
+    .cart-request-mobile-item { @apply space-y-3 border-b border-slate-200 px-4 py-4 last:border-0; }
+    @media (max-width: 767px) {
+        .cart-page-summary > div { @apply gap-1; }
+        .cart-page-summary > div > div { @apply min-w-0; }
+        .cart-page-summary .text-2xl { @apply text-base; }
+        .cart-request-meta { @apply flex-col items-end gap-1 text-sm; }
+        .cart-request-meta > :last-child { @apply hidden; }
+        .cart-request-list { @apply pb-4; }
+        .cart-action-bar { @apply relative inset-auto z-0 mt-4 flex-col items-stretch rounded-panel border p-3; }
+        .cart-action-bar > div:last-child { @apply grid grid-cols-2; }
+        .cart-action-bar > div:last-child > :first-child { @apply col-span-2; }
+        .cart-action-bar button { @apply w-full; }
+        .cart-request-dialog { @apply mb-0 max-h-[92dvh] rounded-b-none; width: 100% !important; max-width: 100%; }
+        .cart-request-dialog > div { @apply max-h-[92dvh]; }
+        .cart-request-dialog header { @apply relative flex-wrap; }
+        .cart-request-heading { @apply flex-1 pr-10; }
+        .cart-request-heading-meta { @apply w-full justify-start pl-13 pr-10; }
+        .cart-request-heading-meta > :last-child { @apply absolute right-4 top-3; }
+        .cart-request-dialog .cart-dialog-footer { @apply grid grid-cols-2 gap-2; }
+        .cart-request-dialog .cart-dialog-footer form:first-child { @apply col-span-2; }
+        .cart-request-dialog .cart-dialog-footer > :last-child { @apply col-span-2; }
+        .cart-request-dialog .cart-dialog-footer button { @apply w-full; }
+    }
     .page-container { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
     .table-wrap { @apply overflow-x-auto rounded-panel border border-slate-200 bg-surface shadow-panel; }
     .data-table { @apply min-w-full text-left text-sm; }

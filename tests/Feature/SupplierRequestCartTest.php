@@ -20,7 +20,7 @@ class SupplierRequestCartTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_successful_supplier_share_archives_snapshots_and_keeps_other_supplier_cart_items(): void
+    public function test_successful_supplier_share_keeps_all_cart_items_without_archiving(): void
     {
         [$user, $firstSupplier, $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();
         $this->actingAs($user)->post(route('cart.add', $firstOffer), ['quantity' => 2]);
@@ -29,11 +29,48 @@ class SupplierRequestCartTest extends TestCase
         $this->actingAs($user)->post(route('cart.suppliers.share', $firstSupplier), ['shared_via' => 'clipboard'])
             ->assertRedirect(route('cart'));
 
+        $this->assertDatabaseCount('supplier_requests', 0);
+        $cart = Cart::query()->where('user_id', $user->id)->sole();
+        $this->assertEqualsCanonicalizing([$firstOffer->id, $secondOffer->id], $cart->items()->pluck('offer_id')->all());
+    }
+
+    public function test_supplier_share_rejects_a_supplier_without_cart_items(): void
+    {
+        [$user, , $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $firstOffer));
+
+        $this->actingAs($user)->post(route('cart.suppliers.share', $secondOffer->organization), ['shared_via' => 'clipboard'])->assertNotFound();
+
+        $this->assertDatabaseCount('supplier_requests', 0);
+        $this->assertSame(1, Cart::query()->where('user_id', $user->id)->sole()->items()->count());
+    }
+
+    public function test_json_supplier_share_confirms_success_without_removing_items(): void
+    {
+        [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer));
+
+        $this->actingAs($user)->postJson(route('cart.suppliers.share', $supplier), ['shared_via' => 'native'])
+            ->assertOk()
+            ->assertJsonPath('message', 'Заявкой поделились. Позиции остались в корзине.');
+
+        $this->assertDatabaseCount('supplier_requests', 0);
+        $this->assertSame(1, Cart::query()->where('user_id', $user->id)->sole()->items()->count());
+    }
+
+    public function test_archiving_a_supplier_saves_snapshot_and_preserves_other_supplier_items(): void
+    {
+        [$user, $firstSupplier, $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $firstOffer), ['quantity' => 2]);
+        $this->actingAs($user)->post(route('cart.add', $secondOffer), ['quantity' => 1]);
+
+        $this->actingAs($user)->post(route('cart.suppliers.archive', $firstSupplier))->assertRedirect(route('cart'));
+
         $supplierRequest = SupplierRequest::query()->sole();
         $this->assertSame($user->id, $supplierRequest->user_id);
         $this->assertSame($firstSupplier->name, $supplierRequest->supplier_name);
         $this->assertSame('20.00', $supplierRequest->total);
-        $this->assertSame('clipboard', $supplierRequest->shared_via);
+        $this->assertSame('archive', $supplierRequest->shared_via);
         $this->assertSame('Первый товар', $supplierRequest->items()->sole()->product_name);
         $this->assertSame('20.00', $supplierRequest->items()->sole()->line_total);
 
@@ -70,6 +107,18 @@ class SupplierRequestCartTest extends TestCase
 
         $cart = Cart::query()->where('user_id', $user->id)->sole();
         $this->assertSame([$secondOffer->id], $cart->items()->pluck('offer_id')->all());
+    }
+
+    public function test_clearing_the_cart_removes_all_suppliers_without_archiving(): void
+    {
+        [$user, , $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $firstOffer));
+        $this->actingAs($user)->post(route('cart.add', $secondOffer));
+
+        $this->actingAs($user)->delete(route('cart.destroy'))->assertRedirect(route('cart'));
+
+        $this->assertSame(0, Cart::query()->where('user_id', $user->id)->sole()->items()->count());
+        $this->assertDatabaseCount('supplier_requests', 0);
     }
 
     public function test_json_cart_item_removal_deletes_the_item_and_returns_the_offer_and_remaining_total(): void
@@ -124,11 +173,59 @@ class SupplierRequestCartTest extends TestCase
         $this->assertSame(1, $cartItem->fresh()->quantity);
     }
 
+    public function test_json_quantity_update_returns_current_totals_and_keeps_other_suppliers(): void
+    {
+        [$user, , $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $firstOffer));
+        $this->actingAs($user)->post(route('cart.add', $secondOffer));
+        $cart = Cart::query()->where('user_id', $user->id)->sole();
+        $firstItem = $cart->items()->where('offer_id', $firstOffer->id)->sole();
+
+        $this->actingAs($user)->patchJson(route('cart.update', $firstItem), ['quantity' => 3])
+            ->assertOk()
+            ->assertJsonPath('item.quantity', 3)
+            ->assertJsonPath('item.line_total', '30.00')
+            ->assertJsonPath('supplier.total', '30.00')
+            ->assertJsonPath('cart.total', '45.00')
+            ->assertJsonPath('cart.total_quantity', 4)
+            ->assertJsonPath('supplier.share_text', "Заявка OAPTEKA\nПоставщик: Первый поставщик\nПервый товар — 3 × 10.00 TJS\nИтого: 30.00 TJS");
+
+        $this->assertSame(3, $firstItem->fresh()->quantity);
+        $this->assertSame(1, $cart->items()->where('offer_id', $secondOffer->id)->sole()->quantity);
+    }
+
+    public function test_form_encoded_ajax_quantity_update_returns_a_number(): void
+    {
+        [$user, , $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer));
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->sole();
+
+        $this->actingAs($user)->withHeader('Accept', 'application/json')
+            ->patch(route('cart.update', $item), ['quantity' => '7'])
+            ->assertOk()
+            ->assertJsonPath('item.quantity', 7);
+
+        $this->assertSame(7, (int) $item->fresh()->quantity);
+    }
+
+    public function test_json_quantity_update_rejects_stock_overrun_without_changing_the_cart(): void
+    {
+        [$user, , $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer));
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->sole();
+
+        $this->actingAs($user)->patchJson(route('cart.update', $item), ['quantity' => 11])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('quantity');
+
+        $this->assertSame(1, $item->fresh()->quantity);
+    }
+
     public function test_supplier_request_archive_is_private_to_its_creator(): void
     {
         [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
         $this->actingAs($user)->post(route('cart.add', $offer), ['quantity' => 1]);
-        $this->actingAs($user)->post(route('cart.suppliers.share', $supplier), ['shared_via' => 'native']);
+        $this->actingAs($user)->post(route('cart.suppliers.archive', $supplier));
         $supplierRequest = SupplierRequest::query()->sole();
         $otherUser = $this->pharmacyUser();
 
@@ -141,7 +238,7 @@ class SupplierRequestCartTest extends TestCase
     {
         [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
         $this->actingAs($user)->post(route('cart.add', $offer), ['quantity' => 1]);
-        $this->actingAs($user)->post(route('cart.suppliers.share', $supplier), ['shared_via' => 'clipboard']);
+        $this->actingAs($user)->post(route('cart.suppliers.archive', $supplier));
         $supplierRequest = SupplierRequest::query()->sole();
         $supplier->update(['name' => 'Новое имя поставщика']);
         $offer->medicine->update(['name' => 'Новое имя товара']);

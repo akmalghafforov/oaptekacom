@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OAPTEKA</title>@vite(['resources/css/app.css', 'resources/js/app.js'])</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OAPTEKA</title>@if(request()->routeIs('cart'))<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">@endif @vite(['resources/css/app.css', 'resources/js/app.js'])</head>
 <body>
 <header class="app-header border-b border-slate-200 bg-white" data-app-header><div class="page-container flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
 <a href="{{ auth()->check() ? route(auth()->user()->defaultLandingRouteName()) : route('login') }}" aria-label="OAPTEKA — на главную">
