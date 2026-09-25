@@ -73,11 +73,9 @@
         <a href="{{ route('catalog') }}" data-mobile-nav-link="catalog" class="customer-mobile-nav-link {{ $isCatalogActive ? 'is-active' : '' }}" @if($isCatalogActive) aria-current="page" @endif>
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="11" cy="11" r="7" stroke-width="1.8" /><path stroke-linecap="round" stroke-width="1.8" d="m16.5 16.5 4 4" /></svg><span>Поиск</span>
         </a>
-        @unless($isCatalogActive)
         <a href="{{ route('cart') }}" data-mobile-nav-link="cart" class="customer-mobile-nav-link {{ $isCartActive ? 'is-active' : '' }}" @if($isCartActive) aria-current="page" @endif>
             <span class="relative"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L20.5 8H6.2M10 20h.01M17 20h.01" /></svg><span class="mobile-cart-badge {{ $cartTotal ? '' : 'hidden' }}" data-cart-badge>{{ $cartTotal > 99 ? '99+' : $cartTotal }}</span></span><span>Корзина</span>
         </a>
-        @endunless
         @if($isCatalogActive || $isPartnersActive)
         <a href="{{ route('partners.index') }}" data-mobile-nav-link="partners" class="customer-mobile-nav-link {{ $isPartnersActive ? 'is-active' : '' }}" @if($isPartnersActive) aria-current="page" @endif>
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M16 19v-2a4 4 0 0 0-4-4H4a4 4 0 0 0-4 4v2m16-10a4 4 0 1 0 0-8M8 9a4 4 0 1 0 0-8m12 18v-2a4 4 0 0 0-3-3.87" transform="translate(2 2) scale(.85)"/></svg><span>Партнёры</span>

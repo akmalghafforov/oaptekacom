@@ -83,7 +83,6 @@
         .customer-page:has([data-catalog-search]) { @apply px-0 !pt-0; }
         .customer-page:has([data-catalog-search]) > div:first-child:not(:has(*)) { @apply hidden; }
         .customer-mobile-nav { @apply fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-8px_24px_rgb(23_33_29/0.08)] backdrop-blur; }
-        body:has([data-catalog-search]) .customer-mobile-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .customer-mobile-nav-link { @apply relative flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-control text-[0.6875rem] font-medium text-slate-500 transition-colors; }
         .customer-mobile-nav-link svg { @apply size-5; }
         .customer-mobile-nav-link.is-active { @apply bg-brand-50 text-brand-700; }

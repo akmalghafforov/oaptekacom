@@ -30,7 +30,7 @@ class NavigationTest extends TestCase
             ->assertDontSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.users').'"', 'href="'.route('admin.subscriptions.index').'"']);
     }
 
-    public function test_customer_catalog_renders_mobile_fixed_header_hook(): void
+    public function test_customer_catalog_renders_mobile_navigation_with_cart(): void
     {
         $user = User::factory()->pharmacy(Organization::factory()->pharmacy()->create())->create();
         Subscription::factory()->for($user)->create();
@@ -39,11 +39,13 @@ class NavigationTest extends TestCase
             ->assertSee('data-app-header', false)
             ->assertSee('data-search-panel', false)
             ->assertSee('data-customer-mobile-nav', false)
+            ->assertSee('data-mobile-nav-link="catalog"', false)
+            ->assertSee('data-mobile-nav-link="cart"', false)
             ->assertSee('data-mobile-nav-link="partners"', false)
             ->assertSee('data-mobile-nav-placeholder="questions"', false)
-            ->assertDontSee('data-mobile-nav-link="cart"', false)
             ->assertDontSee('data-mobile-nav-link="orders"', false)
-            ->assertDontSee('data-mobile-nav-link="account"', false);
+            ->assertDontSee('data-mobile-nav-link="account"', false)
+            ->assertSee('href="'.route('cart').'"', false);
     }
 
     public function test_pharmacy_account_drawer_escapes_account_names(): void
