@@ -136,7 +136,10 @@ class PartnersTest extends TestCase
         $this->assertDatabaseHas('pharmacy_supplier_discounts', ['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => 0]);
         $this->assertDatabaseHas('pharmacy_supplier_discounts', ['pharmacy_organization_id' => $other->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => 40]);
         $this->actingAs($user)->get(route('partners.index'))->assertSeeText('Ваша скидка от поставщика, %')->assertSeeText('Оставьте поле пустым, чтобы удалить договорённость.');
-        $this->actingAs($otherUser)->get(route('partners.index'))->assertSee('value="40.00"', false)->assertDontSee('add-partner', false);
+        $this->actingAs($otherUser)->get(route('partners.index'))
+            ->assertSee('value="40.00"', false)
+            ->assertSeeText('Ваша скидка 40.00%')
+            ->assertDontSee('add-partner', false);
     }
 
     public function test_linking_and_invitation_routes_are_absent(): void

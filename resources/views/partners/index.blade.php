@@ -54,9 +54,14 @@
                         <p class="mt-1 text-sm text-muted">{{ $supplier->city ?: 'Город не указан' }}</p>
                         <p class="mt-1 text-xs text-muted">{{ $activeImportUpdatedAt ? 'Прайс обновлён '.$activeImportUpdatedAt->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : 'Активный прайс-лист не загружен' }}</p>
                     </div>
-                    <span class="inline-flex w-fit shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $supplier->has_available_catalog ? 'bg-brand-50 text-brand-700 ring-brand-200' : 'bg-slate-100 text-slate-600 ring-slate-200' }}">
-                        {{ $supplier->has_available_catalog ? 'Прайс доступен' : 'Прайс недоступен' }}
-                    </span>
+                    <div class="flex w-fit shrink-0 flex-wrap gap-2">
+                        <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $supplier->has_available_catalog ? 'bg-brand-50 text-brand-700 ring-brand-200' : 'bg-slate-100 text-slate-600 ring-slate-200' }}">
+                            {{ $supplier->has_available_catalog ? 'Прайс доступен' : 'Прайс недоступен' }}
+                        </span>
+                        @if($discount)
+                            <span class="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">Ваша скидка {{ $discount->supplier_discount_percent }}%</span>
+                        @endif
+                    </div>
                 </div>
             </div>
         </div>
