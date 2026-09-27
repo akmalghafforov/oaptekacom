@@ -102,12 +102,25 @@ class CatalogSearchTest extends TestCase
             ->assertSee('aria-label="Поставщики"', false)
             ->assertSee('data-all-count', false);
 
-        $this->assertSame($categories->count() + 1, substr_count($response->getContent(), 'data-category-image'));
+        $this->assertSame($categories->count() * 2 + 3, substr_count($response->getContent(), 'data-category-image'));
         $this->assertSame($categories->count(), substr_count($response->getContent(), 'data-category-count'));
 
         foreach ($categories as $category) {
             $response->assertSee('data-category="'.$category->id.'"', false);
         }
+    }
+
+    public function test_mobile_picker_renders_all_active_categories_in_configured_order(): void
+    {
+        ProductCategory::query()->create(['code' => 'hidden_picker', 'label' => 'Скрытая категория', 'sort_order' => -2, 'is_active' => false]);
+        $categories = ProductCategory::query()->where('is_active', true)->orderBy('sort_order')->get();
+
+        $response = $this->actingAs($this->pharmacyUser())->get(route('catalog'));
+
+        $response->assertSee('aria-controls="catalog-categories"', false)->assertSee('Категории товаров')->assertSee('Все категории');
+        preg_match_all('/data-mobile-category="([^"]*)"/', $response->getContent(), $matches);
+        $this->assertSame(['', ...$categories->map(fn (ProductCategory $category): string => (string) $category->id)->all()], $matches[1]);
+        $response->assertDontSee('Скрытая категория');
     }
 
     public function test_catalog_page_renders_compact_search_panel_with_accessible_controls(): void

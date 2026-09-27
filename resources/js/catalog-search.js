@@ -42,6 +42,58 @@ export const catalogFragment = (response, view, surface = 'cards') => {
 
 export const activeCategoryLabel = (categories, selectedCategory = '') => categories.find((category) => String(category.value) === String(selectedCategory))?.label ?? 'Все товары';
 
+export const initializeCategoryPicker = (root, controller, desktop = window.matchMedia('(min-width: 768px)')) => {
+    const trigger = root.querySelector('[data-category-picker-open]');
+    const dialog = root.querySelector('[data-dialog="catalog-categories"]');
+    const rows = [...dialog.querySelectorAll('[data-mobile-category]')];
+    const options = dialog.querySelector('.catalog-category-picker-options');
+    const sync = (filters, facets = null) => {
+        if (facets) {
+            const counts = new Map((facets.categories ?? []).map((category) => [String(category.id), category.count]));
+            rows.forEach((row) => {
+                row.querySelector('[data-mobile-category-count]').textContent = `${row.dataset.mobileCategory === '' ? facets.all_count : counts.get(row.dataset.mobileCategory) ?? 0} тов.`;
+                row.hidden = row.dataset.mobileCategory !== '' && (counts.get(row.dataset.mobileCategory) ?? 0) === 0;
+            });
+            const focusedRow = rows.find((row) => row === root.ownerDocument.activeElement);
+            [...rows].sort((first, second) => {
+                if (first.dataset.mobileCategory === '') return -1;
+                if (second.dataset.mobileCategory === '') return 1;
+                return (counts.get(second.dataset.mobileCategory) ?? 0) - (counts.get(first.dataset.mobileCategory) ?? 0);
+            }).forEach((row) => options.appendChild(row));
+            if (dialog.open && focusedRow) (focusedRow.hidden ? rows[0] : focusedRow).focus({ preventScroll: true });
+        }
+        const selected = String(filters.category ?? '');
+        rows.forEach((row) => row.setAttribute('aria-pressed', String(row.dataset.mobileCategory === selected)));
+        const selectedRow = rows.find((row) => row.dataset.mobileCategory === selected) ?? rows[0];
+        trigger.querySelector('[data-category-picker-label]').textContent = selectedRow.querySelector('[data-mobile-category-label]').textContent;
+        trigger.querySelector('[data-category-picker-count]').textContent = selectedRow.querySelector('[data-mobile-category-count]').textContent;
+        trigger.querySelector('[data-category-picker-icon]').src = selectedRow.querySelector('[data-category-image]').src;
+    };
+    trigger.addEventListener('click', () => {
+        if (desktop.matches) return;
+        sync(controller.filters);
+        dialog.showModal();
+        trigger.setAttribute('aria-expanded', 'true');
+        root.ownerDocument.body.classList.add('dialog-open');
+        (rows.find((row) => !row.hidden && row.dataset.mobileCategory === String(controller.filters.category ?? '')) ?? rows[0]).focus();
+    });
+    rows.forEach((row) => row.addEventListener('click', () => {
+        dialog.close();
+        if (row.dataset.mobileCategory !== String(controller.filters.category ?? '')) controller.setFilter('category', row.dataset.mobileCategory);
+    }));
+    dialog.querySelector('[data-dialog-close]').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
+    dialog.addEventListener('close', () => {
+        trigger.setAttribute('aria-expanded', 'false');
+        if (!root.ownerDocument.querySelector('dialog[open]')) root.ownerDocument.body.classList.remove('dialog-open');
+        if (desktop.matches) {
+            [...root.querySelectorAll('[data-category]')].find((row) => row.dataset.category === String(controller.filters.category ?? ''))?.focus();
+        } else trigger.focus();
+    });
+    desktop.addEventListener('change', () => { if (desktop.matches && dialog.open) dialog.close(); });
+    return sync;
+};
+
 export const updateCatalogCategories = (categoryList, initialCategories, facets) => {
     const counts = new Map((facets.categories ?? []).map((item) => [String(item.id), item.count]));
     const matchingCount = (button) => counts.get(button.dataset.category) ?? 0;
@@ -253,11 +305,14 @@ export function initializeCatalogSearch(root) {
             renderCatalogFilterChips(root, catalogFilterChips(filters, chipLabels));
             root.querySelectorAll('[data-category]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.category) === String(filters.category ?? '') ? 'true' : 'false'));
             activeCategory.textContent = activeCategoryLabel([...root.querySelectorAll('[data-category]')].map((button) => ({ value: button.dataset.category, label: button.querySelector('[data-category-label]')?.textContent.trim() })), filters.category);
+            syncCategoryPicker(filters);
             if (pushHistory) updateHistory(filters, 'pushState');
         },
         onData: (data, append) => renderData(data, append),
         onState: (name) => renderState(name),
     });
+
+    const syncCategoryPicker = initializeCategoryPicker(root, controller);
 
     const containers = {
         list: root.querySelector('[data-list-view]'), grid: root.querySelector('[data-grid-view]'), suppliers: root.querySelector('[data-suppliers-view]'),
@@ -294,6 +349,7 @@ export function initializeCatalogSearch(root) {
     const updateFacets = (facets) => {
         root.querySelector('[data-all-count]').textContent = `${facets.all_count} тов.`;
         updateCatalogCategories(categoryList, initialCategories, facets);
+        syncCategoryPicker(controller.filters, facets);
         updateCategoryScrollButtons();
     };
     const toggleClear = () => { clearButton.hidden = !queryInput.value; clearButton.classList.toggle('hidden', !queryInput.value); clearButton.classList.toggle('grid', Boolean(queryInput.value)); };
@@ -332,7 +388,7 @@ export function initializeCatalogSearch(root) {
     const syncDialog = () => { dialog.querySelectorAll('[name="filter_sort"]').forEach((input) => { input.checked = input.value === appliedModal.sort; }); ['cities', 'suppliers'].forEach((key) => dialog.querySelectorAll(`[name="filter_${key}[]"]`).forEach((input) => { input.checked = appliedModal[key].includes(input.value); })); };
     filterOpen.addEventListener('click', () => { appliedModal = { sort: controller.filters.sort ?? 'price_asc', cities: controller.filters.cities ?? [], suppliers: controller.filters.suppliers ?? [] }; syncDialog(); dialog.showModal(); document.body.classList.add('dialog-open'); });
     dialog.querySelectorAll('[data-dialog-close]').forEach((button) => button.addEventListener('click', () => dialog.close()));
-    dialog.addEventListener('close', () => { document.body.classList.remove('dialog-open'); filterOpen.focus(); });
+    dialog.addEventListener('close', () => { if (!document.querySelector('dialog[open]')) document.body.classList.remove('dialog-open'); filterOpen.focus(); });
     dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
     dialog.querySelectorAll('[data-filter-section]').forEach((section) => { const checks = [...section.querySelectorAll('[data-option-label] input')]; section.querySelector('[data-select-all]').addEventListener('change', (event) => checks.filter((input) => !input.closest('[data-option-label]').hidden).forEach((input) => { input.checked = event.target.checked; })); section.querySelector('[data-section-clear]').addEventListener('click', () => checks.forEach((input) => { input.checked = false; })); section.querySelector('[data-option-search]').addEventListener('input', (event) => section.querySelectorAll('[data-option-label]').forEach((label) => { label.hidden = !label.textContent.toLocaleLowerCase('ru').includes(event.target.value.toLocaleLowerCase('ru')); })); });
     dialog.querySelector('[data-filter-reset]').addEventListener('click', () => { dialog.querySelector('[name="filter_sort"][value="price_asc"]').checked = true; dialog.querySelectorAll('[data-option-label] input').forEach((input) => { input.checked = false; }); });

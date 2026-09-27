@@ -48,6 +48,11 @@
                     <span class="sr-only">Поставщики</span>
                 </button>
             </div>
+            <x-ui.button type="button" variant="secondary" class="catalog-category-picker" data-category-picker-open aria-haspopup="dialog" aria-controls="catalog-categories" aria-expanded="false">
+                <x-ui.catalog-category-icon code="all" data-category-picker-icon class="shrink-0" />
+                <span class="catalog-category-picker-copy"><span class="catalog-category-picker-caption">Категория · <span data-category-picker-count>— тов.</span></span><span data-category-picker-label>Все категории</span></span>
+                <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </x-ui.button>
             <div class="catalog-category-navigation">
                 <div data-category-list class="catalog-category-strip" role="listbox" aria-label="Категории товаров">
                     <button type="button" data-category="" role="option" aria-selected="true" class="catalog-category-card">
@@ -90,6 +95,7 @@
         <div data-suppliers-view class="hidden"><div data-catalog-suppliers class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div></div>
         <div class="mt-6 text-center"><x-ui.button type="button" variant="secondary" data-load-more class="hidden">Загрузить ещё</x-ui.button><p data-catalog-load-status class="mt-2 text-sm text-muted" aria-live="polite"></p></div>
     </section>
+    @include('catalog.partials.categories-dialog')
     @include('catalog.partials.filters-dialog')
 </div>
 @endsection

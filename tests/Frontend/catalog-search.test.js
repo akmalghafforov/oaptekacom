@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeCategoryLabel, catalogFilterChips, renderCatalogFilterChips, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
+import { initializeCategoryPicker, activeCategoryLabel, catalogFilterChips, renderCatalogFilterChips, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
 
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const harness = (fetcher = async () => ({ fragments: { cards: '<article />' }, pagination: { next_cursor: null, has_more: false } })) => {
@@ -302,4 +302,107 @@ test('restored filters synchronize chips and badge even during loading, empty re
     await controller.restore({});
     assert.equal(row.hidden, true);
     assert.equal(badge.textContent, 0);
+});
+
+const pickerHarness = (controller) => {
+    const element = (dataset = {}) => ({ dataset, attributes: {}, listeners: {}, textContent: '', setAttribute(key, value) { this.attributes[key] = value; }, addEventListener(key, fn) { this.listeners[key] = fn; }, focus() { documentRoot.activeElement = this; }, click() { this.listeners.click({ target: this }); } });
+    const documentRoot = { activeElement: null, body: { classList: { locked: false, add() { this.locked = true; }, remove() { this.locked = false; } } }, querySelector() { return dialog.open || this.otherModal ? dialog : null; } };
+    const rows = ['', '12', '13'].map((value) => { const row = element({ mobileCategory: value }); row.label = { textContent: value ? `Категория ${value}` : 'Все категории' }; row.count = { textContent: '— тов.' }; row.icon = { src: `icon-${value || 'all'}.webp` }; row.querySelector = (selector) => selector.includes('count') ? row.count : selector.includes('image') ? row.icon : row.label; return row; });
+    const trigger = element(); trigger.label = element(); trigger.count = element(); trigger.icon = {}; trigger.querySelector = (selector) => selector.includes('count') ? trigger.count : selector.includes('icon') ? trigger.icon : trigger.label;
+    const close = element();
+    const dialog = element(); dialog.open = false; dialog.showModal = () => { dialog.open = true; }; dialog.close = () => { dialog.open = false; dialog.listeners.close(); }; dialog.querySelectorAll = () => rows; const options = { children: [...rows], appendChild(row) { this.children = this.children.filter((item) => item !== row); this.children.push(row); } }; dialog.querySelector = (selector) => selector.includes('options') ? options : close;
+    const desktopRow = element({ category: '12' });
+    const desktop = element(); desktop.matches = false;
+    const root = { ownerDocument: documentRoot, querySelector: (selector) => selector.includes('picker-open') ? trigger : dialog, querySelectorAll: () => [desktopRow] };
+    const sync = initializeCategoryPicker(root, controller, desktop);
+    return { sync, trigger, dialog, close, rows, options, desktop, desktopRow, documentRoot };
+};
+
+test('picker restores selection, closes without refetching current choice, and preserves filters when clearing', async () => {
+    const requests = [];
+    const { controller } = harness(async (input) => { requests.push(input); return { fragments: {}, pagination: {} }; });
+    const picker = pickerHarness(controller);
+    const original = { q: 'кетоти', category: '12', cities: ['Душанбе'], suppliers: ['4', '5'], sort: 'updated_desc' };
+    controller.onFilters = picker.sync;
+    await controller.restore(original, 'grid');
+    assert.equal(picker.trigger.label.textContent, 'Категория 12');
+    assert.equal(picker.rows[1].attributes['aria-pressed'], 'true');
+    picker.trigger.click();
+    assert.equal(picker.documentRoot.activeElement, picker.rows[1]);
+    assert.equal(picker.trigger.attributes['aria-expanded'], 'true');
+    picker.rows[1].click();
+    assert.equal(requests.length, 1);
+    assert.equal(picker.documentRoot.activeElement, picker.trigger);
+    controller.cursor = 'old';
+    picker.trigger.click(); picker.rows[0].click();
+    assert.deepEqual(requests.at(-1), { q: 'кетоти', cities: ['Душанбе'], suppliers: ['4', '5'], sort: 'updated_desc', view: 'grid' });
+    assert.equal(controller.cursor, null);
+    assert.equal(picker.trigger.label.textContent, 'Все категории');
+    await controller.restore(original, controller.view);
+    assert.equal(picker.trigger.label.textContent, 'Категория 12');
+    await controller.restore({ ...original, category: '13' }, controller.view);
+    assert.equal(picker.rows[2].attributes['aria-pressed'], 'true');
+});
+
+test('picker dismissal retains filters and scroll lock for other modals, and desktop transition restores desktop focus', () => {
+    const { controller } = harness(); controller.filters.category = '12';
+    const picker = pickerHarness(controller);
+    picker.trigger.click(); picker.close.click();
+    assert.equal(controller.filters.category, '12');
+    assert.equal(picker.documentRoot.body.classList.locked, false);
+    picker.trigger.click(); picker.documentRoot.otherModal = true;
+    picker.dialog.listeners.click({ target: picker.dialog });
+    assert.equal(picker.documentRoot.body.classList.locked, true);
+    picker.documentRoot.otherModal = false;
+    picker.trigger.click(); picker.desktop.matches = true; picker.desktop.listeners.change();
+    assert.equal(picker.dialog.open, false);
+    assert.equal(picker.documentRoot.activeElement, picker.desktopRow);
+});
+
+test('category requests ignore stale responses and retain the selected category on failure for retry', async () => {
+    const old = deferred(); let count = 0;
+    const { controller, data, states } = harness(async () => { if (++count === 1) return old.promise; if (count === 2) throw new Error('offline'); return { fragments: { cards: 'retry' }, pagination: {} }; });
+    const pending = controller.setFilter('category', '12');
+    await controller.setFilter('category', '13');
+    old.resolve({ fragments: { cards: 'stale' }, pagination: {} }); await pending;
+    assert.equal(controller.filters.category, '13');
+    assert.equal(states.at(-1), 'error');
+    assert.equal(data.some(([response]) => response.fragments?.cards === 'stale'), false);
+    await controller.retry();
+    assert.equal(data.at(-1)[0].fragments.cards, 'retry');
+});
+
+
+test('picker displays original selected icons and facet counts', () => {
+    const { controller } = harness();
+    const picker = pickerHarness(controller);
+    picker.sync({ category: '12' }, { all_count: 9, categories: [{ id: 12, count: 4 }] });
+    assert.equal(picker.trigger.icon.src, 'icon-12.webp');
+    assert.equal(picker.trigger.count.textContent, '4 тов.');
+    assert.equal(picker.rows[0].count.textContent, '9 тов.');
+    assert.equal(picker.rows[2].count.textContent, '0 тов.');
+    picker.sync({});
+    assert.equal(picker.trigger.icon.src, 'icon-all.webp');
+    assert.equal(picker.trigger.count.textContent, '9 тов.');
+    assert.deepEqual(picker.rows.map((row) => row.dataset.mobileCategory), ['', '12', '13']);
+});
+
+
+test('picker hides zero matches, sorts descending, restores ties and keeps hidden selection clearable', () => {
+    const { controller } = harness(); controller.filters.category = '12';
+    const picker = pickerHarness(controller);
+    picker.sync(controller.filters, { all_count: 9, categories: [{ id: 13, count: 9 }] });
+    assert.equal(picker.rows[1].hidden, true);
+    assert.equal(picker.rows[2].hidden, false);
+    assert.deepEqual(picker.options.children.map((row) => row.dataset.mobileCategory), ['', '13', '12']);
+    picker.trigger.click();
+    assert.equal(picker.documentRoot.activeElement, picker.rows[0]);
+    assert.equal(controller.filters.category, '12');
+    picker.sync(controller.filters, { all_count: 10, categories: [{ id: 12, count: 5 }, { id: 13, count: 5 }] });
+    assert.equal(picker.rows[1].hidden, false);
+    assert.deepEqual(picker.options.children.map((row) => row.dataset.mobileCategory), ['', '12', '13']);
+    picker.sync(controller.filters, { all_count: 0, categories: [] });
+    assert.equal(picker.rows[0].hidden, false);
+    assert.equal(picker.rows[1].hidden, true);
+    assert.equal(picker.rows[2].hidden, true);
 });
