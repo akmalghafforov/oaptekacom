@@ -13,6 +13,23 @@ export const catalogFragment = (response, view, surface = 'cards') => {
 
 export const activeCategoryLabel = (categories, selectedCategory = '') => categories.find((category) => String(category.value) === String(selectedCategory))?.label ?? 'Все товары';
 
+export const updateCatalogCategories = (categoryList, initialCategories, facets) => {
+    const counts = new Map((facets.categories ?? []).map((item) => [String(item.id), item.count]));
+    const matchingCount = (button) => counts.get(button.dataset.category) ?? 0;
+    const focusedCategory = initialCategories.find((button) => button === button.ownerDocument?.activeElement);
+
+    initialCategories.forEach((button) => {
+        const count = button.querySelector('[data-category-count]');
+        if (count) count.textContent = `${matchingCount(button)} тов.`;
+    });
+    [...initialCategories].sort((first, second) => {
+        if (first.dataset.category === '') return -1;
+        if (second.dataset.category === '') return 1;
+        return matchingCount(second) - matchingCount(first);
+    }).forEach((button) => categoryList.appendChild(button));
+    focusedCategory?.focus({ preventScroll: true });
+};
+
 export const updateCartBadges = (documentRoot, totalQuantity) => {
     documentRoot.querySelectorAll('[data-cart-badge]').forEach((badge) => {
         badge.textContent = totalQuantity > 99 ? '99+' : totalQuantity;
@@ -177,6 +194,7 @@ export function initializeCatalogSearch(root) {
     const dialog = root.querySelector('[data-dialog="catalog-filters"]');
     const filterOpen = root.querySelector('[data-filter-open]');
     const categoryList = root.querySelector('[data-category-list]');
+    const initialCategories = [...categoryList.querySelectorAll('[data-category]')];
     const activeCategory = root.querySelector('[data-active-category-label]');
     const categoryScrollButtons = [...root.querySelectorAll('[data-category-scroll]')];
     let appliedModal = { sort: 'price_asc', cities: [], suppliers: [] };
@@ -235,8 +253,8 @@ export function initializeCatalogSearch(root) {
     };
     const updateFacets = (facets) => {
         root.querySelector('[data-all-count]').textContent = `${facets.all_count} тов.`;
-        const counts = new Map((facets.categories ?? []).map((item) => [String(item.id), item.count]));
-        root.querySelectorAll('[data-category]').forEach((button) => { const count = button.querySelector('[data-category-count]'); if (count) count.textContent = `${counts.get(button.dataset.category) ?? 0} тов.`; });
+        updateCatalogCategories(categoryList, initialCategories, facets);
+        updateCategoryScrollButtons();
     };
     const toggleClear = () => { clearButton.hidden = !queryInput.value; clearButton.classList.toggle('hidden', !queryInput.value); clearButton.classList.toggle('grid', Boolean(queryInput.value)); };
     const updateHistory = (filters, method) => {

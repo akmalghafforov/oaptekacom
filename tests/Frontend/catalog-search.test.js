@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeCategoryLabel, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
+import { activeCategoryLabel, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
 
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const harness = (fetcher = async () => ({ fragments: { cards: '<article />' }, pagination: { next_cursor: null, has_more: false } })) => {
@@ -136,4 +136,68 @@ test('cart responses persistently synchronize every rendered offer state and bas
     assert.equal(addInput.disabled, false);
     assert.equal(removeButton.disabled, true);
     assert.equal(badge.classList.hidden, true);
+});
+
+const categoryHarness = () => {
+    const ownerDocument = { activeElement: null };
+    const initialCategories = ['', 'syrup', 'zero', 'tablets', 'tie'].map((id) => ({
+        dataset: { category: id },
+        count: { textContent: '' },
+        selected: id === 'syrup',
+        ownerDocument,
+        querySelector() { return this.dataset.category ? this.count : null; },
+        focus() { ownerDocument.activeElement = this; },
+    }));
+    const categoryList = {
+        children: [...initialCategories],
+        appendChild(button) {
+            this.children.splice(this.children.indexOf(button), 1);
+            this.children.push(button);
+            if (ownerDocument.activeElement === button) ownerDocument.activeElement = null;
+        },
+    };
+    return { initialCategories, categoryList, ownerDocument, order: () => categoryList.children.map((button) => button.dataset.category) };
+};
+
+test('category cards show descending counts with all products first and missing categories last', () => {
+    const { categoryList, initialCategories, order } = categoryHarness();
+
+    updateCatalogCategories(categoryList, initialCategories, { categories: [{ id: 'syrup', count: 4 }, { id: 'tablets', count: 6 }] });
+
+    assert.deepEqual(order(), ['', 'tablets', 'syrup', 'zero', 'tie']);
+    assert.equal(initialCategories[1].count.textContent, '4 тов.');
+    assert.equal(initialCategories[2].count.textContent, '0 тов.');
+    assert.equal(initialCategories[3].count.textContent, '6 тов.');
+});
+
+test('new searches restore initial order for ties and preserve selected and focused category nodes', () => {
+    const { categoryList, initialCategories, ownerDocument, order } = categoryHarness();
+    const selected = initialCategories[1];
+    selected.focus();
+    updateCatalogCategories(categoryList, initialCategories, { categories: [{ id: 'tablets', count: 6 }, { id: 'tie', count: 4 }] });
+
+    updateCatalogCategories(categoryList, initialCategories, { categories: [{ id: 'tablets', count: 4 }, { id: 'syrup', count: 4 }] });
+
+    assert.deepEqual(order(), ['', 'syrup', 'tablets', 'zero', 'tie']);
+    assert.equal(categoryList.children[1], selected);
+    assert.equal(selected.selected, true);
+    assert.equal(ownerDocument.activeElement, selected);
+});
+
+test('load more without facets preserves category order and counts', async () => {
+    const { categoryList, initialCategories, order } = categoryHarness();
+    const controller = new CatalogSearchController({
+        fetcher: async (filters) => filters.cursor
+            ? { fragments: { cards: 'more' }, facets: null, pagination: { next_cursor: null, has_more: false } }
+            : { fragments: { cards: 'first' }, facets: { categories: [{ id: 'tablets', count: 6 }, { id: 'syrup', count: 4 }] }, pagination: { next_cursor: 'next', has_more: true } },
+        onState: () => {},
+        onFilters: () => {},
+        onData: (data) => { if (data.facets) updateCatalogCategories(categoryList, initialCategories, data.facets); },
+    });
+    await controller.submit('аспирин');
+
+    await controller.loadMore();
+
+    assert.deepEqual(order(), ['', 'tablets', 'syrup', 'zero', 'tie']);
+    assert.equal(initialCategories[3].count.textContent, '6 тов.');
 });
