@@ -15,6 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->trustProxies(
+            headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_PROTO | Request::HEADER_X_FORWARDED_PORT,
+        );
         $middleware->alias(['active' => EnsureAccountIsActive::class, 'role' => EnsureRole::class, 'two-factor-confirmed' => EnsureTwoFactorConfirmed::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

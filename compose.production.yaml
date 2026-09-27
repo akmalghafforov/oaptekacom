@@ -1,0 +1,98 @@
+name: oapteka-op
+x-php: &php
+  image: oapteka-php:${RELEASE_TAG:?Set an immutable release tag}
+  build:
+    context: .
+    target: production
+  env_file: ${PRODUCTION_ENV_FILE:-.env.production}
+  environment:
+    APP_KEY: ${APP_KEY:?Set the persistent production key}
+    DB_PASSWORD: ${DB_PASSWORD:?Set the database password}
+  volumes:
+    - private-uploads:/var/www/storage/app/private
+  networks: [application, database]
+  depends_on:
+    postgres:
+      condition: service_healthy
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-oapteka}
+      POSTGRES_USER: ${DB_USERNAME:-oapteka}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set the database password}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+    command: [postgres, -c, hba_file=/etc/postgresql/pg_hba.conf, -c, password_encryption=scram-sha-256]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/pg_hba.production.conf:/etc/postgresql/pg_hba.conf:ro
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, 'PGPASSWORD="$$POSTGRES_PASSWORD" psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "SELECT 1" >/dev/null']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  app:
+    <<: *php
+    restart: unless-stopped
+  queue:
+    <<: *php
+    restart: unless-stopped
+    command: [php, artisan, 'queue:work', '--queue=price-list-imports,default', '--sleep=2', '--tries=3', '--timeout=120', '--no-interaction']
+    stop_grace_period: 150s
+  scheduler:
+    <<: *php
+    restart: unless-stopped
+    command: [php, artisan, 'schedule:work', '--no-interaction']
+  release:
+    <<: *php
+    profiles: [release]
+    entrypoint: [php, artisan]
+    command: [list, '--no-interaction']
+  storage-init:
+    <<: *php
+    profiles: [release]
+    user: root
+    entrypoint: [sh, -c]
+    command: ['chown -R www-data:www-data /var/www/storage/app/private && chmod 700 /var/www/storage/app/private']
+  nginx:
+    image: oapteka-nginx:${RELEASE_TAG:?Set an immutable release tag}
+    build:
+      context: .
+      target: production-nginx
+    restart: unless-stopped
+    depends_on: [app]
+    networks:
+      application:
+        ipv4_address: 172.30.85.10
+      traefik-net:
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: traefik-net
+      traefik.http.routers.oapteka-op-http.rule: Host(`${TRAEFIK_HOST:-op.fannjourney.com}`)
+      traefik.http.routers.oapteka-op-http.entrypoints: web
+      traefik.http.routers.oapteka-op-http.middlewares: https-redirect@file
+      traefik.http.routers.oapteka-op-http.service: oapteka-op
+      traefik.http.routers.oapteka-op-https.rule: Host(`${TRAEFIK_HOST:-op.fannjourney.com}`)
+      traefik.http.routers.oapteka-op-https.entrypoints: websecure
+      traefik.http.routers.oapteka-op-https.tls: 'true'
+      traefik.http.routers.oapteka-op-https.tls.certresolver: cloudflare
+      traefik.http.routers.oapteka-op-https.middlewares: secureHeaders@file
+      traefik.http.routers.oapteka-op-https.service: oapteka-op
+      traefik.http.services.oapteka-op.loadbalancer.server.port: '80'
+networks:
+  traefik-net:
+    external: true
+  application:
+    ipam:
+      config:
+        - subnet: 172.30.85.0/24
+  database:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.84.0/24
+volumes:
+  postgres-data:
+  private-uploads:
