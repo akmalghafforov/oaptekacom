@@ -74,6 +74,16 @@
             </div>
         </div>
     </section>
+    <section data-active-filters hidden aria-labelledby="catalog-filters-title" class="mb-5 px-3 md:px-0">
+        <h2 id="catalog-filters-title" class="mb-2 text-sm font-semibold text-muted">Применены фильтры</h2>
+        <div data-filter-chips class="flex flex-wrap gap-2"></div>
+    </section>
+    <template data-filter-chip-template>
+        <x-ui.button type="button" variant="ghost" data-filter-remove class="max-w-full gap-2 bg-brand-50 text-brand-700 hover:bg-brand-100 focus-visible:outline-2 focus-visible:outline-offset-2">
+            <span data-filter-chip-label class="min-w-0 whitespace-normal text-left break-words [overflow-wrap:anywhere]"></span>
+            <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </x-ui.button>
+    </template>
     <section aria-busy="false" data-catalog-region><div class="sr-only" aria-live="polite" data-catalog-announcer></div><div class="mb-3 flex items-center justify-between gap-3"><h2 class="text-lg font-bold">Предложения</h2><p data-result-count class="text-sm text-muted"></p></div><div data-catalog-state></div>
         <div data-list-view class="hidden"><div data-catalog-mobile-rows class="mobile-catalog-results lg:hidden"></div><div class="table-wrap hidden lg:block"><table class="data-table"><thead><tr><th>Фото</th><th>Товар</th><th>Производитель</th><th>Срок</th><th>Поставщик</th><th>Цена</th><th>Заказ</th></tr></thead><tbody data-catalog-table></tbody></table></div><div data-catalog-cards class="hidden"></div></div>
         <div data-grid-view class="hidden"><div data-catalog-grid class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"></div></div>

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeCategoryLabel, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
+import { activeCategoryLabel, catalogFilterChips, renderCatalogFilterChips, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
 
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const harness = (fetcher = async () => ({ fragments: { cards: '<article />' }, pagination: { next_cursor: null, has_more: false } })) => {
@@ -200,4 +200,106 @@ test('load more without facets preserves category order and counts', async () =>
 
     assert.deepEqual(order(), ['', 'tablets', 'syrup', 'zero', 'tie']);
     assert.equal(initialCategories[3].count.textContent, '6 тов.');
+});
+
+
+const chipLabels = {
+    suppliers: new Map([['4', 'Ёсин-М'], ['5', '<b>Длинное название поставщика</b>']]),
+    cities: new Map([['Худжанд', 'Худжанд']]),
+    category: new Map([['12', 'Таблетки']]),
+    sort: new Map([['updated_desc', 'Сначала новые']]),
+};
+
+test('chips label every selection, exclude query and default sort, and provide ID fallbacks', () => {
+    const chips = catalogFilterChips({ q: 'аспирин', suppliers: ['4', '99'], cities: ['Худжанд'], category: '12', sort: 'updated_desc' }, chipLabels);
+
+    assert.deepEqual(chips.map((chip) => chip.label), ['Поставщик: Ёсин-М', 'Поставщик: ID 99', 'Город: Худжанд', 'Категория: Таблетки', 'Сортировка: Сначала новые']);
+    assert.deepEqual(catalogFilterChips({ q: 'аспирин', sort: 'price_asc' }), []);
+    assert.equal(catalogFilterChips({ category: '99' })[0].label, 'Категория: ID 99');
+});
+
+for (const [key, value, remaining] of [
+    ['suppliers', '4', ['5']], ['cities', 'Худжанд', ['Душанбе']], ['category', '12', undefined], ['sort', 'updated_desc', 'price_asc'],
+]) {
+    test(`removing ${key} preserves query, view and other filters and resets pagination`, async () => {
+        const requests = [];
+        const { controller, filters } = harness(async (input) => { requests.push(input); return { fragments: {}, pagination: { next_cursor: null, has_more: false } }; });
+        const original = { q: 'аспирин', suppliers: ['4', '5'], cities: ['Худжанд', 'Душанбе'], category: '12', sort: 'updated_desc' };
+        await controller.restore(original, 'grid');
+        controller.cursor = 'old-page';
+        controller.hasMore = true;
+
+        await controller.removeFilter(key, value);
+
+        const expected = { ...original, [key]: remaining };
+        if (remaining === undefined) delete expected[key];
+        assert.deepEqual(controller.filters, expected);
+        assert.deepEqual(requests.at(-1), { ...expected, view: 'grid' });
+        assert.equal(filters.at(-1)[1], true);
+        assert.equal(controller.cursor, null);
+    });
+}
+
+const chipRenderHarness = () => {
+    const ownerDocument = { activeElement: null };
+    const makeButton = () => ({
+        ownerDocument, dataset: {}, label: { textContent: '' }, attributes: {},
+        querySelector() { return this.label; },
+        setAttribute(key, value) { this.attributes[key] = value; },
+        focus() { ownerDocument.activeElement = this; },
+    });
+    const container = { children: [], replaceChildren(...children) { this.children = children; } };
+    const row = { hidden: true };
+    const badge = { textContent: '', classList: { toggle(name, value) { this[name] = value; } } };
+    const filterOpen = makeButton();
+    const elements = {
+        '[data-filter-chips]': container,
+        '[data-filter-chip-template]': { content: { firstElementChild: { cloneNode: makeButton } } },
+        '[data-active-filters]': row, '[data-filter-count]': badge, '[data-filter-open]': filterOpen,
+    };
+    return { root: { querySelector: (selector) => elements[selector] }, container, row, badge, filterOpen, ownerDocument };
+};
+
+test('chip rendering uses literal text, descriptive labels and moves focus next, previous, then to filters', () => {
+    const { root, container, row, badge, filterOpen, ownerDocument } = chipRenderHarness();
+    const chips = catalogFilterChips({ suppliers: ['4', '5'], cities: ['Худжанд'] }, chipLabels);
+    renderCatalogFilterChips(root, chips);
+    assert.equal(badge.textContent, 3);
+    assert.equal(row.hidden, false);
+    assert.equal(container.children[1].label.textContent, 'Поставщик: <b>Длинное название поставщика</b>');
+    assert.equal(container.children[0].attributes['aria-label'], 'Удалить фильтр «Поставщик: Ёсин-М»');
+
+    container.children[0].focus();
+    renderCatalogFilterChips(root, chips.slice(1));
+    assert.equal(ownerDocument.activeElement, container.children[0]);
+    container.children[1].focus();
+    renderCatalogFilterChips(root, chips.slice(1, 2));
+    assert.equal(ownerDocument.activeElement, container.children[0]);
+    renderCatalogFilterChips(root, []);
+    assert.equal(ownerDocument.activeElement, filterOpen);
+    assert.equal(row.hidden, true);
+    assert.equal(badge.classList.hidden, true);
+});
+
+test('restored filters synchronize chips and badge even during loading, empty results and errors', async () => {
+    const { root, container, badge, row } = chipRenderHarness();
+    const pending = deferred();
+    let fail = false;
+    const controller = new CatalogSearchController({
+        fetcher: async () => { if (fail) throw new Error('offline'); return pending.promise; },
+        onFilters: (filters) => renderCatalogFilterChips(root, catalogFilterChips(filters, chipLabels)),
+        onData: () => {}, onState: () => {},
+    });
+    const request = controller.restore({ suppliers: ['4'], category: '12' });
+    assert.equal(badge.textContent, 2);
+    pending.resolve({ fragments: {}, pagination: {} });
+    await request;
+    assert.equal(row.hidden, false);
+    fail = true;
+    await controller.restore({ cities: ['Худжанд'] });
+    assert.equal(badge.textContent, 1);
+    assert.equal(container.children[0].label.textContent, 'Город: Худжанд');
+    await controller.restore({});
+    assert.equal(row.hidden, true);
+    assert.equal(badge.textContent, 0);
 });

@@ -1,6 +1,35 @@
 const FILTER_KEYS = ['q', 'category', 'sort', 'cities', 'suppliers'];
 const VALID_VIEWS = ['list', 'grid', 'suppliers'];
 
+export const catalogFilterChips = (filters, labels = {}) => {
+    const chips = [];
+    const add = (key, value, prefix, fallback) => chips.push({ key, value, label: `${prefix}: ${labels[key]?.get(String(value)) ?? fallback}` });
+    (filters.suppliers ?? []).forEach((value) => add('suppliers', value, 'Поставщик', `ID ${value}`));
+    (filters.cities ?? []).forEach((value) => add('cities', value, 'Город', value));
+    if (filters.category) add('category', filters.category, 'Категория', `ID ${filters.category}`);
+    if (filters.sort && filters.sort !== 'price_asc') add('sort', filters.sort, 'Сортировка', filters.sort);
+    return chips;
+};
+
+export const renderCatalogFilterChips = (root, chips) => {
+    const container = root.querySelector('[data-filter-chips]');
+    const template = root.querySelector('[data-filter-chip-template]');
+    const focused = [...container.children].findIndex((button) => button === button.ownerDocument.activeElement);
+    container.replaceChildren(...chips.map((chip) => {
+        const button = template.content.firstElementChild.cloneNode(true);
+        button.dataset.filterKey = chip.key;
+        button.dataset.filterValue = chip.value;
+        button.querySelector('[data-filter-chip-label]').textContent = chip.label;
+        button.setAttribute('aria-label', `Удалить фильтр «${chip.label}»`);
+        return button;
+    }));
+    root.querySelector('[data-active-filters]').hidden = chips.length === 0;
+    const badge = root.querySelector('[data-filter-count]');
+    badge.textContent = chips.length;
+    badge.classList.toggle('hidden', chips.length === 0);
+    if (focused >= 0) (container.children[Math.min(focused, chips.length - 1)] ?? root.querySelector('[data-filter-open]')).focus();
+};
+
 export const catalogFragment = (response, view, surface = 'cards') => {
     const fragments = response.fragments ?? {};
 
@@ -107,6 +136,13 @@ export class CatalogSearchController {
         return this.commit();
     }
 
+    removeFilter(key, value) {
+        if (key === 'suppliers' || key === 'cities') return this.setFilter(key, (this.filters[key] ?? []).filter((item) => item !== value));
+        if (key === 'category') return this.setFilter(key, '');
+        if (key === 'sort') return this.setFilter(key, 'price_asc');
+        return Promise.resolve();
+    }
+
     setView(view) {
         if (!VALID_VIEWS.includes(view) || view === this.view) return Promise.resolve();
         this.view = view;
@@ -197,6 +233,9 @@ export function initializeCatalogSearch(root) {
     const initialCategories = [...categoryList.querySelectorAll('[data-category]')];
     const activeCategory = root.querySelector('[data-active-category-label]');
     const categoryScrollButtons = [...root.querySelectorAll('[data-category-scroll]')];
+    const chipLabels = Object.fromEntries(['suppliers', 'cities', 'sort'].map((key) => [key, new Map([...dialog.querySelectorAll(`[name="filter_${key}${key === 'sort' ? '' : '[]'}"]`)].map((input) => [input.value, input.closest('label').querySelector('span').textContent.trim().split('\n')[0]]))]));
+    chipLabels.suppliers = new Map([...dialog.querySelectorAll('[name="filter_suppliers[]"]')].map((input) => [input.value, input.closest('label').querySelector('span span').textContent.trim()]));
+    chipLabels.category = new Map(initialCategories.map((button) => [button.dataset.category, button.querySelector('[data-category-label]').textContent.trim()]));
     let appliedModal = { sort: 'price_asc', cities: [], suppliers: [] };
     let lastProductView = 'list';
 
@@ -211,6 +250,7 @@ export function initializeCatalogSearch(root) {
         onFilters: (filters, pushHistory) => {
             queryInput.value = filters.q ?? '';
             toggleClear();
+            renderCatalogFilterChips(root, catalogFilterChips(filters, chipLabels));
             root.querySelectorAll('[data-category]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.category) === String(filters.category ?? '') ? 'true' : 'false'));
             activeCategory.textContent = activeCategoryLabel([...root.querySelectorAll('[data-category]')].map((button) => ({ value: button.dataset.category, label: button.querySelector('[data-category-label]')?.textContent.trim() })), filters.category);
             if (pushHistory) updateHistory(filters, 'pushState');
@@ -270,6 +310,7 @@ export function initializeCatalogSearch(root) {
     clearButton.addEventListener('click', () => { queryInput.value = ''; queryInput.focus(); toggleClear(); });
     loadMore.addEventListener('click', () => controller.loadMore());
     root.addEventListener('click', (event) => {
+        const chip = event.target.closest('[data-filter-remove]'); if (chip) controller.removeFilter(chip.dataset.filterKey, chip.dataset.filterValue);
         const category = event.target.closest('[data-category]'); if (category) controller.setFilter('category', category.dataset.category);
         const view = event.target.closest('[data-view]'); if (view) { if (view.dataset.view !== 'suppliers') lastProductView = view.dataset.view; localStorage.setItem('oapteka.catalog.view.v1', view.dataset.view); root.querySelectorAll('[data-view]').forEach((button) => button.setAttribute('aria-pressed', button === view ? 'true' : 'false')); controller.setView(view.dataset.view); }
         const supplier = event.target.closest('[data-supplier-open]'); if (supplier) { controller.view = lastProductView; controller.setFilter('suppliers', [supplier.dataset.supplierOpen]); }
@@ -288,14 +329,14 @@ export function initializeCatalogSearch(root) {
     window.addEventListener('resize', updateCategoryScrollButtons);
     requestAnimationFrame(updateCategoryScrollButtons);
 
-    const syncDialog = () => { dialog.querySelector(`[name="filter_sort"][value="${appliedModal.sort}"]`)?.click(); ['cities', 'suppliers'].forEach((key) => dialog.querySelectorAll(`[name="filter_${key}[]"]`).forEach((input) => { input.checked = appliedModal[key].includes(input.value); })); };
+    const syncDialog = () => { dialog.querySelectorAll('[name="filter_sort"]').forEach((input) => { input.checked = input.value === appliedModal.sort; }); ['cities', 'suppliers'].forEach((key) => dialog.querySelectorAll(`[name="filter_${key}[]"]`).forEach((input) => { input.checked = appliedModal[key].includes(input.value); })); };
     filterOpen.addEventListener('click', () => { appliedModal = { sort: controller.filters.sort ?? 'price_asc', cities: controller.filters.cities ?? [], suppliers: controller.filters.suppliers ?? [] }; syncDialog(); dialog.showModal(); document.body.classList.add('dialog-open'); });
     dialog.querySelectorAll('[data-dialog-close]').forEach((button) => button.addEventListener('click', () => dialog.close()));
     dialog.addEventListener('close', () => { document.body.classList.remove('dialog-open'); filterOpen.focus(); });
     dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
     dialog.querySelectorAll('[data-filter-section]').forEach((section) => { const checks = [...section.querySelectorAll('[data-option-label] input')]; section.querySelector('[data-select-all]').addEventListener('change', (event) => checks.filter((input) => !input.closest('[data-option-label]').hidden).forEach((input) => { input.checked = event.target.checked; })); section.querySelector('[data-section-clear]').addEventListener('click', () => checks.forEach((input) => { input.checked = false; })); section.querySelector('[data-option-search]').addEventListener('input', (event) => section.querySelectorAll('[data-option-label]').forEach((label) => { label.hidden = !label.textContent.toLocaleLowerCase('ru').includes(event.target.value.toLocaleLowerCase('ru')); })); });
     dialog.querySelector('[data-filter-reset]').addEventListener('click', () => { dialog.querySelector('[name="filter_sort"][value="price_asc"]').checked = true; dialog.querySelectorAll('[data-option-label] input').forEach((input) => { input.checked = false; }); });
-    dialog.querySelector('[data-filter-apply]').addEventListener('click', () => { const values = (name) => [...dialog.querySelectorAll(`[name="filter_${name}[]"]:checked`)].map((input) => input.value); const filters = { sort: dialog.querySelector('[name="filter_sort"]:checked').value, cities: values('cities'), suppliers: values('suppliers') }; const count = filters.cities.length + filters.suppliers.length + (filters.sort === 'price_asc' ? 0 : 1); const badge = root.querySelector('[data-filter-count]'); badge.textContent = count; badge.classList.toggle('hidden', count === 0); dialog.close(); controller.setFilters(filters); });
+    dialog.querySelector('[data-filter-apply]').addEventListener('click', () => { const values = (name) => [...dialog.querySelectorAll(`[name="filter_${name}[]"]:checked`)].map((input) => input.value); const filters = { sort: dialog.querySelector('[name="filter_sort"]:checked')?.value ?? 'price_asc', cities: values('cities'), suppliers: values('suppliers') }; dialog.close(); controller.setFilters(filters); });
 
     root.addEventListener('submit', async (event) => {
         const cartForm = event.target.closest('[data-cart-form]');
