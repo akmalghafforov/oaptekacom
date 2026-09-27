@@ -1,3 +1,5 @@
+import { createSupplierFileRenderer } from './supplier-file-renderer.js';
+import { createSupplierFileShare } from './supplier-file-share.js';
 import { initializeCatalogSearch, updateCartBadges } from './catalog-search.js';
 
 const formatPhone = (value, showCountryCode = false) => {
@@ -270,6 +272,7 @@ document.querySelectorAll('[data-quantity-stepper]').forEach((stepper) => {
 });
 
 const formatCartAmount = (value) => `${Number(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} TJS`;
+const supplierFileShares = new Map();
 const cartQuantityGroups = new Map();
 let cartQuantitySaveQueue = Promise.resolve();
 
@@ -340,6 +343,7 @@ cartQuantityGroups.forEach((group) => {
                 setStatus('');
             }
         } catch (error) {
+            group.error = true;
             group.desired = group.confirmed;
             setInputs(group.confirmed);
             setStatus(error.message || 'Не удалось обновить количество.', true);
@@ -350,6 +354,12 @@ cartQuantityGroups.forEach((group) => {
                 queueSave();
             }
         }
+    };
+
+    group.flush = () => {
+        clearTimeout(group.timer);
+        group.error = false;
+        queueSave();
     };
 
     const queueSave = () => {
@@ -368,6 +378,8 @@ cartQuantityGroups.forEach((group) => {
             return;
         }
 
+        supplierFileShares.forEach((sharing) => sharing.invalidate());
+        group.error = false;
         group.desired = quantity;
         setInputs(quantity);
         setStatus('');
@@ -376,6 +388,7 @@ cartQuantityGroups.forEach((group) => {
     };
 
     group.forms.forEach(({ form, input }) => {
+        input.addEventListener('input', () => schedule(input));
         input.addEventListener('change', () => schedule(input));
         form.addEventListener('submit', (event) => {
             event.preventDefault();
@@ -444,3 +457,29 @@ document.querySelectorAll('[data-cart-share]').forEach((button) => button.addEve
         }
     }
 }));
+
+async function flushCartQuantities() {
+    do {
+        cartQuantityGroups.forEach((group) => group.flush());
+        const pending = cartQuantitySaveQueue;
+        await pending;
+    } while ([...cartQuantityGroups.values()].some((group) => group.saving || group.desired !== group.confirmed));
+    if ([...cartQuantityGroups.values()].some((group) => group.error)) throw new Error('Quantity save failed');
+}
+
+document.querySelectorAll('[data-supplier-file-export]').forEach((panel) => {
+    const prepareButtons = panel.querySelectorAll('[data-file-prepare]');
+    const shareButton = panel.querySelector('[data-file-share]');
+    const renderer = createSupplierFileRenderer(panel, URL);
+    const sharing = createSupplierFileShare({
+        flush: flushCartQuantities,
+        fetchFile: (url) => fetch(url, { headers: { Accept: 'application/octet-stream' }, cache: 'no-store' }),
+        navigator,
+        makeFile: (blob, name, type) => new File([blob], name, { type }),
+        onState: renderer.render,
+    });
+    supplierFileShares.set(panel.dataset.supplierFileExport, sharing);
+    prepareButtons.forEach((button) => button.addEventListener('click', () => sharing.prepare(button.dataset.fileUrl, button.dataset.filePrepare)));
+    shareButton.addEventListener('click', () => sharing.share());
+    window.addEventListener('pagehide', renderer.cleanup);
+});

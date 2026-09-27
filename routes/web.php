@@ -16,6 +16,7 @@ use App\Http\Controllers\PriceListImportController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SubscriptionRequestController;
+use App\Http\Controllers\SupplierCartExportController;
 use App\Http\Controllers\SupplierRequestController;
 use App\Http\Controllers\TwoFactorController;
 use App\Services\PhoneOtpService;
@@ -80,6 +81,8 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
     Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog');
     Route::get('/catalog/search', [CatalogController::class, 'search'])->name('catalog.search');
+    Route::get('/cart/suppliers/{supplier}/pdf', [SupplierCartExportController::class, 'pdf'])->name('cart.suppliers.pdf');
+    Route::get('/cart/suppliers/{supplier}/excel', [SupplierCartExportController::class, 'excel'])->name('cart.suppliers.excel');
     Route::get('/cart', [CartController::class, 'show'])->name('cart');
     Route::post('/cart/checkout', [CartController::class, 'checkout'])->name('cart.checkout');
     Route::post('/cart/{offer}', [CartController::class, 'add'])->name('cart.add');

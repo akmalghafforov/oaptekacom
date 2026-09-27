@@ -291,6 +291,65 @@ class SupplierRequestCartTest extends TestCase
         $this->assertSame('Итого', $spreadsheet->getActiveSheet()->getCell('C6')->getValue());
     }
 
+    public function test_current_supplier_exports_use_saved_prices_and_do_not_modify_records(): void
+    {
+        [$user, $supplier, $offer, $otherOffer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer), ['quantity' => 2]);
+        $this->post(route('cart.add', $otherOffer));
+        $cart = Cart::where('user_id', $user->id)->sole();
+        $item = $cart->items()->where('offer_id', $offer->id)->sole();
+        $item->update(['quantity' => 3, 'unit_price' => '1.23', 'snapshot' => ['medicine' => '=Лекарство']]);
+        $offer->update(['price' => '99.00']);
+        $before = $cart->items()->get()->toArray();
+
+        $excel = $this->get(route('cart.suppliers.excel', $supplier))->assertDownload('oapteka-supplier-'.$supplier->id.'.xlsx');
+        $this->assertStringContainsString('no-store', $excel->headers->get('Cache-Control'));
+        $file = tempnam(sys_get_temp_dir(), 'cart-export-');
+        try {
+            file_put_contents($file, $excel->streamedContent());
+            $sheet = IOFactory::load($file)->getActiveSheet();
+            $this->assertSame('=Лекарство', $sheet->getCell('A7')->getValue());
+            $this->assertSame('s', $sheet->getCell('A7')->getDataType());
+            $this->assertSame(3, $sheet->getCell('B7')->getValue());
+            $this->assertSame('n', $sheet->getCell('B7')->getDataType());
+            $this->assertSame(1.23, $sheet->getCell('C7')->getValue());
+            $this->assertSame(3.69, $sheet->getCell('D7')->getValue());
+            $this->assertSame(3.69, $sheet->getCell('D8')->getValue());
+            $this->assertSame('Итого, TJS', $sheet->getCell('C8')->getValue());
+        } finally {
+            unlink($file);
+        }
+        $pdf = $this->get(route('cart.suppliers.pdf', $supplier))->assertDownload('oapteka-supplier-'.$supplier->id.'.pdf')->assertHeader('Content-Type', 'application/pdf');
+        $this->assertStringStartsWith('%PDF-', $pdf->getContent());
+        $this->assertSame($before, $cart->items()->get()->toArray());
+        $this->assertDatabaseCount('supplier_requests', 0);
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('carts', 1);
+    }
+
+    public function test_supplier_exports_require_buying_permission_and_only_read_the_current_users_cart(): void
+    {
+        [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer));
+        $otherUser = $this->pharmacyUser();
+        $supplierUser = User::factory()->wholesaler($supplier)->create();
+        foreach (['pdf', 'excel'] as $format) {
+            $this->actingAs($otherUser)->get(route('cart.suppliers.'.$format, $supplier))->assertNotFound();
+            $this->actingAs($supplierUser)->get(route('cart.suppliers.'.$format, $supplier))->assertForbidden();
+        }
+        $this->assertDatabaseCount('carts', 1);
+        $this->assertDatabaseCount('cart_items', 1);
+    }
+
+    public function test_supplier_exports_require_authentication(): void
+    {
+        $supplier = Organization::factory()->wholesaler()->create();
+        foreach (['pdf', 'excel'] as $format) {
+            $this->getJson(route('cart.suppliers.'.$format, $supplier))->assertUnauthorized();
+        }
+        $this->assertDatabaseCount('carts', 0);
+    }
+
     /** @return array{User, Organization, Offer, Offer} */
     private function cartWithTwoSuppliers(): array
     {
