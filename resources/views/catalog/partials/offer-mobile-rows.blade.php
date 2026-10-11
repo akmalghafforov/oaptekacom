@@ -8,7 +8,7 @@
         $hasSupplierDiscount = $offer->applied_supplier_discount_percent !== null && bccomp($offer->applied_supplier_discount_percent, '0', 2) === 1;
     @endphp
     <article class="mobile-offer-row" data-mobile-result-shell="list" data-mobile-offer-row data-offer-id="{{ $offer->id }}">
-        <img src="{{ asset('images/catalog/product-placeholder.svg') }}" alt="" class="mobile-offer-image">
+        <div aria-hidden="true" class="invisible mobile-offer-image"></div>
         <div class="min-w-0 grow">
             <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0">
