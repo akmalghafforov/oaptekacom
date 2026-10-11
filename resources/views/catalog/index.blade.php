@@ -10,12 +10,6 @@
                 <h1 class="text-2xl font-bold sm:text-3xl">Поиск товаров</h1>
                 <p class="mt-1 max-w-2xl text-sm text-muted ">Сравнивайте цены и сроки годности в актуальных прайс-листах поставщиков.</p>
             </div>
-            <div class="flex shrink-0 flex-wrap gap-2 hidden md:block" data-search-actions>
-                <x-ui.button type="button" variant="secondary" disabled>AI-закупка · скоро</x-ui.button>
-                @if($canBuy)
-                    <x-ui.button href="{{ route('cart') }}" variant="secondary" class="gap-2">Корзина <span data-cart-badge>{{ $cartTotal }}</span></x-ui.button>
-                @endif
-            </div>
         </div>
         <form id="catalog-search-form" data-catalog-form class="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
             <x-ui.search-input name="q" label="Название лекарства" :value="request('q')" placeholder="Название товара/" autocomplete="off" />
