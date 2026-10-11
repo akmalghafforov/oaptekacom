@@ -8,7 +8,7 @@
         <div data-search-expanded class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0 hidden md:block">
                 <h1 class="text-2xl font-bold sm:text-3xl">Поиск товаров</h1>
-                <p class="mt-1 max-w-2xl text-sm text-muted ">Сравнивайте цены, остатки и сроки годности в актуальных прайс-листах поставщиков.</p>
+                <p class="mt-1 max-w-2xl text-sm text-muted ">Сравнивайте цены и сроки годности в актуальных прайс-листах поставщиков.</p>
             </div>
             <div class="flex shrink-0 flex-wrap gap-2 hidden md:block" data-search-actions>
                 <x-ui.button type="button" variant="secondary" disabled>AI-закупка · скоро</x-ui.button>

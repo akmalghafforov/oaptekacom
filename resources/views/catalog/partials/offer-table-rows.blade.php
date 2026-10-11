@@ -14,7 +14,6 @@
         <td>
             @if($expired)<p class="text-warning">Срок годности истёк: {{ $offer->expires_at->format('d.m.Y') }}</p>
             @elseif($offer->expires_at)<p>{{ $offer->expires_at->format('d.m.Y') }}</p>@if($expiresSoon)<p class="mt-1 text-xs text-warning">Срок годности менее 5 месяцев</p>@endif
-            @else<p>Неуказан</p>
             @endif
         </td>
         <td><p class="font-medium">{{ $offer->organization->name }}</p><p class="text-xs text-muted">{{ $offer->organization->city ?: 'Город не указан' }}</p><p class="mt-1 text-xs text-brand-700">Добавлен в систему: {{ $offer->created_at->format('d.m.Y') }}</p></td>

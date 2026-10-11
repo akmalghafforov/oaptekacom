@@ -24,9 +24,7 @@
                     <div class="mt-2 flex flex-wrap gap-1.5">
                         @if($expired)<span class="mobile-offer-badge bg-amber-50 text-warning">Срок годности истёк: {{ $offer->expires_at->format('d.m.Y') }}</span>
                         @elseif($offer->expires_at)<span class="mobile-offer-badge {{ $expiresSoon ? 'bg-amber-50 text-warning' : 'bg-slate-50 text-slate-600' }}">Срок: {{ $offer->expires_at->format('d.m.Y') }}</span>
-                        @else<span class="mobile-offer-badge bg-slate-50 text-slate-600">Неуказан</span>
                         @endif
-                        <span class="mobile-offer-badge {{ $available ? 'bg-brand-50 text-brand-700' : 'bg-amber-50 text-warning' }}">{{ $offer->quantity === null ? 'Остаток уточняется' : ($offer->quantity >= 1 ? 'В наличии: '.(int) $offer->quantity : 'Нет в наличии') }}</span>
                     </div>
                 </div>
                 <div data-cart-add-controls data-cart-can-add="{{ $canBuy && $available ? 'true' : 'false' }}" @class(['hidden' => $inCart > 0])><form method="post" action="{{ route('cart.add', $offer) }}" data-cart-form class="flex items-center gap-1.5">@csrf

@@ -32,7 +32,7 @@ class CatalogAvailabilityTest extends TestCase
             ->assertOk()
             ->assertJsonPath('has_more', false);
         $this->assertStringContainsString('Аспирин', $response->json('html'));
-        $this->assertStringContainsString('Нет в наличии', $response->json('html'));
+        $this->assertStringNotContainsString('Нет в наличии', $response->json('html'));
         $this->actingAs($user)->post(route('cart.add', $offer))->assertNotFound();
         $this->assertDatabaseMissing('cart_items', ['offer_id' => $offer->id]);
     }

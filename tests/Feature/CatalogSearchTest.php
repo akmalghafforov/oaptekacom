@@ -185,7 +185,7 @@ class CatalogSearchTest extends TestCase
             $html = $response->json('fragments.'.$fragment);
             $this->assertStringContainsString('Срок годности истёк: 14.09.2026', $html);
             $this->assertStringContainsString('15.01.2027', $html);
-            $this->assertStringContainsString('Неуказан', $html);
+            $this->assertStringNotContainsString('Неуказан', $html);
         }
     }
 
