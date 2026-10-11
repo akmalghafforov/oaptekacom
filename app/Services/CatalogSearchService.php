@@ -100,14 +100,15 @@ class CatalogSearchService
             ->currentCatalog()
             ->whereHas('medicine', function (Builder $query) use ($filters): void {
                 $search = mb_strtolower($filters['q'] ?? '');
+                $substringMatch = (bool) ($filters['substring_match'] ?? false);
 
                 if ($search === '') {
                     return;
                 } elseif (DB::connection()->getDriverName() === 'pgsql') {
                     $escaped = addcslashes($search, '\\%_');
-                    $query->whereRaw("medicines.search_text ILIKE ? ESCAPE '\\'", ['%'.$escaped.'%']);
+                    $query->whereRaw("medicines.search_text ILIKE ? ESCAPE '\\'", [($substringMatch ? '%' : '').$escaped.'%']);
                 } else {
-                    $query->whereRaw('instr(medicines.search_text, ?) > 0', [$search]);
+                    $query->whereRaw('instr(medicines.search_text, ?) '.($substringMatch ? '> 0' : '= 1'), [$search]);
                 }
 
                 if (! empty($filters['form'])) {

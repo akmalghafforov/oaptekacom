@@ -26,6 +26,7 @@ class CatalogSearchRequest extends FormRequest
     {
         return [
             'q' => ['nullable', 'string', 'min:3', 'max:200'],
+            'substring_match' => ['sometimes', 'boolean'],
             'category' => ['nullable', 'integer', Rule::exists('product_categories', 'id')->where('is_active', true)],
             'city' => ['nullable', 'string', 'max:100'],
             'supplier' => ['nullable', 'integer', Rule::exists('organizations', 'id')],

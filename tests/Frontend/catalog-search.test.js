@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initializeCategoryPicker, activeCategoryLabel, catalogFilterChips, renderCatalogFilterChips, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
+import { catalogFiltersFromUrl, catalogUrl, initializeCategoryPicker, activeCategoryLabel, catalogFilterChips, renderCatalogFilterChips, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
 
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const harness = (fetcher = async () => ({ fragments: { cards: '<article />' }, pagination: { next_cursor: null, has_more: false } })) => {
@@ -405,4 +405,69 @@ test('picker hides zero matches, sorts descending, restores ties and keeps hidde
     assert.equal(picker.rows[0].hidden, false);
     assert.equal(picker.rows[1].hidden, true);
     assert.equal(picker.rows[2].hidden, true);
+});
+
+
+test('substring toggle submits the current draft and resets pagination in both directions', async () => {
+    const requests = [];
+    const { controller } = harness(async (input) => { requests.push(input); return { fragments: { cards: 'result' }, pagination: { next_cursor: 'next', has_more: true } }; });
+    await controller.submit('Tester');
+    await controller.loadMore();
+    await controller.setSubstringMatch(true, 'est');
+    assert.equal(requests.at(-1).q, 'est');
+    assert.equal(requests.at(-1).substring_match, '1');
+    assert.equal('cursor' in requests.at(-1), false);
+    await controller.loadMore();
+    assert.equal(requests.at(-1).substring_match, '1');
+    assert.equal(requests.at(-1).cursor, 'next');
+    await controller.setSubstringMatch(false, 'tes');
+    assert.equal('substring_match' in requests.at(-1), false);
+    assert.equal('cursor' in requests.at(-1), false);
+});
+
+test('substring toggle respects minimum query length and clears stale pagination', async () => {
+    const requests = [];
+    const { controller, states } = harness(async (input) => { requests.push(input); return { fragments: { cards: 'result' }, pagination: { next_cursor: 'next', has_more: true } }; });
+    await controller.submit('Tester');
+    await controller.setSubstringMatch(true, 'ab');
+    assert.equal(requests.length, 1);
+    assert.equal(states.at(-1), 'invalid');
+    assert.equal(controller.cursor, null);
+    assert.equal(controller.hasMore, false);
+    await controller.loadMore();
+    assert.equal(requests.length, 1);
+    await controller.submit('');
+    assert.equal(requests.at(-1).substring_match, '1');
+});
+
+test('other catalog actions and filter resets retain substring matching', async () => {
+    const requests = [];
+    const { controller } = harness(async (input) => { requests.push(input); return { fragments: { cards: 'result' }, pagination: { next_cursor: null, has_more: false } }; });
+    await controller.setSubstringMatch(true, 'est');
+    await controller.setFilter('category', '12');
+    await controller.setFilters({ sort: 'updated_desc', suppliers: ['4'], cities: ['Душанбе'] });
+    await controller.setView('grid');
+    await controller.setView('suppliers');
+    await controller.setFilters({ sort: 'price_asc', suppliers: [], cities: [] });
+    await controller.submit('');
+    assert.equal(requests.every((request) => request.substring_match === '1'), true);
+});
+
+test('URL reload and history restoration synchronize matching mode and omit disabled mode', async () => {
+    const { controller, filters } = harness();
+    const initial = new URL('https://catalog.test/catalog?q=est&substring_match=1&cities[]=Душанбе');
+    await controller.restore(catalogFiltersFromUrl(initial));
+    assert.equal(filters.at(-1)[0].substring_match, '1');
+    const enabled = catalogUrl(initial, controller.filters);
+    assert.equal(enabled.searchParams.get('substring_match'), '1');
+    await controller.setSubstringMatch(false);
+    const disabled = catalogUrl(enabled, controller.filters);
+    assert.equal(disabled.searchParams.has('substring_match'), false);
+    await controller.restore(catalogFiltersFromUrl(enabled));
+    assert.equal(filters.at(-1)[0].substring_match, '1');
+    await controller.restore(catalogFiltersFromUrl(disabled));
+    assert.equal('substring_match' in filters.at(-1)[0], false);
+    await controller.restore(catalogFiltersFromUrl(new URL('https://catalog.test/catalog?substring_match=0')));
+    assert.equal('substring_match' in controller.filters, false);
+    assert.equal(catalogUrl(initial, { substring_match: false }).searchParams.has('substring_match'), false);
 });

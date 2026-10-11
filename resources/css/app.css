@@ -115,7 +115,7 @@
     .catalog-search-panel.is-compact [data-search-expanded] { @apply hidden; }
     .catalog-search-panel.is-compact [data-catalog-form] { @apply mt-0; }
     .cart-summary { @apply sticky top-3 z-10; }
-    .catalog-search-panel.is-compact label, .catalog-search-panel.is-compact [id$="-hint"] { @apply sr-only; }
+    .catalog-search-panel.is-compact [data-catalog-form] label, .catalog-search-panel.is-compact [id$="-hint"] { @apply sr-only; }
     .catalog-dialog[open] { animation: catalog-dialog-in 160ms ease-out; }
     .catalog-mobile-skeleton { @apply hidden; }
     [data-catalog-search] [data-mobile-offer-row] [data-cart-submit] { @apply size-10 min-h-0 min-w-0 rounded-lg border-green-100 bg-green-600 text-white shadow-sm; }

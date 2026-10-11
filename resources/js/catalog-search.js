@@ -1,5 +1,25 @@
-const FILTER_KEYS = ['q', 'category', 'sort', 'cities', 'suppliers'];
+const FILTER_KEYS = ['q', 'substring_match', 'category', 'sort', 'cities', 'suppliers'];
 const VALID_VIEWS = ['list', 'grid', 'suppliers'];
+
+export const catalogFiltersFromUrl = (url) => ({
+    q: url.searchParams.get('q') ?? '',
+    substring_match: url.searchParams.get('substring_match') ?? '',
+    category: url.searchParams.get('category') ?? '',
+    sort: url.searchParams.get('sort') ?? 'price_asc',
+    cities: url.searchParams.getAll('cities[]'),
+    suppliers: url.searchParams.getAll('suppliers[]'),
+});
+
+export const catalogUrl = (url, filters) => {
+    const output = new URL(url);
+    [...output.searchParams.keys()].filter((key) => FILTER_KEYS.includes(key.replace('[]', ''))).forEach((key) => output.searchParams.delete(key));
+    Object.entries(filters).forEach(([key, value]) => {
+        if (key === 'sort' && value === 'price_asc') return;
+        if (key === 'substring_match' && String(value) !== '1' && value !== true) return;
+        Array.isArray(value) ? value.forEach((item) => output.searchParams.append(`${key}[]`, item)) : output.searchParams.set(key, key === 'substring_match' ? '1' : value);
+    });
+    return output;
+};
 
 export const catalogFilterChips = (filters, labels = {}) => {
     const chips = [];
@@ -170,10 +190,17 @@ export class CatalogSearchController {
     submit(query = this.filters.q ?? '') {
         this.setDraftQuery(query);
         if (this.filters.q && this.filters.q.length < 3) {
+            this.resetRequest();
+            this.onData({}, false);
             this.onState('invalid');
             return Promise.resolve(false);
         }
         return this.commit();
+    }
+
+    setSubstringMatch(enabled, query = this.filters.q ?? '') {
+        if (enabled) this.filters.substring_match = '1'; else delete this.filters.substring_match;
+        return this.submit(query);
     }
 
     setFilter(key, value) {
@@ -256,7 +283,9 @@ export class CatalogSearchController {
         const output = {};
         FILTER_KEYS.forEach((key) => {
             const value = filters[key];
-            if (Array.isArray(value)) {
+            if (key === 'substring_match') {
+                if (value === true || value === 1 || value === '1') output[key] = '1';
+            } else if (Array.isArray(value)) {
                 const items = value.map(String).map((item) => item.trim()).filter(Boolean);
                 if (items.length) output[key] = [...new Set(items)];
             } else if (typeof value === 'string' && value.trim()) {
@@ -273,6 +302,7 @@ const emptyState = (title, description, retry = false) => `<div class="rounded-p
 export function initializeCatalogSearch(root) {
     const form = root.querySelector('[data-catalog-form]');
     const queryInput = form.elements.q;
+    const substringCheckbox = form.elements.substring_match;
     const clearButton = root.querySelector('[data-search-clear]');
     const region = root.querySelector('[data-catalog-region]');
     const state = root.querySelector('[data-catalog-state]');
@@ -301,6 +331,7 @@ export function initializeCatalogSearch(root) {
         },
         onFilters: (filters, pushHistory) => {
             queryInput.value = filters.q ?? '';
+            substringCheckbox.checked = filters.substring_match === '1';
             toggleClear();
             renderCatalogFilterChips(root, catalogFilterChips(filters, chipLabels));
             root.querySelectorAll('[data-category]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.category) === String(filters.category ?? '') ? 'true' : 'false'));
@@ -353,14 +384,10 @@ export function initializeCatalogSearch(root) {
         updateCategoryScrollButtons();
     };
     const toggleClear = () => { clearButton.hidden = !queryInput.value; clearButton.classList.toggle('hidden', !queryInput.value); clearButton.classList.toggle('grid', Boolean(queryInput.value)); };
-    const updateHistory = (filters, method) => {
-        const url = new URL(window.location.href);
-        [...url.searchParams.keys()].filter((key) => FILTER_KEYS.includes(key.replace('[]', ''))).forEach((key) => url.searchParams.delete(key));
-        Object.entries(filters).forEach(([key, value]) => { if (key === 'sort' && value === 'price_asc') return; Array.isArray(value) ? value.forEach((item) => url.searchParams.append(`${key}[]`, item)) : url.searchParams.set(key, value); });
-        window.history[method](null, '', url);
-    };
-    const filtersFromUrl = () => { const url = new URL(window.location.href); return { q: url.searchParams.get('q') ?? '', category: url.searchParams.get('category') ?? '', sort: url.searchParams.get('sort') ?? 'price_asc', cities: url.searchParams.getAll('cities[]'), suppliers: url.searchParams.getAll('suppliers[]') }; };
+    const updateHistory = (filters, method) => window.history[method](null, '', catalogUrl(window.location.href, filters));
+    const filtersFromUrl = () => catalogFiltersFromUrl(new URL(window.location.href));
 
+    substringCheckbox.addEventListener('change', () => controller.setSubstringMatch(substringCheckbox.checked, queryInput.value));
     form.addEventListener('submit', (event) => { event.preventDefault(); controller.submit(queryInput.value); });
     queryInput.addEventListener('input', toggleClear);
     clearButton.addEventListener('click', () => { queryInput.value = ''; queryInput.focus(); toggleClear(); });

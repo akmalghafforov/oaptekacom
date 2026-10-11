@@ -48,6 +48,10 @@ class CatalogSearchTest extends TestCase
     {
         return [
             'trimmed short query' => [['q' => ' аб '], 'q'],
+            'substring string' => [['substring_match' => 'true'], 'substring_match'],
+            'substring integer' => [['substring_match' => 2], 'substring_match'],
+            'substring array' => [['substring_match' => [1]], 'substring_match'],
+            'substring empty' => [['substring_match' => ''], 'substring_match'],
             'query array' => [['q' => ['асп']], 'q'],
             'invalid category' => [['q' => 'асп', 'category' => 999999], 'category'],
             'city array' => [['q' => 'асп', 'city' => ['Душанбе']], 'city'],
@@ -64,10 +68,86 @@ class CatalogSearchTest extends TestCase
         $this->offer($supplier, $import, 'Парацетамол Forte', 'парацетамол forte 10%_mix', 10, 1);
         $user = $this->pharmacyUser();
 
-        $this->assertStringContainsString('Парацетамол Forte', $this->actingAs($user)->getJson(route('catalog.search', ['q' => 'РАЦ']))->json('html'));
-        $this->assertStringContainsString('Парацетамол Forte', $this->actingAs($user)->getJson(route('catalog.search', ['q' => 'FOR']))->json('html'));
-        $this->assertStringContainsString('Парацетамол Forte', $this->actingAs($user)->getJson(route('catalog.search', ['q' => '10%']))->json('html'));
-        $this->actingAs($user)->getJson(route('catalog.search', ['q' => '10_']))->assertJsonPath('html', '');
+        $this->assertStringContainsString('Парацетамол Forte', $this->actingAs($user)->getJson(route('catalog.search', ['substring_match' => 1, 'q' => 'РАЦ']))->json('html'));
+        $this->assertStringContainsString('Парацетамол Forte', $this->actingAs($user)->getJson(route('catalog.search', ['substring_match' => 1, 'q' => 'FOR']))->json('html'));
+        $this->assertStringContainsString('Парацетамол Forte', $this->actingAs($user)->getJson(route('catalog.search', ['substring_match' => 1, 'q' => '10%']))->json('html'));
+        $this->actingAs($user)->getJson(route('catalog.search', ['substring_match' => 1, 'q' => '10_']))->assertJsonPath('html', '');
+    }
+
+    #[DataProvider('nameMatchingQueries')]
+    public function test_name_matching_mode_is_consistent_for_results_totals_and_facets(string $query, array $mode, int $expected): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $category = ProductCategory::query()->where('is_active', true)->firstOrFail();
+        $offer = $this->offer($supplier, $import, 'Tester Парацетамол', 'tester парацетамол', 10, 1);
+        $offer->medicine->categories()->sync([$category->id => ['source' => 'test', 'confidence' => 100]]);
+
+        $response = $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', [
+            'q' => $query, 'view' => 'list', ...$mode,
+        ]));
+
+        $response->assertOk()->assertJsonPath('pagination.returned', $expected)
+            ->assertJsonPath('pagination.total', $expected)->assertJsonPath('facets.all_count', $expected);
+        $this->assertSame($expected === 1 ? [$offer->id] : [], $this->offerIds($response->json('html')));
+        $this->assertSame($expected === 1 ? [['id' => $category->id, 'count' => 1]] : [],
+            collect($response->json('facets.categories'))->map(fn (array $facet): array => ['id' => $facet['id'], 'count' => $facet['count']])->all());
+        $this->assertSame($expected, count($response->json('facets.cities')));
+        $this->assertSame($expected, count($response->json('facets.suppliers')));
+    }
+
+    public static function nameMatchingQueries(): array
+    {
+        return [
+            'default Latin prefix' => ['tEs', [], 1],
+            'disabled Latin prefix' => ['tEs', ['substring_match' => 0], 1],
+            'default Latin substring' => ['EsT', [], 0],
+            'disabled Latin substring' => ['EsT', ['substring_match' => '0'], 0],
+            'enabled Latin prefix' => ['tEs', ['substring_match' => 1], 1],
+            'enabled Latin substring' => ['EsT', ['substring_match' => '1'], 1],
+            'default later word' => ['ПаРа', [], 0],
+            'enabled later word' => ['ПаРа', ['substring_match' => 1], 1],
+            'default Cyrillic substring' => ['РаЦ', [], 0],
+            'enabled Cyrillic substring' => ['РаЦ', ['substring_match' => 1], 1],
+        ];
+    }
+
+    #[DataProvider('cyrillicMatchingModes')]
+    public function test_cyrillic_prefix_is_case_insensitive(array $mode): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $this->offer($supplier, $import, 'Парацетамол', 'парацетамол', 10, 1);
+
+        $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => 'пАрА', ...$mode]))
+            ->assertOk()->assertJsonPath('pagination.total', 1);
+    }
+
+    public static function cyrillicMatchingModes(): array
+    {
+        return ['prefix' => [[]], 'substring' => [['substring_match' => 1]]];
+    }
+
+    #[DataProvider('literalQueries')]
+    public function test_wildcard_and_backslash_queries_are_literal(string $query, array $mode, int $expected): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $this->offer($supplier, $import, '10%_\\mix', '10%_\\mix', 10, 1);
+        $this->offer($supplier, $import, '10abcXmix', '10abcxmix', 11, 2);
+
+        $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => $query, ...$mode]))
+            ->assertOk()->assertJsonPath('pagination.total', $expected);
+    }
+
+    public static function literalQueries(): array
+    {
+        return [
+            'prefix percent' => ['10%', [], 1],
+            'substring percent' => ['10%', ['substring_match' => 1], 1],
+            'prefix underscore mismatch' => ['10_', [], 0],
+            'substring underscore mismatch' => ['10_', ['substring_match' => 1], 0],
+            'prefix backslash' => ['10%_\\m', [], 1],
+            'substring backslash' => ['%_\\m', ['substring_match' => 1], 1],
+            'later literal excludes prefix' => ['%_\\m', [], 0],
+        ];
     }
 
     public function test_category_filter_and_facets_count_offer_rows_without_applying_selected_category(): void
@@ -128,6 +208,10 @@ class CatalogSearchTest extends TestCase
         $response = $this->actingAs($this->pharmacyUser())->get(route('catalog'));
 
         $response
+            ->assertSee('Искать в любой части названия')
+            ->assertSee('name="substring_match"', false)
+            ->assertSee('for="substring_match"', false)
+            ->assertSee('form="catalog-search-form"', false)
             ->assertSee('data-search-panel', false)
             ->assertSee('data-active-category-label', false)
             ->assertSee('data-category-label', false)
@@ -137,6 +221,28 @@ class CatalogSearchTest extends TestCase
             ->assertSee('Название лекарства')
             ->assertDontSee('Оптовый каталог')
             ->assertDontSee('Оставьте поле пустым, чтобы посмотреть весь каталог.');
+    }
+
+    #[DataProvider('checkboxStates')]
+    public function test_catalog_checkbox_is_unchecked_by_default_and_restored_from_url(array $mode, bool $checked): void
+    {
+        $response = $this->actingAs($this->pharmacyUser())->get(route('catalog', $mode));
+        $document = new \DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new \DOMXPath($document);
+        $checkbox = $xpath->query('//input[@name="substring_match"]')->item(0);
+
+        $this->assertNotNull($checkbox);
+        $this->assertSame('checkbox', $checkbox->getAttribute('type'));
+        $this->assertSame('1', $checkbox->getAttribute('value'));
+        $this->assertSame('catalog-search-form', $checkbox->getAttribute('form'));
+        $this->assertSame($checked, $checkbox->hasAttribute('checked'));
+        $this->assertSame('Искать в любой части названия', trim($xpath->query('//label[@for="substring_match"]/span')->item(0)->textContent));
+    }
+
+    public static function checkboxStates(): array
+    {
+        return ['default' => [[], false], 'disabled' => [['substring_match' => 0], false], 'enabled' => [['substring_match' => 1], true]];
     }
 
     public function test_catalog_page_uses_neutral_medicine_image_for_unmapped_category_code(): void
