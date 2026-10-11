@@ -18,7 +18,7 @@
             <div>
                 <h2 class="text-lg font-bold">{{ $supplierRequest->supplier_name }}</h2>
                 <p class="mt-1 text-sm text-muted">{{ $supplierRequest->shared_at->format('d.m.Y H:i') }} · {{ $supplierRequest->item_count }} ед. · {{ $supplierRequest->total }} TJS</p>
-                <p class="mt-2 text-sm text-slate-600">{{ $supplierRequest->items->pluck('product_name')->take(3)->implode(', ') }}@if($supplierRequest->items->count() > 3) и ещё {{ $supplierRequest->items->count() - 3 }}@endif</p>
+                <p class="mt-2 text-sm text-secondary">{{ $supplierRequest->items->pluck('product_name')->take(3)->implode(', ') }}@if($supplierRequest->items->count() > 3) и ещё {{ $supplierRequest->items->count() - 3 }}@endif</p>
             </div>
             <x-ui.button :href="route('supplier-requests.show', $supplierRequest)" variant="secondary">Открыть</x-ui.button>
         </x-ui.card>
@@ -27,5 +27,5 @@
     @endforelse
 </div>
 
-<div class="mt-6">{{ $supplierRequests->links() }}</div>
+<div class="mt-6">{{ $supplierRequests->links('components.ui.pagination') }}</div>
 @endsection

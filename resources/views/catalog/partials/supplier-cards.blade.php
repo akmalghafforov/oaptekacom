@@ -4,7 +4,7 @@
         <div class="flex items-start gap-3">
             <span class="catalog-supplier-avatar md:hidden" aria-hidden="true">{{ str($supplier->name)->trim()->substr(0, 1)->upper() }}</span>
             <div class="min-w-0 grow"><h3 class="text-lg font-bold">{{ $supplier->name }}</h3><p class="text-sm text-muted">{{ $supplier->city ?: 'Город не указан' }}</p></div>
-            <span class="catalog-supplier-count rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">{{ $supplierOffers->count() }} предл.</span>
+            <span class="catalog-supplier-count rounded-full bg-accent-surface px-3 py-1 text-sm font-semibold text-accent">{{ $supplierOffers->count() }} предл.</span>
         </div>
         <div class="catalog-supplier-meta md:hidden"><span>Прайс и цены открыты</span><span>Без отзывов</span></div>
         <p class="catalog-supplier-price text-sm">Цены от <strong>{{ $supplierOffers->min('effective_price') }} TJS</strong></p>

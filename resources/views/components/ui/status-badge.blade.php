@@ -9,6 +9,6 @@
     ];
     $positive = ['received', 'confirmed', 'received_by_customer', 'approved', 'completed', 'active'];
     $negative = ['cancelled', 'rejected', 'failed', 'blocked'];
-    $style = in_array($status, $negative, true) ? 'bg-red-50 text-danger ring-red-200' : (in_array($status, $positive, true) ? 'bg-brand-50 text-brand-700 ring-brand-200' : 'bg-amber-50 text-warning ring-amber-200');
+    $style = in_array($status, $negative, true) ? 'bg-danger-surface text-danger ring-danger-border' : (in_array($status, $positive, true) ? 'bg-accent-surface text-accent ring-success-border' : 'bg-warning-surface text-warning ring-warning-border');
 @endphp
 <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $style }}">{{ $label ?? $labels[$status] ?? $status }}</span>

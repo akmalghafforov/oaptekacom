@@ -13,12 +13,12 @@
         </x-ui.button>
     </form>
 
-    <div class="mt-4 border-t border-slate-200 pt-4">
-        <p id="city-filter-label" class="text-sm font-medium text-slate-700">Город</p>
+    <div class="mt-4 border-t border-border pt-4">
+        <p id="city-filter-label" class="text-sm font-medium text-content">Город</p>
         <div class="-mx-1 mt-2 flex snap-x gap-2 overflow-x-auto px-1 pb-1" aria-labelledby="city-filter-label">
-            <a href="{{ route('partners.index', array_filter(['name' => request('name')])) }}" @class(['inline-flex min-h-10 shrink-0 snap-start items-center rounded-full border px-4 text-sm font-semibold transition focus-visible:outline-brand-600', 'border-brand-600 bg-brand-600 text-white' => ! request()->filled('city'), 'border-slate-300 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50' => request()->filled('city')]) @if(! request()->filled('city')) aria-current="true" @endif>Все города</a>
+            <a href="{{ route('partners.index', array_filter(['name' => request('name')])) }}" @class(['inline-flex min-h-10 shrink-0 snap-start items-center rounded-full border px-4 text-sm font-semibold transition focus-visible:outline-focus', 'border-accent-strong bg-action text-white' => ! request()->filled('city'), 'border-control-border bg-surface text-content hover:border-success-control-border hover:bg-accent-surface' => request()->filled('city')]) @if(! request()->filled('city')) aria-current="true" @endif>Все города</a>
             @foreach($cities as $city)
-                <a href="{{ route('partners.index', array_filter(['name' => request('name'), 'city' => $city])) }}" @class(['inline-flex min-h-10 shrink-0 snap-start items-center rounded-full border px-4 text-sm font-semibold transition focus-visible:outline-brand-600', 'border-brand-600 bg-brand-600 text-white' => request('city') === $city, 'border-slate-300 bg-white text-slate-700 hover:border-brand-300 hover:bg-brand-50' => request('city') !== $city]) @if(request('city') === $city) aria-current="true" @endif>{{ $city }}</a>
+                <a href="{{ route('partners.index', array_filter(['name' => request('name'), 'city' => $city])) }}" @class(['inline-flex min-h-10 shrink-0 snap-start items-center rounded-full border px-4 text-sm font-semibold transition focus-visible:outline-focus', 'border-accent-strong bg-action text-white' => request('city') === $city, 'border-control-border bg-surface text-content hover:border-success-control-border hover:bg-accent-surface' => request('city') !== $city]) @if(request('city') === $city) aria-current="true" @endif>{{ $city }}</a>
             @endforeach
         </div>
     </div>
@@ -43,10 +43,10 @@
         $hasContacts = $validPhones->isNotEmpty() || $whatsAppPhone || $isValidEmail;
         $initial = str($supplier->name)->trim()->substr(0, 1)->upper();
     @endphp
-    <x-ui.card class="relative cursor-pointer !p-4 transition hover:border-brand-200 hover:shadow-md sm:!p-5">
-        <button type="button" class="absolute inset-0 z-0 rounded-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600" aria-label="Открыть сведения о поставщике {{ $supplier->name }}" aria-controls="partner-{{ $supplier->id }}" data-dialog-open></button>
+    <x-ui.card class="relative cursor-pointer !p-4 transition hover:border-success-border hover:shadow-md sm:!p-5">
+        <button type="button" class="absolute inset-0 z-0 rounded-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-label="Открыть сведения о поставщике {{ $supplier->name }}" aria-controls="partner-{{ $supplier->id }}" data-dialog-open></button>
         <div class="flex items-start gap-3 sm:gap-4">
-            <div class="grid size-12 shrink-0 place-items-center rounded-xl border border-brand-100 bg-brand-50 text-lg font-bold text-brand-700" aria-hidden="true">{{ $initial }}</div>
+            <div class="grid size-12 shrink-0 place-items-center rounded-xl border border-accent-border bg-accent-surface text-lg font-bold text-accent" aria-hidden="true">{{ $initial }}</div>
             <div class="min-w-0 flex-1">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div class="min-w-0">
@@ -55,32 +55,32 @@
                         <p class="mt-1 text-xs text-muted">{{ $activeImportUpdatedAt ? 'Прайс обновлён '.$activeImportUpdatedAt->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : 'Активный прайс-лист не загружен' }}</p>
                     </div>
                     <div class="flex w-fit shrink-0 flex-wrap gap-2">
-                        <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $supplier->has_available_catalog ? 'bg-brand-50 text-brand-700 ring-brand-200' : 'bg-slate-100 text-slate-600 ring-slate-200' }}">
+                        <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $supplier->has_available_catalog ? 'bg-accent-surface text-accent ring-success-border' : 'bg-surface-hover text-secondary ring-border' }}">
                             {{ $supplier->has_available_catalog ? 'Прайс доступен' : 'Прайс недоступен' }}
                         </span>
                         @if($discount)
-                            <span class="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">Ваша скидка {{ $discount->supplier_discount_percent }}%</span>
+                            <span class="inline-flex rounded-full bg-warning-surface px-2.5 py-1 text-xs font-semibold text-warning-strong ring-1 ring-inset ring-warning-border">Ваша скидка {{ $discount->supplier_discount_percent }}%</span>
                         @endif
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="mt-4 border-t border-slate-200 pt-4">
+        <div class="mt-4 border-t border-border pt-4">
             @if($hasContacts)
                 <div class="relative z-10 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
                     @foreach($validPhones as $phone)
-                        <a href="tel:{{ $phone }}" class="inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-control border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">
+                        <a href="tel:{{ $phone }}" class="inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-control border border-border bg-surface-subtle px-3 text-sm font-medium text-content transition hover:border-success-border hover:bg-accent-surface hover:text-accent">
                             <span aria-hidden="true">☎</span><span class="truncate">{{ $phone }}</span>
                         </a>
                     @endforeach
                     @if($whatsAppPhone)
-                        <a href="https://wa.me/{{ ltrim($whatsAppPhone, '+') }}" class="inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-control border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">
+                        <a href="https://wa.me/{{ ltrim($whatsAppPhone, '+') }}" class="inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-control border border-border bg-surface-subtle px-3 text-sm font-medium text-content transition hover:border-success-border hover:bg-accent-surface hover:text-accent">
                             <span aria-hidden="true">◉</span><span class="truncate">WhatsApp</span>
                         </a>
                     @endif
                     @if($isValidEmail)
-                        <a href="mailto:{{ $email }}" class="inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-control border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">
+                        <a href="mailto:{{ $email }}" class="inline-flex min-h-10 min-w-0 items-center justify-center gap-2 rounded-control border border-border bg-surface-subtle px-3 text-sm font-medium text-content transition hover:border-success-border hover:bg-accent-surface hover:text-accent">
                             <span aria-hidden="true">✉</span><span class="truncate">{{ $email }}</span>
                         </a>
                     @endif
@@ -94,7 +94,7 @@
     <x-ui.dialog name="partner-{{ $supplier->id }}" :open-on-load="$errors->has('supplier_discount_percent') && (int) old('supplier_id') === $supplier->id" class="!w-[min(28rem,calc(100%-2rem))]">
         <x-slot:header class="border-b-0 pb-3">
             <div class="flex min-w-0 items-center gap-3">
-                <div class="grid size-11 shrink-0 place-items-center rounded-xl border border-brand-100 bg-brand-50 text-base font-bold text-brand-700" aria-hidden="true">{{ $initial }}</div>
+                <div class="grid size-11 shrink-0 place-items-center rounded-xl border border-accent-border bg-accent-surface text-base font-bold text-accent" aria-hidden="true">{{ $initial }}</div>
                 <div class="min-w-0"><h2 id="partner-{{ $supplier->id }}-title" class="truncate text-lg font-bold">{{ $supplier->name }}</h2><p class="mt-0.5 truncate text-sm text-muted">{{ $supplier->city ?: 'Город не указан' }}</p></div>
             </div>
             <x-ui.icon-button label="Закрыть" data-dialog-close>×</x-ui.icon-button>
@@ -103,7 +103,7 @@
         <div class="min-h-0 space-y-3 overflow-y-auto px-5 pb-5">
             <x-ui.card class="!p-4">
                 <p class="text-sm text-muted">Доступность прайса</p>
-                <p class="mt-1 font-semibold {{ $supplier->has_available_catalog ? 'text-brand-700' : 'text-slate-700' }}">{{ $supplier->has_available_catalog ? 'Прайс открыт' : 'Прайс закрыт' }}</p>
+                <p class="mt-1 font-semibold {{ $supplier->has_available_catalog ? 'text-accent' : 'text-content' }}">{{ $supplier->has_available_catalog ? 'Прайс открыт' : 'Прайс закрыт' }}</p>
                 <p class="mt-1 text-xs text-muted">{{ $supplier->has_available_catalog ? 'Актуальные предложения доступны для просмотра.' : 'Актуальные предложения пока недоступны.' }}</p>
             </x-ui.card>
 
@@ -120,9 +120,9 @@
                     <x-ui.button type="button" variant="secondary" class="w-full" aria-controls="partner-{{ $supplier->id }}-contacts" aria-expanded="false" data-contact-toggle data-show-label="Показать контакты" data-hide-label="Скрыть контакты">Показать контакты</x-ui.button>
                     <div id="partner-{{ $supplier->id }}-contacts" class="mt-3 space-y-2" data-contact-details hidden>
                         @if($supplier->contact_name)<p class="text-sm"><span class="text-muted">Контактное лицо:</span> <span class="font-medium">{{ $supplier->contact_name }}</span></p>@endif
-                        @foreach($validPhones as $phone)<a href="tel:{{ $phone }}" class="flex min-h-10 items-center rounded-control border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{{ $phone }}</a>@endforeach
-                        @if($whatsAppPhone)<a href="https://wa.me/{{ ltrim($whatsAppPhone, '+') }}" class="flex min-h-10 items-center rounded-control border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">WhatsApp</a>@endif
-                        @if($isValidEmail)<a href="mailto:{{ $email }}" class="flex min-h-10 items-center rounded-control border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{{ $email }}</a>@endif
+                        @foreach($validPhones as $phone)<a href="tel:{{ $phone }}" class="flex min-h-10 items-center rounded-control border border-border px-3 text-sm font-medium text-content hover:border-success-border hover:bg-accent-surface hover:text-accent">{{ $phone }}</a>@endforeach
+                        @if($whatsAppPhone)<a href="https://wa.me/{{ ltrim($whatsAppPhone, '+') }}" class="flex min-h-10 items-center rounded-control border border-border px-3 text-sm font-medium text-content hover:border-success-border hover:bg-accent-surface hover:text-accent">WhatsApp</a>@endif
+                        @if($isValidEmail)<a href="mailto:{{ $email }}" class="flex min-h-10 items-center rounded-control border border-border px-3 text-sm font-medium text-content hover:border-success-border hover:bg-accent-surface hover:text-accent">{{ $email }}</a>@endif
                     </div>
                 </div>
             @endif
@@ -161,20 +161,20 @@
                 <nav class="flex flex-col gap-2 sm:flex-row sm:items-center" aria-label="Страницы поставщиков">
                     <div class="grid grid-cols-2 gap-2 sm:contents">
                         @if($suppliers->onFirstPage())
-                            <span class="inline-flex min-h-10 items-center justify-center rounded-control border border-slate-200 px-3 text-sm font-semibold text-slate-400">Назад</span>
+                            <span class="inline-flex min-h-10 items-center justify-center rounded-control border border-border px-3 text-sm font-semibold text-placeholder">Назад</span>
                         @else
-                            <a href="{{ $suppliers->previousPageUrl() }}" class="inline-flex min-h-10 items-center justify-center rounded-control border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Назад</a>
+                            <a href="{{ $suppliers->previousPageUrl() }}" class="inline-flex min-h-10 items-center justify-center rounded-control border border-control-border bg-surface px-3 text-sm font-semibold text-content hover:bg-surface-subtle">Назад</a>
                         @endif
                         @if($suppliers->hasMorePages())
-                            <a href="{{ $suppliers->nextPageUrl() }}" class="inline-flex min-h-10 items-center justify-center rounded-control border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:order-3">Вперёд</a>
+                            <a href="{{ $suppliers->nextPageUrl() }}" class="inline-flex min-h-10 items-center justify-center rounded-control border border-control-border bg-surface px-3 text-sm font-semibold text-content hover:bg-surface-subtle sm:order-3">Вперёд</a>
                         @else
-                            <span class="inline-flex min-h-10 items-center justify-center rounded-control border border-slate-200 px-3 text-sm font-semibold text-slate-400 sm:order-3">Вперёд</span>
+                            <span class="inline-flex min-h-10 items-center justify-center rounded-control border border-border px-3 text-sm font-semibold text-placeholder sm:order-3">Вперёд</span>
                         @endif
                     </div>
                     <div class="flex flex-wrap justify-center gap-1 sm:order-2">
                         @foreach($paginationPages as $page)
                             @if(! $loop->first && $page - $paginationPages[$loop->index - 1] > 1)<span class="grid size-10 place-items-center text-sm text-muted" aria-hidden="true">…</span>@endif
-                            <a href="{{ $suppliers->url($page) }}" @class(['grid size-10 place-items-center rounded-control border text-sm font-semibold transition', 'border-brand-600 bg-brand-600 text-white' => $page === $suppliers->currentPage(), 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50' => $page !== $suppliers->currentPage()]) @if($page === $suppliers->currentPage()) aria-current="page" @endif aria-label="Страница {{ $page }}">{{ $page }}</a>
+                            <a href="{{ $suppliers->url($page) }}" @class(['grid size-10 place-items-center rounded-control border text-sm font-semibold transition', 'border-accent-strong bg-action text-white' => $page === $suppliers->currentPage(), 'border-control-border bg-surface text-content hover:bg-surface-subtle' => $page !== $suppliers->currentPage()]) @if($page === $suppliers->currentPage()) aria-current="page" @endif aria-label="Страница {{ $page }}">{{ $page }}</a>
                         @endforeach
                     </div>
                 </nav>

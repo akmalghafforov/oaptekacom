@@ -345,7 +345,7 @@ class CatalogSearchTest extends TestCase
             $this->assertStringContainsString('md:block', $addedDate->getAttribute('class'));
         }
         $this->assertSame(0, $xpath->query('//*[contains(@class, "mobile-offer-expiry")]')->length);
-        $this->assertStringContainsString($supplier->name, $html);
+        $this->assertStringContainsString(e($supplier->name), $html);
         $this->assertStringContainsString('Душанбе', $html);
     }
 

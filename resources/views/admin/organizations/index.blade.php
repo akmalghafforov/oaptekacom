@@ -8,7 +8,7 @@
     $nextDirection = fn (string $column) => $sort === $column && $direction === 'asc' ? 'desc' : 'asc';
 @endphp
 <x-ui.page-header :title="$title" :description="$isProvider ? 'Каталог поставщиков и связанных учётных записей.' : 'Каталог аптек и связанных учётных записей.'">
-    <x-slot:actions><a class="text-sm font-semibold text-brand-700 hover:underline" href="{{ route('admin.users') }}">Пользователи</a></x-slot:actions>
+    <x-slot:actions><a class="text-sm font-semibold text-accent hover:underline" href="{{ route('admin.users') }}">Пользователи</a></x-slot:actions>
 </x-ui.page-header>
 
 <x-ui.card class="mb-6">
@@ -47,5 +47,5 @@
         </tr>@empty<tr><td colspan="{{ $isProvider ? 7 : 6 }}"><x-ui.empty-state :title="$isProvider ? 'Поставщики не найдены' : 'Аптеки не найдены'" description="Измените параметры поиска или сбросьте фильтры." /></td></tr>@endforelse</tbody>
     </table>
 </div>
-<div class="mt-6">{{ $organizations->links() }}</div>
+<div class="mt-6">{{ $organizations->links('components.ui.pagination') }}</div>
 @endsection

@@ -11,5 +11,5 @@
         </form>
     </x-ui.card>
     <div class="mt-6 table-wrap"><table class="data-table"><thead><tr><th>Дата</th><th>Поставщик</th><th>Товар</th><th>Статус</th><th>Кандидаты</th><th>Импорт</th></tr></thead><tbody>@forelse($rows as $row)<tr><td>{{ $row->created_at->format('d.m.Y H:i') }}</td><td>{{ $row->import->supplier->name }}</td><td>{{ $row->original_product_name }}</td><td>{{ $row->categorization_status === 'attention_needed' ? 'Желательно уточнить' : 'Без категории' }}</td><td>@foreach($row->category_candidates ?? [] as $candidate)<p>{{ $candidate['label'] }} · {{ $candidate['confidence'] }}% · {{ $candidate['decision'] }}</p>@endforeach</td><td><a class="font-semibold text-brand underline" href="{{ route('price-list-imports.show', ['import' => $row->price_list_import_id, 'categorization_status' => $row->categorization_status]) }}">Открыть</a></td></tr>@empty<tr><td colspan="6">Товаров для уточнения нет.</td></tr>@endforelse</tbody></table></div>
-    <div class="mt-4">{{ $rows->links() }}</div>
+    <div class="mt-4">{{ $rows->links('components.ui.pagination') }}</div>
 @endsection

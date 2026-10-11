@@ -297,7 +297,7 @@ export class CatalogSearchController {
     }
 }
 
-const emptyState = (title, description, retry = false) => `<div class="rounded-panel border border-dashed border-slate-300 bg-white px-5 py-10 text-center"><p class="font-semibold text-slate-700">${title}</p><p class="mt-1 text-sm text-muted">${description}</p>${retry ? '<button type="button" data-catalog-retry class="mt-4 min-h-10 rounded-control bg-brand-600 px-4 py-2 font-semibold text-white">Повторить</button>' : ''}</div>`;
+const emptyState = (title, description, retry = false) => `<div class="rounded-panel border border-dashed border-control-border bg-surface px-5 py-10 text-center"><p class="font-semibold text-content">${title}</p><p class="mt-1 text-sm text-muted">${description}</p>${retry ? '<button type="button" data-catalog-retry class="mt-4 min-h-10 rounded-control bg-action px-4 py-2 font-semibold text-white">Повторить</button>' : ''}</div>`;
 
 export function initializeCatalogSearch(root) {
     const form = root.querySelector('[data-catalog-form]');

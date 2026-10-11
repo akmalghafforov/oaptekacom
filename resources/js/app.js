@@ -64,7 +64,7 @@ const renderPhoneMask = (mask, value) => {
         }
 
         const placeholder = document.createElement('span');
-        placeholder.className = 'text-slate-400';
+        placeholder.className = 'text-placeholder';
         placeholder.textContent = '0';
         mask.append(placeholder);
     };
@@ -122,10 +122,10 @@ document.querySelectorAll('[data-subscription-calculator]').forEach((form) => {
         form.querySelectorAll('[data-subscription-choice]').forEach((choice) => {
             const isSelected = choice.querySelector('input').checked;
 
-            choice.classList.toggle('border-brand-600', isSelected);
-            choice.classList.toggle('bg-brand-50', isSelected);
-            choice.classList.toggle('border-slate-300', !isSelected);
-            choice.classList.toggle('bg-white', !isSelected);
+            choice.classList.toggle('border-accent-strong', isSelected);
+            choice.classList.toggle('bg-accent-surface', isSelected);
+            choice.classList.toggle('border-control-border', !isSelected);
+            choice.classList.toggle('bg-surface', !isSelected);
         });
     };
     const updateSummary = () => {

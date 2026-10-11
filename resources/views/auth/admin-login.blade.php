@@ -6,5 +6,5 @@
 <x-ui.input name="password" type="password" label="Пароль" required autocomplete="current-password" />
 <x-ui.button class="w-full">Войти</x-ui.button>
 </form></x-ui.card>
-<p class="mt-5 text-center text-sm text-muted"><a class="font-semibold text-brand-700 hover:underline" href="{{ route('login') }}">Вход для аптек</a></p>
+<p class="mt-5 text-center text-sm text-muted"><a class="font-semibold text-accent hover:underline" href="{{ route('login') }}">Вход для аптек</a></p>
 @endsection

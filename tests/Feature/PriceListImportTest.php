@@ -51,10 +51,10 @@ class PriceListImportTest extends TestCase
             $supplierWithoutProfile->name,
             'Нет активного профиля',
         ]);
-        $response->assertSee('border-emerald-200');
-        $response->assertSee('bg-emerald-50');
-        $response->assertSee('border-red-200');
-        $response->assertSee('bg-red-50');
+        $response->assertSee('border-success-border');
+        $response->assertSee('bg-success-surface');
+        $response->assertSee('border-danger-border');
+        $response->assertSee('bg-danger-surface');
     }
 
     public function test_wholesaler_does_not_see_admin_supplier_profile_statuses(): void

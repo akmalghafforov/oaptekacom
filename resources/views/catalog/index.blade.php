@@ -16,7 +16,7 @@
             <x-ui.button type="button" variant="secondary" class="min-h-12 gap-2 px-3 sm:px-4" data-filter-open aria-label="Фильтры">
                 <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
                 <span class="hidden sm:inline">Фильтры</span>
-                <span data-filter-count class="hidden rounded-full bg-brand-100 px-2 py-0.5 text-xs">0</span>
+                <span data-filter-count class="hidden rounded-full bg-accent-surface-strong px-2 py-0.5 text-xs">0</span>
             </x-ui.button>
             <x-ui.button type="submit" class="min-h-12 gap-2 px-3 sm:px-4" data-search-submit aria-label="Найти">
                 <svg class="catalog-search-submit-icon size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
@@ -55,13 +55,13 @@
                     <button type="button" data-category="" role="option" aria-selected="true" class="catalog-category-card">
                         <span class="catalog-category-image"><x-ui.catalog-category-icon code="all" /></span>
                         <span class="catalog-category-copy"><span class="catalog-category-name" data-category-label>Все товары</span><span data-all-count class="catalog-category-count">— тов.</span></span>
-                        <svg data-category-selected class="catalog-category-selected" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5 8 2 2 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <svg data-category-selected class="catalog-category-selected" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5 8 2 2 4-4" stroke="var(--color-accent-check)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
                     @foreach($categories as $category)
                         <button type="button" data-category="{{ $category->id }}" role="option" aria-selected="false" class="catalog-category-card">
                             <span class="catalog-category-image"><x-ui.catalog-category-icon :code="$category->code" /></span>
                             <span class="catalog-category-copy"><span class="catalog-category-name" data-category-label>{{ $category->label }}</span><span data-category-count class="catalog-category-count">— тов.</span></span>
-                            <svg data-category-selected class="catalog-category-selected" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5 8 2 2 4-4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            <svg data-category-selected class="catalog-category-selected" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="m5 8 2 2 4-4" stroke="var(--color-accent-check)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
                     @endforeach
                 </div>
@@ -81,7 +81,7 @@
         <div data-filter-chips class="flex flex-wrap gap-2"></div>
     </section>
     <template data-filter-chip-template>
-        <x-ui.button type="button" variant="ghost" data-filter-remove class="max-w-full gap-2 bg-brand-50 text-brand-700 hover:bg-brand-100 focus-visible:outline-2 focus-visible:outline-offset-2">
+        <x-ui.button type="button" variant="ghost" data-filter-remove class="max-w-full gap-2 bg-accent-surface text-accent hover:bg-accent-surface-strong focus-visible:outline-2 focus-visible:outline-offset-2">
             <span data-filter-chip-label class="min-w-0 whitespace-normal text-left break-words [overflow-wrap:anywhere]"></span>
             <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
         </x-ui.button>
