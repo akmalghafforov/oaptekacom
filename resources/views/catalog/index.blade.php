@@ -2,8 +2,8 @@
 @section('content')
 <div data-catalog-search data-search-url="{{ route('catalog.search') }}" data-cart-total="{{ $cartTotal }}">
     <x-ui.card class="catalog-search-panel z-20 overflow-visible transition-[padding] md:sticky md:top-2 md:mb-5 [&.is-compact]:p-2" data-search-panel>
-        <div class="catalog-mobile-search-heading md:hidden">
-            <div><h1>Поиск товаров</h1><p data-active-category-label>Все товары</p></div>
+        <div class="catalog-mobile-search-heading sr-only md:hidden">
+            <div><h1>Поиск товаров</h1><p class="hidden" data-active-category-label>Все товары</p></div>
         </div>
         <div data-search-expanded class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0 hidden md:block">

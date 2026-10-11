@@ -210,6 +210,48 @@ class CatalogSearchTest extends TestCase
         $this->assertStringContainsString('data-mobile-result-shell="grid"', $response->json('fragments.cards'));
     }
 
+    #[DataProvider('suppliedMobileForms')]
+    public function test_mobile_list_keeps_supplied_form_and_limits_missing_form_and_added_dates_to_tablet(?string $dosage, ?string $form, string $expectedForm): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $supplied = $this->offer($supplier, $import, 'С формой', 'мобильная мета', 10, 1);
+        $supplied->medicine->update(['dosage' => $dosage, 'form' => $form]);
+        $missing = $this->offer($supplier, $import, 'Без формы', 'мобильная мета', 11, 2);
+        $missing->medicine->update(['dosage' => null, 'form' => null]);
+
+        $response = $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => 'мобильная мета', 'view' => 'list']));
+
+        $html = $response->json('fragments.mobile_rows');
+        $document = new \DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$html);
+        $xpath = new \DOMXPath($document);
+        $suppliedForm = $xpath->query('//p[contains(., "'.$expectedForm.'")]')->item(0);
+        $missingForm = $xpath->query('//p[contains(., "Форма не указана")]')->item(0);
+        $addedDates = $xpath->query('//p[contains(., "Добавлен в систему")]');
+        $this->assertNotNull($suppliedForm);
+        $this->assertStringNotContainsString('hidden', $suppliedForm->getAttribute('class'));
+        $this->assertNotNull($missingForm);
+        $this->assertStringContainsString('hidden md:block', $missingForm->getAttribute('class'));
+        $this->assertCount(2, $addedDates);
+        foreach ($addedDates as $addedDate) {
+            $this->assertStringContainsString('hidden', $addedDate->getAttribute('class'));
+            $this->assertStringContainsString('md:block', $addedDate->getAttribute('class'));
+        }
+        $this->assertSame(0, $xpath->query('//*[contains(@class, "mobile-offer-expiry")]')->length);
+        $this->assertStringContainsString($supplier->name, $html);
+        $this->assertStringContainsString('Душанбе', $html);
+    }
+
+    /** @return array<string, array{?string, ?string, string}> */
+    public static function suppliedMobileForms(): array
+    {
+        return [
+            'dosage and form' => ['500 мг', 'Капсулы', '500 мг · Капсулы'],
+            'dosage only' => ['500 мг', null, '500 мг'],
+            'form only' => [null, 'Капсулы', 'Капсулы'],
+        ];
+    }
+
     public function test_existing_cart_items_render_persistent_in_cart_controls_in_every_catalog_fragment(): void
     {
         [$supplier, $import] = $this->activeImport();

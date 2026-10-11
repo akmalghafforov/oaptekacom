@@ -9,23 +9,25 @@
     @endphp
     <article class="mobile-offer-row" data-mobile-result-shell="list" data-mobile-offer-row data-offer-id="{{ $offer->id }}">
         <div aria-hidden="true" class="invisible mobile-offer-image"></div>
-        <div class="min-w-0 grow">
-            <div class="flex items-start justify-between gap-2">
-                <div class="min-w-0">
+        <div class="mobile-offer-content min-w-0 grow">
+            <div class="mobile-offer-product flex items-start justify-between gap-2">
+                <div class="mobile-offer-name min-w-0">
                     <h3 class="line-clamp-2 text-sm font-bold leading-tight text-ink">{{ $offer->medicine->name }}</h3>
-                    <p class="mt-1 truncate text-xs text-muted">{{ collect([$offer->medicine->dosage, $offer->medicine->form])->filter()->join(' · ') ?: 'Форма не указана' }}</p>
+                    <p @class(['mt-1 text-xs text-muted md:truncate', 'hidden md:block' => ! $offer->medicine->dosage && ! $offer->medicine->form])>{{ collect([$offer->medicine->dosage, $offer->medicine->form])->filter()->join(' · ') ?: 'Форма не указана' }}</p>
                 </div>
-                <div class="shrink-0 text-right"><p class="whitespace-nowrap text-base font-extrabold text-brand-700">{{ $offer->effective_price }} <span class="text-xs">TJS</span></p>@if($hasSupplierDiscount)<p class="mt-0.5 whitespace-nowrap text-[10px] text-muted">{{ $offer->price }} TJS · Ваша скидка {{ $offer->applied_supplier_discount_percent }}%</p>@endif</div>
+                <div class="mobile-offer-price min-w-0 shrink-0 text-right"><p class="whitespace-nowrap text-base font-extrabold text-brand-700">{{ $offer->effective_price }} <span class="text-xs">TJS</span></p>@if($hasSupplierDiscount)<p class="mt-0.5 text-xs md:whitespace-nowrap md:text-[10px] text-muted">{{ $offer->price }} TJS · Ваша скидка {{ $offer->applied_supplier_discount_percent }}%</p>@endif</div>
             </div>
-            <div class="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-                <div class="min-w-0 text-xs">
-                    <p class="truncate font-medium">{{ $offer->organization->name }} <span class="font-normal text-muted">· {{ $offer->organization->city ?: 'Город не указан' }}</span></p>
-                    <p class="mt-1 text-muted">Добавлен в систему: {{ $offer->created_at->format('d.m.Y') }}</p>
-                    <div class="mt-2 flex flex-wrap gap-1.5">
-                        @if($expired)<span class="mobile-offer-badge bg-amber-50 text-warning">Срок годности истёк: {{ $offer->expires_at->format('d.m.Y') }}</span>
-                        @elseif($offer->expires_at)<span class="mobile-offer-badge {{ $expiresSoon ? 'bg-amber-50 text-warning' : 'bg-slate-50 text-slate-600' }}">Срок: {{ $offer->expires_at->format('d.m.Y') }}</span>
-                        @endif
-                    </div>
+            <div class="mobile-offer-secondary mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+                <div class="mobile-offer-meta min-w-0 text-xs">
+                    <p class="font-medium md:truncate">{{ $offer->organization->name }} <span class="font-normal text-muted">· {{ $offer->organization->city ?: 'Город не указан' }}</span></p>
+                    <p class="mt-1 hidden text-muted md:block">Добавлен в систему: {{ $offer->created_at->format('d.m.Y') }}</p>
+                    @if($offer->expires_at)
+                        <div class="mobile-offer-expiry mt-2 flex flex-wrap gap-1.5">
+                            @if($expired)<span class="mobile-offer-badge bg-amber-50 text-warning">Срок годности истёк: {{ $offer->expires_at->format('d.m.Y') }}</span>
+                            @else<span class="mobile-offer-badge {{ $expiresSoon ? 'bg-amber-50 text-warning' : 'bg-slate-50 text-slate-600' }}">Срок: {{ $offer->expires_at->format('d.m.Y') }}</span>
+                            @endif
+                        </div>
+                    @endif
                 </div>
                 <div data-cart-add-controls data-cart-can-add="{{ $canBuy && $available ? 'true' : 'false' }}" @class(['hidden' => $inCart > 0])><form method="post" action="{{ route('cart.add', $offer) }}" data-cart-form class="flex items-center gap-1.5">@csrf
                     <input type="number" name="quantity" value="1" min="1" max="999" @disabled($inCart > 0) class="min-h-10 w-14 rounded-control border border-slate-300 px-2 text-center text-sm" aria-label="Количество {{ $offer->medicine->name }}">
