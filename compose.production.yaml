@@ -70,11 +70,11 @@ services:
     labels:
       traefik.enable: 'true'
       traefik.docker.network: traefik-net
-      traefik.http.routers.oapteka-op-http.rule: Host(`${TRAEFIK_HOST:-op.fannjourney.com}`)
+      traefik.http.routers.oapteka-op-http.rule: Host(`${TRAEFIK_HOST:-oapteka.app}`)
       traefik.http.routers.oapteka-op-http.entrypoints: web
       traefik.http.routers.oapteka-op-http.middlewares: https-redirect@file
       traefik.http.routers.oapteka-op-http.service: oapteka-op
-      traefik.http.routers.oapteka-op-https.rule: Host(`${TRAEFIK_HOST:-op.fannjourney.com}`)
+      traefik.http.routers.oapteka-op-https.rule: Host(`${TRAEFIK_HOST:-oapteka.app}`)
       traefik.http.routers.oapteka-op-https.entrypoints: websecure
       traefik.http.routers.oapteka-op-https.tls: 'true'
       traefik.http.routers.oapteka-op-https.tls.certresolver: cloudflare
