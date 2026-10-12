@@ -13,6 +13,7 @@ use App\Support\PhoneNormalizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class AdminController extends Controller
@@ -22,7 +23,7 @@ class AdminController extends Controller
         return view('admin.index', [
             'pending' => Organization::query()
                 ->where('status', 'pending')
-                ->with('assignedUsers')
+                ->with(['assignedUsers', 'sourceSupplierOrganization'])
                 ->get(),
         ]);
     }
@@ -33,14 +34,24 @@ class AdminController extends Controller
             $pendingOrganization = Organization::query()
                 ->lockForUpdate()
                 ->findOrFail($organization->id);
-            abort_unless($pendingOrganization->status === 'pending' && ! $pendingOrganization->setup_required, 422);
+            if ($pendingOrganization->status !== 'pending') {
+                throw ValidationException::withMessages(['organization' => 'Организация больше не ожидает одобрения. Обновите страницу.']);
+            }
+            if ($pendingOrganization->setup_required) {
+                throw ValidationException::withMessages(['organization' => 'Владелец должен сохранить данные организации в профиле рабочего режима.']);
+            }
 
             $organizationUser = $pendingOrganization->assignedUsers()
                 ->where(fn ($query) => $query->whereNotNull('phone_verified_at')->orWhere('users.role', UserRole::Admin))
                 ->lockForUpdate()
                 ->first();
-            $sourceSupplier = Organization::query()->where('linked_pharmacy_organization_id', $pendingOrganization->id)->lockForUpdate()->first();
-            abort_unless($organizationUser && (! $sourceSupplier || $sourceSupplier->status === 'active'), 422);
+            $sourceSupplier = $pendingOrganization->sourceSupplierOrganization()->lockForUpdate()->first();
+            if (! $organizationUser) {
+                throw ValidationException::withMessages(['organization' => 'Для одобрения организации необходимо подтверждение телефона по SMS.']);
+            }
+            if ($sourceSupplier && $sourceSupplier->status !== 'active') {
+                throw ValidationException::withMessages(['organization' => 'Сначала одобрите связанного поставщика: '.$sourceSupplier->name.'.']);
+            }
 
             $before = $pendingOrganization->only('status');
             $pendingOrganization->update(['status' => 'active']);

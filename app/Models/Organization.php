@@ -50,6 +50,11 @@ class Organization extends Model
         return $this->belongsTo(Organization::class, 'linked_pharmacy_organization_id');
     }
 
+    public function sourceSupplierOrganization(): HasOne
+    {
+        return $this->hasOne(Organization::class, 'linked_pharmacy_organization_id');
+    }
+
     public function users(): HasMany
     {
         return $this->hasMany(User::class);

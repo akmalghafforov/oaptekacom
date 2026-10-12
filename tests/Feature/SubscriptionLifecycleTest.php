@@ -40,7 +40,9 @@ class SubscriptionLifecycleTest extends TestCase
         $organization = Organization::factory()->pending()->create();
         $pharmacy = User::factory()->pharmacy($organization)->create(['phone_verified_at' => null, 'subscription_plan' => SubscriptionPlan::Base]);
 
-        $this->actingAs($admin)->post(route('admin.approve', $organization))->assertUnprocessable();
+        $this->actingAs($admin)->from(route('admin.index'))->post(route('admin.approve', $organization))
+            ->assertRedirect(route('admin.index'))
+            ->assertSessionHasErrors(['organization' => 'Для одобрения организации необходимо подтверждение телефона по SMS.']);
 
         $this->assertSame('pending', $organization->fresh()->status);
         $this->assertNull($pharmacy->fresh()->approved_at);
