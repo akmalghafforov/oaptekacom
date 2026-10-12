@@ -8,7 +8,6 @@
         $hasSupplierDiscount = $offer->applied_supplier_discount_percent !== null && bccomp($offer->applied_supplier_discount_percent, '0', 2) === 1;
     @endphp
     <tr data-offer-id="{{ $offer->id }}">
-        <td><div aria-hidden="true" class="invisible size-16 rounded-control object-cover"></div></td>
         <td><p class="font-bold text-ink">{{ $offer->medicine->name }}</p><p class="mt-1 text-xs text-muted">{{ collect([$offer->medicine->dosage, $offer->medicine->form])->filter()->join(' · ') ?: 'Форма не указана' }}</p></td>
         <td>{{ $offer->medicine->manufacturer ?: '—' }}<span class="sr-only">{{ $offer->medicine->manufacturer ? '' : 'Производитель не указан' }}</span></td>
         <td>
