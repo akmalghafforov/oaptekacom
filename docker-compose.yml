@@ -73,6 +73,12 @@ services:
       - traefik.docker.network=traefik-net
       - traefik.http.routers.oapteka.rule=Host(`${TRAEFIK_HOST:-oapteka.test}`)
       - traefik.http.routers.oapteka.entrypoints=web
+      - traefik.http.routers.oapteka.middlewares=https-redirect@file
+      - traefik.http.routers.oapteka-https.rule=Host(`${TRAEFIK_HOST:-oapteka.test}`)
+      - traefik.http.routers.oapteka-https.entrypoints=websecure
+      - traefik.http.routers.oapteka-https.tls=true
+      - traefik.http.routers.oapteka-https.tls.certresolver=cloudflare
+      - traefik.http.routers.oapteka-https.middlewares=secureHeaders@file
       - traefik.http.services.oapteka.loadbalancer.server.port=80
 
   queue:
