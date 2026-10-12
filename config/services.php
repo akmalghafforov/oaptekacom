@@ -36,6 +36,8 @@ return [
     ],
 
     'oson_sms' => [
+        'driver' => env('OSON_SMS_DRIVER', 'oson'),
+        'dummy_code' => env('OSON_SMS_DUMMY_CODE'),
         'login' => env('OSON_SMS_LOGIN'),
         'token' => env('OSON_SMS_TOKEN'),
         'sender' => env('OSON_SMS_SENDER'),

@@ -149,6 +149,28 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->assertDatabaseCount('one_time_passwords', 0);
     }
 
+    public function test_dummy_sms_driver_sends_the_configured_code_without_calling_the_provider(): void
+    {
+        config()->set('services.oson_sms.driver', 'dummy');
+        config()->set('services.oson_sms.dummy_code', '654321');
+        Http::preventStrayRequests();
+        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
+
+        $this->post(route('login.otp.send'), ['phone' => $pharmacy->phone])
+            ->assertRedirect(route('login.otp.form'));
+        $this->withSession(['phone_otp.login' => $pharmacy->phone])
+            ->post(route('login.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '654321'])
+            ->assertRedirect(route('catalog'));
+
+        $this->assertAuthenticatedAs($pharmacy);
+        Http::assertNothingSent();
+        $this->assertDatabaseHas('one_time_passwords', [
+            'purpose' => 'login',
+            'phone' => $pharmacy->phone,
+            'status' => 'consumed',
+        ]);
+    }
+
     public function test_registration_routes_existing_pending_unverified_accounts_to_registration_otp(): void
     {
         Http::fake(['https://api.osonsms.com/sendsms_v1.php*' => Http::response(['status' => 'success', 'transaction_id' => 'provider-1'])]);
@@ -365,6 +387,17 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])->assertRedirect(route('two-factor.enroll'));
     }
 
+    public function test_admin_login_skips_two_factor_when_it_is_disabled(): void
+    {
+        config()->set('auth.admin_two_factor_enabled', false);
+        $admin = User::factory()->admin()->create(['email' => 'admin@example.com', 'password' => 'password']);
+
+        $this->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertAuthenticatedAs($admin);
+    }
+
     public function test_buyer_mode_supplier_phone_login_defaults_to_catalog(): void
     {
         $provider = User::factory()->wholesaler()->create([
@@ -408,30 +441,22 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->assertSame(SubscriptionPlan::Premium, $supplier->fresh()->subscription_plan);
     }
 
-    public function test_admin_password_login_bypasses_two_factor_in_the_local_environment(): void
+    public function test_admin_password_login_bypasses_two_factor_when_disabled(): void
     {
-        app()->detectEnvironment(static fn (): string => 'local');
+        config()->set('auth.admin_two_factor_enabled', false);
         $admin = User::factory()->admin()->create(['email' => 'admin@example.com', 'password' => 'password']);
 
-        try {
-            $this->withoutMiddleware(PreventRequestForgery::class)
-                ->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])
-                ->assertRedirect(route('dashboard'));
-        } finally {
-            app()->detectEnvironment(static fn (): string => 'testing');
-        }
+        $this->withoutMiddleware(PreventRequestForgery::class)
+            ->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])
+            ->assertRedirect(route('dashboard'));
     }
 
-    public function test_unconfirmed_admin_can_access_the_dashboard_in_the_local_environment(): void
+    public function test_unconfirmed_admin_can_access_the_dashboard_when_two_factor_is_disabled(): void
     {
-        app()->detectEnvironment(static fn (): string => 'local');
+        config()->set('auth.admin_two_factor_enabled', false);
         $admin = User::factory()->admin()->create();
 
-        try {
-            $this->actingAs($admin)->get(route('dashboard'))->assertSee('Панель администратора');
-        } finally {
-            app()->detectEnvironment(static fn (): string => 'testing');
-        }
+        $this->actingAs($admin)->get(route('dashboard'))->assertSee('Панель администратора');
     }
 
     public function test_development_code_logs_in_a_pharmacy_by_phone_without_sending_an_sms(): void

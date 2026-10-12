@@ -15,7 +15,10 @@ class PhoneOtpService
     {
         OneTimePassword::where('expires_at', '<', now()->subDay())->delete();
         OneTimePassword::where('purpose', $purpose)->where('account_type', $accountType)->where('phone', $phone)->whereNull('consumed_at')->update(['status' => 'invalidated', 'consumed_at' => now()]);
-        $code = (string) random_int(100000, 999999);
+        $dummyCode = config('services.oson_sms.dummy_code');
+        $code = config('services.oson_sms.driver') === 'dummy' && filled($dummyCode)
+            ? (string) $dummyCode
+            : (string) random_int(100000, 999999);
         $otp = OneTimePassword::create(['purpose' => $purpose, 'account_type' => $accountType, 'phone' => $phone, 'code_hash' => Hash::make($code), 'transaction_id' => (string) Str::uuid(), 'status' => 'pending', 'expires_at' => now()->addMinutes(5), 'attempts' => 0]);
 
         try {

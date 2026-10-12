@@ -72,7 +72,7 @@ class AuthController extends Controller
 
         $landing = $this->loginRedirect($request, $user);
 
-        return $role === UserRole::Admin && ! app()->environment('local')
+        return $role === UserRole::Admin && config('auth.admin_two_factor_enabled')
             ? redirect()->route('two-factor.enroll')
             : $landing;
     }

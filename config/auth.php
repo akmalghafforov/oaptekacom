@@ -116,4 +116,6 @@ return [
 
     'development_otp_code' => env('DEVELOPMENT_OTP_CODE'),
 
+    'admin_two_factor_enabled' => env('AUTH_ADMIN_2FA_ENABLED', true),
+
 ];

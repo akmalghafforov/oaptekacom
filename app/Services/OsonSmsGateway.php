@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Support\PhoneNormalizer;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class OsonSmsGateway
@@ -12,6 +13,16 @@ class OsonSmsGateway
     /** @return array{transaction_id: ?string, message_id: ?string} */
     public function send(string $canonicalPhone, string $message, string $transactionId): array
     {
+        if (config('services.oson_sms.driver') === 'dummy') {
+            Log::notice('Dummy SMS intercepted.', [
+                'phone' => $canonicalPhone,
+                'message' => $message,
+                'transaction_id' => $transactionId,
+            ]);
+
+            return ['transaction_id' => $transactionId, 'message_id' => null];
+        }
+
         $response = Http::withToken((string) config('services.oson_sms.token'))->connectTimeout(3)->timeout(8)->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException)->get('https://api.osonsms.com/sendsms_v1.php', ['login' => config('services.oson_sms.login'), 'sender' => config('services.oson_sms.sender'), 'phone_number' => PhoneNormalizer::osonRecipient($canonicalPhone), 'message' => $message, 'transaction_id' => $transactionId, 'is_confidential' => 'true']);
 
         if (! $response->successful()) {
