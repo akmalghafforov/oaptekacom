@@ -67,6 +67,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/payment-requests/{paymentRequest}/receipt', [PaymentReceiptController::class, 'show'])->name('payment-requests.receipt');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::patch('/profile/theme', [ProfileController::class, 'updateTheme'])->name('profile.theme.update');
     Route::post('/profile/phone', [ProfileController::class, 'sendPhoneChange'])->name('profile.phone.send');
     Route::get('/profile/phone/verify', [ProfileController::class, 'phoneChangeForm'])->name('profile.phone.verify');
     Route::post('/profile/phone/verify', [ProfileController::class, 'confirmPhoneChange'])->name('profile.phone.confirm');

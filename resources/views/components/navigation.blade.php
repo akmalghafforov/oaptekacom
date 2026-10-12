@@ -145,6 +145,19 @@
                 </div>
             </section>
 
+            <form method="post" action="{{ route('profile.theme.update') }}" class="mt-4 flex items-end gap-3">
+                @csrf
+                <x-mode-version />
+                @method('PATCH')
+                <div class="min-w-0 flex-1">
+                    <x-ui.select name="theme" label="Тема">
+                        <option value="light" @selected(old('theme', $user->theme) === 'light')>Светлая</option>
+                        <option value="dark" @selected(old('theme', $user->theme) === 'dark')>Тёмная</option>
+                    </x-ui.select>
+                </div>
+                <x-ui.button variant="secondary">Применить</x-ui.button>
+            </form>
+
             <section class="mt-4 rounded-panel border border-border bg-surface p-2 shadow-sm" aria-labelledby="account-links-title">
                 <h3 id="account-links-title" class="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-placeholder">Аккаунт</h3>
                 <div class="grid gap-1">

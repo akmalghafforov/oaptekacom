@@ -11,6 +11,7 @@ use App\Services\AuditLogger;
 use App\Services\PhoneOtpService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class ProfileController extends Controller
@@ -33,6 +34,17 @@ class ProfileController extends Controller
         $auditLogger->log('profile.updated', $user, $before, $user->only('name', 'email', 'phone', 'theme'));
 
         return back()->with('success', 'Профиль сохранён.');
+    }
+
+    public function updateTheme(Request $request, AuditLogger $auditLogger): RedirectResponse
+    {
+        $data = $request->validate(['theme' => ['required', Rule::in(['light', 'dark'])]]);
+        $user = $request->user();
+        $before = $user->only('theme');
+        $user->update($data);
+        $auditLogger->log('profile.updated', $user, $before, $user->only('theme'));
+
+        return back()->with('success', 'Тема сохранена.');
     }
 
     public function sendPhoneChange(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse

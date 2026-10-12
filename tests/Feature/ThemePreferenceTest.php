@@ -133,6 +133,69 @@ class ThemePreferenceTest extends TestCase
         $this->actingAs($darkUser->fresh())->get(route('profile.edit'))->assertSeeHtml('data-theme="dark"');
     }
 
+    #[TestWith(['pharmacy', 'light', 'dark'])]
+    #[TestWith(['wholesaler', 'dark', 'light'])]
+    #[TestWith(['admin', 'light', 'dark'])]
+    public function test_account_menu_saves_only_the_theme_and_returns_to_the_current_page(string $role, string $previousTheme, string $theme): void
+    {
+        $user = User::factory()->{$role}()->create(['theme' => $previousTheme]);
+        $otherUser = User::factory()->pharmacy()->create(['theme' => $previousTheme]);
+
+        $this->actingAs($user)->from(route('subscription.create'))
+            ->patch(route('profile.theme.update'), ['theme' => $theme, 'name' => 'Changed name', 'email' => 'changed@example.test', 'user_id' => $otherUser->id])
+            ->assertRedirectToRoute('subscription.create')
+            ->assertSessionHas('success', 'Тема сохранена.');
+
+        $this->assertSame($theme, $user->fresh()->theme);
+        $this->assertSame($user->name, $user->fresh()->name);
+        $this->assertSame($user->email, $user->fresh()->email);
+        $this->assertSame($previousTheme, $otherUser->fresh()->theme);
+        $audit = AuditEvent::query()->where('event', 'profile.updated')->sole();
+        $this->assertSame($user->id, $audit->user_id);
+        $this->assertSame($previousTheme, $audit->before['theme']);
+        $this->assertSame($theme, $audit->after['theme']);
+        $this->actingAs($user->fresh())->get(route('subscription.create'))
+            ->assertSeeHtml('<html lang="ru" data-theme="'.$theme.'">')
+            ->assertSeeInOrder(['id="current-account-title"', 'name="theme"', 'id="account-links-title"'], false);
+    }
+
+    #[TestWith(['system'])]
+    #[TestWith([null])]
+    public function test_account_menu_rejects_invalid_or_missing_themes(?string $theme): void
+    {
+        $user = User::factory()->pharmacy()->create(['theme' => 'dark']);
+
+        $this->actingAs($user)->from(route('profile.edit'))
+            ->patch(route('profile.theme.update'), $theme === null ? [] : ['theme' => $theme])
+            ->assertRedirectToRoute('profile.edit')
+            ->assertSessionHasErrors('theme');
+
+        $this->assertSame('dark', $user->fresh()->theme);
+        $this->assertDatabaseCount('audit_events', 0);
+    }
+
+    #[TestWith(['pharmacy'])]
+    #[TestWith(['wholesaler'])]
+    #[TestWith(['admin'])]
+    public function test_profile_can_be_saved_without_changing_the_theme(string $role): void
+    {
+        $user = User::factory()->{$role}()->create(['theme' => 'dark']);
+
+        $this->actingAs($user)->from(route('profile.edit'))
+            ->patch(route('profile.update'), ['name' => 'Updated name', 'email' => $user->email])
+            ->assertRedirectToRoute('profile.edit')
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('Updated name', $user->fresh()->name);
+        $this->assertSame('dark', $user->fresh()->theme);
+    }
+
+    public function test_guests_cannot_save_a_theme_from_the_account_menu(): void
+    {
+        $this->patch(route('profile.theme.update'), ['theme' => 'dark'])
+            ->assertRedirectToRoute('login');
+    }
+
     #[TestWith(['login'])]
     #[TestWith(['register'])]
     #[TestWith(['admin.login'])]
