@@ -33,7 +33,6 @@ RUN mkdir -p storage/app/private storage/framework/cache/data storage/framework/
     && chown -R www-data:www-data storage bootstrap/cache
 COPY --from=assets /build/public/build ./public/build
 COPY docker/production-entrypoint.sh /usr/local/bin/production-entrypoint
-USER www-data
 ENTRYPOINT ["sh", "/usr/local/bin/production-entrypoint"]
 CMD ["php-fpm"]
 
