@@ -9,7 +9,7 @@ class SupplierRequestPolicy
 {
     public function viewAny(User $user): bool
     {
-        return true;
+        return $user->canBuy();
     }
 
     /**
@@ -17,7 +17,7 @@ class SupplierRequestPolicy
      */
     public function view(User $user, SupplierRequest $supplierRequest): bool
     {
-        return $user->id === $supplierRequest->user_id;
+        return $user->canBuy() && $user->id === $supplierRequest->user_id;
     }
 
     /**

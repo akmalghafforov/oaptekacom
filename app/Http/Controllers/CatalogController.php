@@ -30,7 +30,7 @@ class CatalogController extends Controller
     public function search(CatalogSearchRequest $request, CatalogSearchService $catalogSearch): JsonResponse
     {
         $filters = $request->validated();
-        $pharmacyOrganizationId = $request->user()->isCustomer() ? $request->user()->organization_id : null;
+        $pharmacyOrganizationId = $request->user()->isPharmacyMode() ? $request->user()->activeOrganizationId() : null;
         $offers = $catalogSearch->search($filters, $pharmacyOrganizationId);
         $view = $filters['view'] ?? 'list';
         $cartItems = $request->user()->canBuy()

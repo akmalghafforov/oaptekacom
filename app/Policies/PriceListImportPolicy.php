@@ -12,7 +12,7 @@ class PriceListImportPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->isAdmin() || $user->canSupply();
+        return $user->isAdminMode() || $user->canSupply();
     }
 
     /**
@@ -28,7 +28,7 @@ class PriceListImportPolicy
      */
     public function create(User $user): bool
     {
-        return $user->isAdmin() || $user->canSupply();
+        return $user->isAdminMode() || $user->canSupply();
     }
 
     /**
@@ -70,6 +70,6 @@ class PriceListImportPolicy
 
     private function belongsToUser(User $user, PriceListImport $import): bool
     {
-        return $user->isAdmin() || ($user->canSupply() && $user->organization_id === $import->supplier_organization_id);
+        return $user->isAdminMode() || ($user->canSupply() && $user->activeOrganizationId() === $import->supplier_organization_id);
     }
 }

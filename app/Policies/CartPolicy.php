@@ -9,7 +9,7 @@ class CartPolicy
 {
     public function view(User $user, Cart $cart): bool
     {
-        return $user->id === $cart->user_id;
+        return $user->canBuy() && $user->id === $cart->user_id;
     }
 
     public function update(User $user, Cart $cart): bool

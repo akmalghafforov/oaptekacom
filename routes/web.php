@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AccountModeController;
 use App\Http\Controllers\Admin\CategoryReviewController;
 use App\Http\Controllers\Admin\OrganizationDirectoryController;
 use App\Http\Controllers\Admin\SupplierImportProfileController;
@@ -60,6 +61,7 @@ Route::middleware('guest')->group(function () {
 });
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
 Route::middleware('auth')->group(function () {
+    Route::patch('/mode', [AccountModeController::class, 'update'])->middleware('two-factor-confirmed')->name('mode.update');
     Route::get('/subscription', [SubscriptionController::class, 'create'])->name('subscription.create');
     Route::post('/subscription/requests', [SubscriptionRequestController::class, 'store'])->name('subscription.requests.store');
     Route::get('/payment-requests/{paymentRequest}/receipt', [PaymentReceiptController::class, 'show'])->name('payment-requests.receipt');

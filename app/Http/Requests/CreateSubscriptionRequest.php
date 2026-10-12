@@ -15,7 +15,7 @@ class CreateSubscriptionRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->isCustomer() ?? false;
+        return $this->user()?->isCustomer() && $this->user()?->isPharmacyMode();
     }
 
     /**

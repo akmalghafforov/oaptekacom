@@ -18,7 +18,9 @@ class SuppliersSeederTest extends TestCase
     {
         $this->seed(SuppliersSeeder::class);
 
-        $this->assertDatabaseCount('organizations', 50);
+        $this->assertDatabaseCount('organizations', 100);
+        $this->assertSame(50, Organization::query()->where('type', 'pharmacy')->count());
+        $this->assertDatabaseCount('user_role_assignments', 100);
         $this->assertDatabaseCount('users', 50);
         $this->assertDatabaseCount('supplier_sender_addresses', 31);
         $this->assertSame(50, Organization::query()->where('type', 'wholesaler')->count());

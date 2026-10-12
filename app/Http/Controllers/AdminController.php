@@ -22,7 +22,7 @@ class AdminController extends Controller
         return view('admin.index', [
             'pending' => Organization::query()
                 ->where('status', 'pending')
-                ->with(['users' => fn ($query) => $query->whereIn('role', [UserRole::Pharmacy, UserRole::Wholesaler])])
+                ->with('assignedUsers')
                 ->get(),
         ]);
     }
@@ -33,14 +33,14 @@ class AdminController extends Controller
             $pendingOrganization = Organization::query()
                 ->lockForUpdate()
                 ->findOrFail($organization->id);
-            abort_unless($pendingOrganization->status === 'pending', 422);
+            abort_unless($pendingOrganization->status === 'pending' && ! $pendingOrganization->setup_required, 422);
 
-            $organizationUser = $pendingOrganization->users()
-                ->where('role', $pendingOrganization->type === OrganizationType::Wholesaler ? UserRole::Wholesaler : UserRole::Pharmacy)
-                ->whereNotNull('phone_verified_at')
+            $organizationUser = $pendingOrganization->assignedUsers()
+                ->where(fn ($query) => $query->whereNotNull('phone_verified_at')->orWhere('users.role', UserRole::Admin))
                 ->lockForUpdate()
                 ->first();
-            abort_unless($organizationUser, 422);
+            $sourceSupplier = Organization::query()->where('linked_pharmacy_organization_id', $pendingOrganization->id)->lockForUpdate()->first();
+            abort_unless($organizationUser && (! $sourceSupplier || $sourceSupplier->status === 'active'), 422);
 
             $before = $pendingOrganization->only('status');
             $pendingOrganization->update(['status' => 'active']);

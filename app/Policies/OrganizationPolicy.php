@@ -9,7 +9,7 @@ class OrganizationPolicy
 {
     public function view(User $user, Organization $organization): bool
     {
-        return $user->isAdmin() || $user->organization_id === $organization->id;
+        return $user->isAdminMode() || $user->activeOrganizationId() === $organization->id;
     }
 
     public function update(User $user, Organization $organization): bool

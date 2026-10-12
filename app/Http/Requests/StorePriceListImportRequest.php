@@ -12,7 +12,7 @@ class StorePriceListImportRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() || ($this->user()?->canSupply() && $this->user()?->organization?->status === 'active');
+        return $this->user()?->isAdminMode() || ($this->user()?->canSupply() && $this->user()?->activeOrganization()?->status === 'active');
     }
 
     /**

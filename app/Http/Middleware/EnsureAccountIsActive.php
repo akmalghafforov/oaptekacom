@@ -16,6 +16,17 @@ class EnsureAccountIsActive
 
             return redirect()->route('login')->withErrors(['email' => 'Учётная запись заблокирована.']);
         }
+        if (config('account-modes.enabled')) {
+            if ($request->routeIs('admin.*')) {
+                abort_unless($user->isAdminMode(), 403);
+            }
+            if ($request->routeIs('partners.*', 'cart', 'cart.*', 'supplier-requests.*')) {
+                abort_unless($user->isPharmacyMode(), 403);
+            }
+            if ($request->routeIs('price-list-imports.*', 'orders.status')) {
+                abort_unless($user->isAdminMode() || $user->isSupplierMode(), 403);
+            }
+        }
         if ($request->routeIs('admin.*')) {
             return $next($request);
         }

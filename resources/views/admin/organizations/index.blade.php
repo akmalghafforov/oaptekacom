@@ -42,7 +42,7 @@
             <td><x-ui.status-badge :status="$organization->status" /></td>
             @if($isProvider)<td>{{ $organization->supplier_mode === 'both' ? 'Покупатель и поставщик' : 'Поставщик' }}</td>@endif
             <td>{{ $organization->created_at->format('d.m.Y') }}</td>
-            <td>@forelse($organization->users as $user)<div class="mb-1">{{ $user->name }}<span class="block text-sm text-muted">{{ $user->email ?: $user->phone ?: '—' }}</span></div>@empty — @endforelse</td>
+            <td>@forelse($organization->assignedUsers as $user)<div class="mb-1">{{ $user->name }}<span class="block text-sm text-muted">{{ $user->email ?: $user->phone ?: '—' }}</span></div>@empty — @endforelse</td>
             <td class="text-right"><x-ui.button variant="secondary" :href="route($prefix.'.show', $organization)">Открыть</x-ui.button></td>
         </tr>@empty<tr><td colspan="{{ $isProvider ? 7 : 6 }}"><x-ui.empty-state :title="$isProvider ? 'Поставщики не найдены' : 'Аптеки не найдены'" description="Измените параметры поиска или сбросьте фильтры." /></td></tr>@endforelse</tbody>
     </table>

@@ -59,9 +59,9 @@ class CartController extends Controller
             throw ValidationException::withMessages(['quantity' => 'Запрошенное количество превышает остаток поставщика.']);
         }
         if (! $cartItem->exists) {
-            $supplierDiscountPercent = $request->user()->isCustomer()
+            $supplierDiscountPercent = $request->user()->isPharmacyMode()
                 ? PharmacySupplierDiscount::query()
-                    ->where('pharmacy_organization_id', $request->user()->organization_id)
+                    ->where('pharmacy_organization_id', $request->user()->activeOrganizationId())
                     ->where('supplier_organization_id', $offer->organization_id)
                     ->value('supplier_discount_percent')
                 : null;
@@ -173,8 +173,8 @@ class CartController extends Controller
             abort_if($cartItems->isEmpty(), 404);
             $this->validateCurrentItems($cartItems);
             $total = $this->totalFor($cartItems, $supplierDiscountPrice);
-            $checkoutId = DB::table('checkouts')->insertGetId(['buyer_organization_id' => $request->user()->organization_id, 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
-            $order = Order::create(['checkout_id' => $checkoutId, 'buyer_organization_id' => $request->user()->organization_id, 'supplier_organization_id' => $supplier->id, 'total' => $total]);
+            $checkoutId = DB::table('checkouts')->insertGetId(['buyer_organization_id' => $request->user()->activeOrganizationId(), 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
+            $order = Order::create(['checkout_id' => $checkoutId, 'buyer_organization_id' => $request->user()->activeOrganizationId(), 'supplier_organization_id' => $supplier->id, 'total' => $total]);
 
             foreach ($cartItems as $cartItem) {
                 OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'medicine_id' => $cartItem->offer->medicine_id, 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
@@ -211,9 +211,9 @@ class CartController extends Controller
             $this->validateCurrentItems($cartItems);
             $supplierRequest = SupplierRequest::create([
                 'user_id' => $request->user()->id,
-                'buyer_organization_id' => $request->user()->organization_id,
+                'buyer_organization_id' => $request->user()->activeOrganizationId(),
                 'supplier_organization_id' => $supplier->id,
-                'buyer_name' => $request->user()->organization?->name ?? $request->user()->name,
+                'buyer_name' => $request->user()->activeOrganization()?->name ?? $request->user()->name,
                 'supplier_name' => $supplier->name,
                 'item_count' => $cartItems->sum('quantity'),
                 'total' => $this->totalFor($cartItems, $supplierDiscountPrice),
@@ -251,13 +251,13 @@ class CartController extends Controller
         abort_if($cart->items->isEmpty(), 422);
         DB::transaction(function () use ($cart, $request, $supplierDiscountPrice): void {
             $this->validateCurrentItems($cart->items);
-            $checkoutId = DB::table('checkouts')->insertGetId(['buyer_organization_id' => $request->user()->organization_id, 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
+            $checkoutId = DB::table('checkouts')->insertGetId(['buyer_organization_id' => $request->user()->activeOrganizationId(), 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
             foreach ($cart->items->groupBy(fn (CartItem $cartItem) => $cartItem->offer->organization_id) as $supplierOrganizationId => $cartItems) {
                 $total = $cartItems->reduce(
                     fn (string $total, CartItem $cartItem): string => bcadd($total, $supplierDiscountPrice->lineTotal($cartItem->quantity, (string) $cartItem->unit_price), 2),
                     '0.00',
                 );
-                $order = Order::create(['checkout_id' => $checkoutId, 'buyer_organization_id' => $request->user()->organization_id, 'supplier_organization_id' => $supplierOrganizationId, 'total' => $total]);
+                $order = Order::create(['checkout_id' => $checkoutId, 'buyer_organization_id' => $request->user()->activeOrganizationId(), 'supplier_organization_id' => $supplierOrganizationId, 'total' => $total]);
                 foreach ($cartItems as $cartItem) {
                     OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'medicine_id' => $cartItem->offer->medicine_id, 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
                 }

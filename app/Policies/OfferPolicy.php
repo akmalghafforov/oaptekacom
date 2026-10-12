@@ -9,17 +9,17 @@ class OfferPolicy
 {
     public function view(User $user, Offer $offer): bool
     {
-        return Offer::query()->whereKey($offer->getKey())->currentCatalog()->exists() || $user->isAdmin() || $user->organization_id === $offer->organization_id;
+        return Offer::query()->whereKey($offer->getKey())->currentCatalog()->exists() || $user->isAdminMode() || $user->activeOrganizationId() === $offer->organization_id;
     }
 
     public function create(User $user): bool
     {
-        return $user->isAdmin() || $user->canSupply();
+        return $user->isAdminMode() || $user->canSupply();
     }
 
     public function update(User $user, Offer $offer): bool
     {
-        return $user->isAdmin() || ($user->canSupply() && $user->organization_id === $offer->organization_id);
+        return $user->isAdminMode() || ($user->canSupply() && $user->activeOrganizationId() === $offer->organization_id);
     }
 
     public function delete(User $user, Offer $offer): bool

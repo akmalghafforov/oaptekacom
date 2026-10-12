@@ -128,7 +128,7 @@
             @endif
 
             <form method="post" action="{{ route('partners.discount', $supplier) }}" class="space-y-3">
-                @csrf
+                @csrf <x-mode-version />
                 @method('PATCH')
                 <input type="hidden" name="supplier_id" value="{{ $supplier->id }}">
                 <x-ui.input id="supplier-discount-percent-{{ $supplier->id }}" name="supplier_discount_percent" type="number" min="0" max="100" step="0.01" label="Ваша скидка от поставщика, %" :value="old('supplier_discount_percent', $discount?->supplier_discount_percent)" hint="Оставьте поле пустым, чтобы удалить договорённость." />

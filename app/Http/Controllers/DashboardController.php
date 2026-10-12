@@ -16,11 +16,11 @@ class DashboardController extends Controller
 
         return view('dashboard', [
             'orders' => Order::query()
-                ->when(! $user->isAdmin(), fn (Builder $query): Builder => $query->where('buyer_organization_id', $user->organization_id)->orWhere('supplier_organization_id', $user->organization_id))
+                ->when(! $user->isAdminMode(), fn (Builder $query): Builder => $user->canSupply() ? $query->where('supplier_organization_id', $user->activeOrganizationId()) : $query->whereIn('buyer_organization_id', $user->purchaseOrganizationIds()))
                 ->latest()
                 ->take(5)
                 ->get(),
-            'organization' => $user->organization,
+            'organization' => $user->activeOrganization(),
             'subscription' => $user->subscriptions()->where('status', SubscriptionStatus::Active)->latest()->first(),
         ]);
     }

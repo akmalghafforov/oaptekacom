@@ -32,7 +32,7 @@ class PartnerController extends Controller
             )
             ->paginate(20)
             ->withQueryString();
-        $discounts = $request->user()->organization->pharmacySupplierDiscounts()->whereIn('supplier_organization_id', $suppliers->pluck('id'))->get()->keyBy('supplier_organization_id');
+        $discounts = $request->user()->activeOrganization()->pharmacySupplierDiscounts()->whereIn('supplier_organization_id', $suppliers->pluck('id'))->get()->keyBy('supplier_organization_id');
 
         return view('partners.index', compact('cities', 'suppliers', 'discounts'));
     }
@@ -46,7 +46,7 @@ class PartnerController extends Controller
 
         $data = $request->validate(['supplier_discount_percent' => ['nullable', 'numeric', 'between:0,100', 'decimal:0,2']]);
         abort_unless($supplier->type === OrganizationType::Wholesaler && $supplier->status === 'active', 404);
-        $discount = $request->user()->organization->pharmacySupplierDiscounts()->where('supplier_organization_id', $supplier->id)->first();
+        $discount = $request->user()->activeOrganization()->pharmacySupplierDiscounts()->where('supplier_organization_id', $supplier->id)->first();
         $supplierDiscountPercent = $data['supplier_discount_percent'] ?? null;
 
         if ($supplierDiscountPercent === null) {
@@ -65,7 +65,7 @@ class PartnerController extends Controller
             $auditLogger->log('pharmacy_supplier_discount.updated', $discount, $before, $discount->fresh()->only('supplier_discount_percent'));
         } else {
             $discount = PharmacySupplierDiscount::query()->create([
-                'pharmacy_organization_id' => $request->user()->organization_id,
+                'pharmacy_organization_id' => $request->user()->activeOrganizationId(),
                 'supplier_organization_id' => $supplier->id,
                 'supplier_discount_percent' => $supplierDiscountPercent,
             ]);

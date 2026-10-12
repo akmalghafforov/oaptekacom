@@ -9,11 +9,11 @@ class OrderPolicy
 {
     public function view(User $user, Order $order): bool
     {
-        return $user->isAdmin() || in_array($user->organization_id, [$order->buyer_organization_id, $order->supplier_organization_id], true);
+        return $user->isAdminMode() || ($user->canSupply() ? $user->activeOrganizationId() === $order->supplier_organization_id : ($user->canBuy() && in_array($order->buyer_organization_id, $user->purchaseOrganizationIds(), true)));
     }
 
     public function update(User $user, Order $order): bool
     {
-        return $user->isAdmin() || ($user->canSupply() && $user->organization_id === $order->supplier_organization_id);
+        return $user->isAdminMode() || ($user->canSupply() && $user->activeOrganizationId() === $order->supplier_organization_id);
     }
 }

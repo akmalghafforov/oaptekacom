@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('content')
 <x-ui.page-header title="Вход для администратора" description="Используйте учётные данные администратора OAPTEKA." />
-<x-ui.card><form method="post" action="{{ route('admin.login.authenticate') }}" class="space-y-5">@csrf
+<x-ui.card><form method="post" action="{{ route('admin.login.authenticate') }}" class="space-y-5">@csrf <x-mode-version />
 <x-ui.input name="email" type="email" label="Email" required autocomplete="email" autofocus />
 <x-ui.input name="password" type="password" label="Пароль" required autocomplete="current-password" />
 <x-ui.button class="w-full">Войти</x-ui.button>

@@ -13,7 +13,7 @@ class UpdateSupplierImportProfileRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        return $this->user()?->isAdminMode() ?? false;
     }
 
     /**

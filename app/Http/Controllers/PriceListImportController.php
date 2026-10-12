@@ -39,18 +39,18 @@ class PriceListImportController extends Controller
     {
         $this->authorize('viewAny', PriceListImport::class);
         $query = PriceListImport::query()->with('supplier')->latest();
-        if (! $request->user()->isAdmin()) {
-            $query->where('supplier_organization_id', $request->user()->organization_id);
+        if (! $request->user()->isAdminMode()) {
+            $query->where('supplier_organization_id', $request->user()->activeOrganizationId());
         }
 
-        return view('price-list-imports.index', ['imports' => $query->paginate(20), 'suppliers' => $request->user()->isAdmin() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
+        return view('price-list-imports.index', ['imports' => $query->paginate(20), 'suppliers' => $request->user()->isAdminMode() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
     }
 
     public function store(StorePriceListImportRequest $request, SupplierPriceListIngestor $ingestor): RedirectResponse
     {
-        $supplier = $request->user()->isAdmin()
+        $supplier = $request->user()->isAdminMode()
             ? Organization::query()->where('type', OrganizationType::Wholesaler)->where('status', 'active')->findOrFail($request->integer('supplier_organization_id'))
-            : $request->user()->organization;
+            : $request->user()->activeOrganization();
         abort_unless($supplier?->type === OrganizationType::Wholesaler, 404);
         if (! $supplier->importProfile()->where('is_active', true)->exists()) {
             throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
@@ -114,7 +114,7 @@ class PriceListImportController extends Controller
 
     public function override(Request $request, int $import, int $row, AuditLogger $audit): RedirectResponse
     {
-        abort_unless($request->user()->isAdmin(), 403);
+        abort_unless($request->user()->isAdminMode(), 403);
         $importModel = PriceListImport::findOrFail($import);
         abort_unless($importModel->status === PriceListImportStatus::Preview, 422);
         $importRow = PriceListImportRow::query()->whereBelongsTo($importModel, 'import')->findOrFail($row);
@@ -161,6 +161,6 @@ class PriceListImportController extends Controller
 
     private function scoped(Request $request, int $id): PriceListImport
     {
-        return PriceListImport::query()->when(! $request->user()->isAdmin(), fn ($query) => $query->where('supplier_organization_id', $request->user()->organization_id))->findOrFail($id);
+        return PriceListImport::query()->when(! $request->user()->isAdminMode(), fn ($query) => $query->where('supplier_organization_id', $request->user()->activeOrganizationId()))->findOrFail($id);
     }
 }

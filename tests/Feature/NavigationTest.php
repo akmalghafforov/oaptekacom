@@ -88,7 +88,7 @@ class NavigationTest extends TestCase
             ->assertSeeHtml('href="'.route('cart').'"');
     }
 
-    public function test_admin_navigation_renders_administration_destinations_only(): void
+    public function test_admin_navigation_keeps_administration_destinations_and_account_actions_in_the_drawer(): void
     {
         $user = User::factory()->admin()->create(['name' => 'Администратор Навигация']);
 
@@ -97,7 +97,9 @@ class NavigationTest extends TestCase
         $response
             ->assertSeeText(['Операционный центр', 'Пользователи', 'Подписки', 'Профиль', 'Выйти', 'Администратор Навигация'])
             ->assertDontSeeText('Модули')
-            ->assertDontSeeText(['Обзор', 'Каталог', 'Корзина', 'Заказы'])
+            ->assertSeeText(['Меню аккаунта', 'Обзор', 'Мой тариф', 'Безлимитный доступ'])
+            ->assertSeeHtml(['data-account-link="admin.index"', 'data-account-link="profile.edit"', 'data-account-link="subscription.create"', 'data-account-logout="data-account-logout"'])
+            ->assertDontSeeText(['Каталог', 'Корзина', 'Заказы'])
             ->assertSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.users').'"', 'href="'.route('admin.subscriptions.index').'"'])
             ->assertDontSeeHtml(['href="'.route('catalog').'"', 'href="'.route('cart').'"', 'href="'.route('orders.index').'"']);
     }

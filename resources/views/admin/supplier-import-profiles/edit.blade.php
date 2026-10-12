@@ -11,14 +11,14 @@
     <p class="mt-1 text-sm text-muted">CSV, TSV, XLS или XLSX. Файл хранится приватно и используется только для настройки.</p>
     @if($profile->sample_metadata)<p class="mt-3 text-sm"><span class="font-semibold">Текущий файл:</span> {{ $profile->sample_metadata['filename'] }} ({{ number_format($profile->sample_metadata['size'] / 1024, 1, ',', ' ') }} КБ)</p>@endif
     <form method="post" action="{{ route('admin.supplier-import-profiles.sample.store', $organization) }}" enctype="multipart/form-data" class="mt-4 flex flex-wrap items-end gap-3">
-        @csrf
+        @csrf <x-mode-version />
         <x-ui.input name="sample" type="file" label="Файл-образец" accept=".csv,.tsv,.xls,.xlsx" required />
         <x-ui.button>{{ $profile->sample_metadata ? 'Заменить образец' : 'Загрузить образец' }}</x-ui.button>
     </form>
 </x-ui.card>
 @if($preview)
 <form id="profile-form" method="post" action="{{ route('admin.supplier-import-profiles.update', $organization) }}" class="mt-6 space-y-6" novalidate>
-    @csrf @method('PUT')
+    @csrf <x-mode-version /> @method('PUT')
     <x-ui.card>
         <div class="grid gap-4 md:grid-cols-3">
             <x-ui.input name="name" label="Название профиля" :value="$profile->name" required />

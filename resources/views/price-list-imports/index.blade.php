@@ -2,8 +2,8 @@
 @section('content')
     <x-ui.page-header title="Прайс-листы" description="Автоматическая обработка и публикация предложений поставщика." />
 
-    @if(auth()->user()->isAdmin())
-        <x-ui.card class="mt-6"><h2 class="font-bold">Новый поставщик</h2><form method="post" action="{{ route('admin.suppliers.store') }}" class="mt-4 grid gap-4 md:grid-cols-4 md:items-end">@csrf<x-ui.input name="name" label="Название" required /><x-ui.input name="city" label="Город" /><x-ui.input name="phone" label="Телефон" /><x-ui.button>Создать</x-ui.button></form></x-ui.card>
+    @if(auth()->user()->isAdminMode())
+        <x-ui.card class="mt-6"><h2 class="font-bold">Новый поставщик</h2><form method="post" action="{{ route('admin.suppliers.store') }}" class="mt-4 grid gap-4 md:grid-cols-4 md:items-end">@csrf <x-mode-version /><x-ui.input name="name" label="Название" required /><x-ui.input name="city" label="Город" /><x-ui.input name="phone" label="Телефон" /><x-ui.button>Создать</x-ui.button></form></x-ui.card>
         <x-ui.card class="mt-4">
             <h2 class="font-bold">Профили поставщиков</h2>
             <div class="mt-3 flex flex-wrap gap-2">
@@ -24,8 +24,8 @@
 
     <x-ui.card class="mt-6">
         <form method="post" action="{{ route('price-list-imports.store') }}" enctype="multipart/form-data" class="grid gap-4 md:grid-cols-3 md:items-end">
-            @csrf
-            @if(auth()->user()->isAdmin())
+            @csrf <x-mode-version />
+            @if(auth()->user()->isAdminMode())
                 <x-ui.select name="supplier_organization_id" label="Поставщик" required>
                     <option value="">Выберите поставщика</option>
                     @foreach($suppliers as $supplier)<option value="{{ $supplier->id }}">{{ $supplier->name }}</option>@endforeach

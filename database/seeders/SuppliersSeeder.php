@@ -9,6 +9,7 @@ use App\Models\Organization;
 use App\Models\SupplierSenderAddress;
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class SuppliersSeeder extends Seeder
 {
@@ -18,36 +19,38 @@ class SuppliersSeeder extends Seeder
     public function run(): void
     {
         foreach ($this->suppliers() as $supplier) {
-            $organization = Organization::query()->updateOrCreate(
-                ['phone' => $supplier['phone'], 'type' => OrganizationType::Wholesaler],
-                [
-                    'name' => $supplier['name'],
-                    'city' => $supplier['city'],
-                    'status' => 'active',
-                    'supplier_mode' => TradeMode::Supplier->value,
-                ],
-            );
-
-            User::query()->updateOrCreate(
-                ['phone' => $supplier['phone'], 'role' => UserRole::Wholesaler],
-                [
-                    'name' => $supplier['name'],
-                    'email' => null,
-                    'password' => null,
-                    'organization_id' => $organization->id,
-                    'active_trade_mode' => TradeMode::Supplier,
-                    'phone_verified_at' => null,
-                ],
-            );
-
-            if ($supplier['email'] !== null) {
-                $normalizedEmail = mb_strtolower(trim($supplier['email']));
-
-                SupplierSenderAddress::query()->updateOrCreate(
-                    ['normalized_email' => $normalizedEmail],
-                    ['email' => $normalizedEmail, 'supplier_organization_id' => $organization->id],
+            DB::transaction(function () use ($supplier): void {
+                $organization = Organization::query()->updateOrCreate(
+                    ['phone' => $supplier['phone'], 'type' => OrganizationType::Wholesaler],
+                    [
+                        'name' => $supplier['name'],
+                        'city' => $supplier['city'],
+                        'status' => 'active',
+                        'supplier_mode' => TradeMode::Supplier->value,
+                    ],
                 );
-            }
+
+                User::query()->updateOrCreate(
+                    ['phone' => $supplier['phone'], 'role' => UserRole::Wholesaler],
+                    [
+                        'name' => $supplier['name'],
+                        'email' => null,
+                        'password' => null,
+                        'organization_id' => $organization->id,
+                        'active_trade_mode' => TradeMode::Supplier,
+                        'phone_verified_at' => null,
+                    ],
+                );
+
+                if ($supplier['email'] !== null) {
+                    $normalizedEmail = mb_strtolower(trim($supplier['email']));
+
+                    SupplierSenderAddress::query()->updateOrCreate(
+                        ['normalized_email' => $normalizedEmail],
+                        ['email' => $normalizedEmail, 'supplier_organization_id' => $organization->id],
+                    );
+                }
+            });
         }
     }
 

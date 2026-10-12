@@ -27,7 +27,7 @@ class SupplierCartExport
         ])->all();
 
         return [
-            'buyer' => $user->organization?->name ?? $user->name, 'supplier' => $supplier->name,
+            'buyer' => $user->activeOrganization()?->name ?? $user->name, 'supplier' => $supplier->name,
             'generatedAt' => now('Asia/Dushanbe')->format('d.m.Y H:i'), 'items' => $rows,
             'total' => array_reduce($rows, fn (string $total, array $row): string => bcadd($total, $row['total'], 2), '0.00'),
         ];

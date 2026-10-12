@@ -433,12 +433,13 @@ export function initializeCatalogSearch(root) {
         try {
             const response = await fetch(form.action, cartForm ? {
                 method: 'POST',
-                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value, 'Content-Type': 'application/json' },
+                headers: { Accept: 'application/json', 'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ quantity: Number(form.elements.quantity.value) }),
             } : {
                 method: 'DELETE',
-                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value },
+                headers: { Accept: 'application/json', 'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value },
             });
+            if (response.status === 409) document.dispatchEvent(new CustomEvent('account-mode-stale'));
             const data = await response.json();
             if (!response.ok) throw new Error(data.message);
 

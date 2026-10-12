@@ -1,3 +1,4 @@
+import { initializeAccountMode } from './account-mode';
 import { createSupplierFileRenderer } from './supplier-file-renderer.js';
 import { createSupplierFileShare } from './supplier-file-share.js';
 import { initializeCatalogSearch, updateCartBadges } from './catalog-search.js';
@@ -308,10 +309,11 @@ cartQuantityGroups.forEach((group) => {
                 headers: {
                     Accept: 'application/json',
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-CSRF-TOKEN': form.querySelector('input[name="_token"]').value,
+                    'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '', 'X-CSRF-TOKEN': form.querySelector('input[name="_token"]').value,
                 },
                 body: new URLSearchParams({ quantity: String(quantity) }),
             });
+            if (response.status === 409) document.dispatchEvent(new CustomEvent('account-mode-stale'));
             const data = await response.json().catch(() => ({}));
 
             if (!response.ok || !data.item) {
@@ -425,11 +427,12 @@ document.querySelectorAll('[data-supplier-share]').forEach((button) => button.ad
             headers: {
                 Accept: 'application/json',
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRF-TOKEN': button.dataset.csrfToken,
+                'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '', 'X-CSRF-TOKEN': button.dataset.csrfToken,
             },
             body: new URLSearchParams({ shared_via: sharedVia }),
         });
 
+        if (response.status === 409) document.dispatchEvent(new CustomEvent('account-mode-stale'));
         if (! response.ok) {
             throw new Error('Unable to save the supplier request.');
         }
@@ -483,3 +486,5 @@ document.querySelectorAll('[data-supplier-file-export]').forEach((panel) => {
     shareButton.addEventListener('click', () => sharing.share());
     window.addEventListener('pagehide', renderer.cleanup);
 });
+
+initializeAccountMode(document, window);

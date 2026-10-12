@@ -28,8 +28,8 @@
 </div>
 
 <div class="grid gap-3">
-<form method="post" action="{{ route($cancelRoute) }}">@csrf <x-ui.button variant="secondary" class="w-full">Назад ко входу</x-ui.button></form>
-<form method="post" action="{{ route($confirmRoute) }}">@csrf <x-ui.button variant="danger" class="w-full">Выйти с другого устройства и войти</x-ui.button></form>
+<form method="post" action="{{ route($cancelRoute) }}">@csrf <x-mode-version /> <x-ui.button variant="secondary" class="w-full">Назад ко входу</x-ui.button></form>
+<form method="post" action="{{ route($confirmRoute) }}">@csrf <x-mode-version /> <x-ui.button variant="danger" class="w-full">Выйти с другого устройства и войти</x-ui.button></form>
 </div>
 </x-ui.card>
 @endsection

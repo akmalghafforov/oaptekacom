@@ -18,6 +18,11 @@ return [
     |
     */
 
+    'block' => (bool) env('ACCOUNT_MODES_ENABLED', false),
+    'block_store' => env('SESSION_BLOCK_STORE', 'database'),
+    'block_lock_seconds' => (int) env('SESSION_BLOCK_LOCK_SECONDS', 300),
+    'block_wait_seconds' => (int) env('SESSION_BLOCK_WAIT_SECONDS', 10),
+
     'driver' => env('SESSION_DRIVER', 'database'),
 
     /*

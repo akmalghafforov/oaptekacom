@@ -1,15 +1,31 @@
 @extends('layouts.app')
 @section('content')
-<x-ui.page-header title="Подписка" description="Выберите тариф и срок подписки — сумма оплаты рассчитается автоматически." />
-<x-ui.card><p class="text-sm text-muted">Текущий тариф</p><p class="mt-1 text-lg font-semibold">{{ $user->subscription_plan->label() }}</p>
-@if($subscription?->status === \App\Enums\SubscriptionStatus::Active)<p class="mt-2 text-sm text-muted">Подписка действует по {{ $subscription->ends_on->format('d.m.Y') }} включительно.</p>
-@elseif($subscription?->status === \App\Enums\SubscriptionStatus::Pending)<x-ui.alert type="warning" class="mt-4">Квитанция принята и ожидает проверки администратора. Доступ откроется после подтверждения оплаты.</x-ui.alert>
-@elseif($subscription?->status === \App\Enums\SubscriptionStatus::Rejected)<x-ui.alert type="danger" class="mt-4">Предыдущая заявка отклонена: {{ $subscription->paymentRequest?->rejection_reason }}. Исправьте данные и отправьте новую заявку.</x-ui.alert>
-@elseif($user->organization?->status === 'pending')<p class="mt-2 text-sm text-muted">Ваша организация ожидает подтверждения администратора.</p>
-@else<x-ui.alert type="warning" class="mt-4">Требуется активная платная подписка.</x-ui.alert>@endif</x-ui.card>
-@if($user->isCustomer() && $user->organization?->status === 'active' && $subscription?->status !== \App\Enums\SubscriptionStatus::Pending && ! $user->hasActiveSubscription())
+<x-ui.page-header title="Подписка" :description="$user->hasUnlimitedSubscriptionAccess() ? 'Безлимитный доступ во всех назначенных режимах.' : 'Выберите тариф и срок подписки — сумма оплаты рассчитается автоматически.'" />
+<x-ui.card>
+    <p class="text-sm text-muted">Текущий тариф</p>
+    <p class="mt-1 text-lg font-semibold">{{ $user->hasUnlimitedSubscriptionAccess() ? 'Безлимитный доступ' : $user->subscription_plan->label() }}</p>
+
+    @if($user->activeOrganization()?->status === 'blocked' || ($user->isWholesaler() && $user->organization?->status === 'blocked'))
+        <x-ui.alert type="danger" class="mt-4">Ваша организация заблокирована.</x-ui.alert>
+    @elseif($user->activeOrganization()?->status === 'pending' || ($user->isWholesaler() && $user->organization?->status === 'pending'))
+        <x-ui.alert type="warning" class="mt-4">Ваша организация ожидает подтверждения администратора.</x-ui.alert>
+    @elseif($user->activeOrganization()?->setup_required)
+        <x-ui.alert type="warning" class="mt-4">Заполните данные организации в профиле.</x-ui.alert>
+    @elseif(! $user->hasUnlimitedSubscriptionAccess())
+        @if($subscription?->status === \App\Enums\SubscriptionStatus::Active)
+            <p class="mt-2 text-sm text-muted">Подписка действует по {{ $subscription->ends_on->format('d.m.Y') }} включительно.</p>
+        @elseif($subscription?->status === \App\Enums\SubscriptionStatus::Pending)
+            <x-ui.alert type="warning" class="mt-4">Квитанция принята и ожидает проверки администратора. Доступ откроется после подтверждения оплаты.</x-ui.alert>
+        @elseif($subscription?->status === \App\Enums\SubscriptionStatus::Rejected)
+            <x-ui.alert type="danger" class="mt-4">Предыдущая заявка отклонена: {{ $subscription->paymentRequest?->rejection_reason }}. Исправьте данные и отправьте новую заявку.</x-ui.alert>
+        @else
+            <x-ui.alert type="warning" class="mt-4">Требуется активная платная подписка.</x-ui.alert>
+        @endif
+    @endif
+</x-ui.card>
+@if(! $user->hasUnlimitedSubscriptionAccess() && $user->isPharmacyMode() && $user->activeOrganization()?->status === 'active' && $subscription?->status !== \App\Enums\SubscriptionStatus::Pending && ! $user->hasActiveSubscription())
 <x-ui.card class="mt-5"><h2 class="text-lg font-semibold">Оплата подписки</h2><p class="mt-1 text-sm text-muted">Сумма оплаты рассчитывается автоматически по дневной стоимости тарифа.</p>
-@if($plans->isNotEmpty() && $paymentMethods->isNotEmpty())<form method="post" action="{{ route('subscription.requests.store') }}" enctype="multipart/form-data" class="mt-5 space-y-5" data-subscription-calculator>@csrf
+@if($plans->isNotEmpty() && $paymentMethods->isNotEmpty())<form method="post" action="{{ route('subscription.requests.store') }}" enctype="multipart/form-data" class="mt-5 space-y-5" data-subscription-calculator>@csrf <x-mode-version />
 <fieldset><legend class="text-sm font-medium text-content">Тариф</legend><div class="mt-2 grid gap-3 md:grid-cols-2">@foreach($plans as $plan)<label data-subscription-choice @class(['block cursor-pointer rounded-panel border p-4 transition focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus', 'border-danger' => $errors->has('plan'), 'border-accent-strong bg-accent-surface' => old('plan', 'base') === $plan->plan->value, 'border-control-border bg-surface hover:border-accent-hover' => old('plan', 'base') !== $plan->plan->value])><input class="sr-only" type="radio" name="plan" value="{{ $plan->plan->value }}" data-daily-price="{{ $plan->daily_price }}" data-subscription-plan @checked(old('plan', 'base') === $plan->plan->value)><span class="block font-semibold">{{ $plan->plan->label() }}</span><span class="mt-1 block text-sm text-muted">{{ $plan->daily_price }} TJS/день</span></label>@endforeach</div>@error('plan')<p class="mt-1.5 text-xs text-danger">{{ $message }}</p>@enderror</fieldset>
 <fieldset><legend class="text-sm font-medium text-content">Срок подписки</legend><div class="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">@foreach([['term' => \App\Enums\SubscriptionTerm::TenDays, 'days' => 10], ['term' => \App\Enums\SubscriptionTerm::Month, 'days' => 30], ['term' => \App\Enums\SubscriptionTerm::SixMonths, 'days' => 180], ['term' => \App\Enums\SubscriptionTerm::Year, 'days' => 365]] as $option)@php($term = $option['term'])<label data-subscription-choice @class(['block cursor-pointer rounded-panel border p-4 transition focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus', 'border-danger' => $errors->has('term'), 'border-accent-strong bg-accent-surface' => old('term', \App\Enums\SubscriptionTerm::Month->value) === $term->value, 'border-control-border bg-surface hover:border-accent-hover' => old('term', \App\Enums\SubscriptionTerm::Month->value) !== $term->value])><input class="sr-only" type="radio" name="term" value="{{ $term->value }}" data-subscription-term data-days="{{ $option['days'] }}" @checked(old('term', \App\Enums\SubscriptionTerm::Month->value) === $term->value)><span class="block font-semibold">{{ $term->label() }}</span><span class="mt-1 block text-sm text-muted">{{ $option['days'] }} дней</span></label>@endforeach</div>@error('term')<p class="mt-1.5 text-xs text-danger">{{ $message }}</p>@enderror</fieldset>
 <fieldset><legend class="text-sm font-medium text-content">Метод оплаты</legend><div class="mt-2 grid gap-3 md:grid-cols-3">@foreach($paymentMethods as $method)<label data-subscription-choice @class(['block cursor-pointer rounded-panel border p-4 transition focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus', 'border-danger' => $errors->has('payment_method'), 'border-accent-strong bg-accent-surface' => old('payment_method', 'dc') === $method->method->value, 'border-control-border bg-surface hover:border-accent-hover' => old('payment_method', 'dc') !== $method->method->value])><input class="sr-only" type="radio" name="payment_method" value="{{ $method->method->value }}" data-subscription-payment-method @checked(old('payment_method', 'dc') === $method->method->value)><span class="block font-semibold">{{ $method->method->label() }}</span><span class="mt-1 block break-all text-sm text-muted">{{ $method->wallet_number }}</span><span class="mt-1 block text-sm text-muted">{{ $method->wallet_owner_name }}</span></label>@endforeach</div>@error('payment_method')<p class="mt-1.5 text-xs text-danger">{{ $message }}</p>@enderror</fieldset>

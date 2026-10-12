@@ -9,7 +9,7 @@ class PaymentRequestPolicy
 {
     public function view(User $user, PaymentRequest $paymentRequest): bool
     {
-        return $user->isAdmin() || $user->organization_id === $paymentRequest->organization_id;
+        return $user->isAdminMode() || $user->activeOrganizationId() === $paymentRequest->organization_id;
     }
 
     public function create(User $user): bool

@@ -27,6 +27,7 @@ class TwoFactorController extends Controller
     {
         $request->validate(['code' => ['required', 'string']]);
         $user = $request->user();
+        abort_unless($user->isAdmin(), 403);
         $key = 'totp:'.$user->id.':'.$request->ip();
         if (RateLimiter::tooManyAttempts($key, 5)) {
             return back()->withErrors(['code' => 'Слишком много попыток.']);
@@ -47,6 +48,7 @@ class TwoFactorController extends Controller
     {
         $request->validate(['code' => ['required', 'string']]);
         $user = $request->user();
+        abort_unless($user->isAdmin(), 403);
         foreach ($user->recovery_codes ?? [] as $index => $hash) {
             if (Hash::check($request->string('code')->toString(), $hash)) {
                 $codes = $user->recovery_codes;

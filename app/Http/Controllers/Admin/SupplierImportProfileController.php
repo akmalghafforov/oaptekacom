@@ -103,7 +103,7 @@ class SupplierImportProfileController extends Controller
 
     public function samplePreview(Request $request, int $supplier, SampleWorkbookReader $reader): JsonResponse
     {
-        abort_unless($request->user()?->isAdmin(), 403);
+        abort_unless($request->user()?->isAdminMode(), 403);
         $organization = Organization::query()->where('type', OrganizationType::Wholesaler)->findOrFail($supplier);
         $metadata = $organization->importProfile?->sample_metadata;
         if (! $metadata) {

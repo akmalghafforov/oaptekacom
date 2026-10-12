@@ -87,19 +87,19 @@ class OrganizationDirectoryController extends Controller
         $organizations = Organization::query()
             ->where('type', $type)
             ->when($request->filled('name'), fn ($query) => $query->where('name', 'like', '%'.$request->string('name')->toString().'%'))
-            ->when($request->filled('email'), fn ($query) => $query->whereHas('users', fn ($users) => $users->where('email', 'like', '%'.$request->string('email')->toString().'%')))
+            ->when($request->filled('email'), fn ($query) => $query->whereHas('assignedUsers', fn ($users) => $users->where('email', 'like', '%'.$request->string('email')->toString().'%')))
             ->when($request->filled('phone'), function ($query) use ($request) {
                 $phone = $request->string('phone')->toString();
 
                 $query->where(function ($phoneQuery) use ($phone) {
                     $phoneQuery->where('phone', 'like', '%'.$phone.'%')
-                        ->orWhereHas('users', fn ($users) => $users->where('phone', 'like', '%'.$phone.'%'));
+                        ->orWhereHas('assignedUsers', fn ($users) => $users->where('phone', 'like', '%'.$phone.'%'));
                 });
             })
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->when($request->filled('created_from'), fn ($query) => $query->whereDate('created_at', '>=', $request->date('created_from')))
             ->when($request->filled('created_to'), fn ($query) => $query->whereDate('created_at', '<=', $request->date('created_to')))
-            ->with('users:id,organization_id,name,email,phone,is_blocked,role')
+            ->with('assignedUsers')
             ->orderBy($column, $direction)
             ->orderByDesc('id')
             ->paginate(20)
@@ -116,7 +116,7 @@ class OrganizationDirectoryController extends Controller
     private function show(Organization $organization, OrganizationType $type): View
     {
         $organization = $this->organizationOfType($organization, $type);
-        $organization->load('users:id,organization_id,name,email,phone,is_blocked,role,created_at');
+        $organization->load('assignedUsers');
 
         return view('admin.organizations.show', compact('organization', 'type'));
     }
@@ -124,7 +124,7 @@ class OrganizationDirectoryController extends Controller
     private function edit(Organization $organization, OrganizationType $type): View
     {
         $organization = $this->organizationOfType($organization, $type);
-        $organization->load('users:id,organization_id,name,email,phone,is_blocked,role,created_at');
+        $organization->load('assignedUsers');
 
         return view('admin.organizations.edit', compact('organization', 'type'));
     }
@@ -139,6 +139,9 @@ class OrganizationDirectoryController extends Controller
         } else {
             unset($data['contact_name'], $data['contact_email'], $data['whatsapp_phone'], $data['additional_phones']);
         }
+        abort_if($organization->setup_required && $data['status'] === 'active', 422);
+        $sourceSupplier = Organization::query()->where('linked_pharmacy_organization_id', $organization->id)->first();
+        abort_if($data['status'] === 'active' && $sourceSupplier && $sourceSupplier->status !== 'active', 422);
         $organization->update($data);
         $auditLogger->log('organization.updated_by_admin', $organization, $before, $organization->fresh()->only(array_keys($before)));
 
@@ -148,7 +151,8 @@ class OrganizationDirectoryController extends Controller
     private function updateAccount(UpdateOrganizationAccountRequest $request, Organization $organization, User $user, OrganizationType $type, AuditLogger $auditLogger): RedirectResponse
     {
         $organization = $this->organizationOfType($organization, $type);
-        abort_unless($user->organization_id === $organization->id && $user->role === $this->roleFor($type), 404);
+        abort_unless($organization->assignedUsers()->whereKey($user->id)->exists(), 404);
+        abort_if($user->isAdmin() || $user->organization_id !== $organization->id, 403);
 
         $before = $user->only(['name', 'email', 'phone', 'is_blocked']);
         $user->forceFill($request->validated())->save();
@@ -163,7 +167,7 @@ class OrganizationDirectoryController extends Controller
 
         DB::transaction(function () use ($organization, $auditLogger): void {
             $lockedOrganization = Organization::query()->lockForUpdate()->findOrFail($organization->id);
-            $users = $lockedOrganization->users()->lockForUpdate()->get();
+            $users = $lockedOrganization->users()->where('role', '!=', UserRole::Admin)->lockForUpdate()->get();
             $before = $lockedOrganization->only('status');
             $lockedOrganization->update(['status' => 'blocked']);
             $auditLogger->log('organization.archived', $lockedOrganization, $before, $lockedOrganization->only('status'));

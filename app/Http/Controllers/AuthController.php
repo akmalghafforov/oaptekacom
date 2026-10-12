@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\AccountMode;
 use App\Enums\OrganizationType;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
@@ -19,7 +20,9 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\View\View;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class AuthController extends Controller
 {
@@ -64,11 +67,39 @@ class AuthController extends Controller
             return back()->withErrors(['email' => 'Неверные данные.']);
         }
         $request->session()->regenerate();
+        $request->session()->forget('account_mode');
         RateLimiter::clear($key);
+
+        $landing = $this->loginRedirect($request, $user);
 
         return $role === UserRole::Admin && ! app()->environment('local')
             ? redirect()->route('two-factor.enroll')
-            : redirect()->intended(route($user->defaultLandingRouteName()));
+            : $landing;
+    }
+
+    private function loginRedirect(Request $request, User $user): RedirectResponse
+    {
+        if (config('account-modes.enabled')) {
+            $intended = $request->session()->get('url.intended');
+            if (is_string($intended)) {
+                try {
+                    $target = Route::getRoutes()->match(Request::create($intended));
+                    $name = $target->getName() ?? '';
+                    $mode = AccountMode::forRole($user->role);
+                    $compatible = parse_url($intended, PHP_URL_HOST) === $request->getHost()
+                        && (! str_starts_with($name, 'admin.') || $mode === AccountMode::Admin)
+                        && (! (str_starts_with($name, 'partners.') || str_starts_with($name, 'cart') || str_starts_with($name, 'supplier-requests.')) || $mode === AccountMode::Pharmacy)
+                        && (! str_starts_with($name, 'price-list-imports.') || $mode !== AccountMode::Pharmacy);
+                    if (! $compatible) {
+                        $request->session()->forget('url.intended');
+                    }
+                } catch (HttpExceptionInterface $exception) {
+                    $request->session()->forget('url.intended');
+                }
+            }
+        }
+
+        return redirect()->intended(route($user->defaultLandingRouteName()));
     }
 
     public function sendLoginOtp(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -157,9 +188,10 @@ class AuthController extends Controller
         }
         Auth::login($user);
         $request->session()->regenerate();
+        $request->session()->forget('account_mode');
         $request->session()->forget($this->loginSessionKey($role));
 
-        return redirect()->intended(route($user->defaultLandingRouteName()));
+        return $this->loginRedirect($request, $user);
     }
 
     public function sessionConfirmationForm(Request $request): View
@@ -205,13 +237,14 @@ class AuthController extends Controller
         $this->sessionQuery()->where('user_id', $user->id)->delete();
         Auth::login($user);
         $request->session()->regenerate();
+        $request->session()->forget('account_mode');
         $request->session()->forget([$this->loginSessionKey($role), $this->pendingLoginSessionKey($role)]);
 
         if ($role === UserRole::Pharmacy) {
             return redirect()->route('catalog');
         }
 
-        return redirect()->intended(route($user->defaultLandingRouteName()));
+        return $this->loginRedirect($request, $user);
     }
 
     public function cancelSessionReplacement(Request $request): RedirectResponse
@@ -403,6 +436,7 @@ class AuthController extends Controller
         $request->session()->forget($this->registrationSessionKey($role));
         Auth::login($user);
         $request->session()->regenerate();
+        $request->session()->forget('account_mode');
 
         return redirect()->route('subscription.create')->with('success', 'Телефон подтверждён. Заявка ожидает проверки администратора.');
     }

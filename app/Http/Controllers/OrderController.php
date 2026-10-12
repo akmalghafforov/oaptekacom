@@ -16,7 +16,7 @@ class OrderController extends Controller
         $user = $request->user();
         $orders = Order::query()
             ->with(['supplier', 'buyer'])
-            ->when(! $user->isAdmin(), fn (Builder $query): Builder => $query->where(fn (Builder $organizationQuery): Builder => $organizationQuery->where('buyer_organization_id', $user->organization_id)->orWhere('supplier_organization_id', $user->organization_id)))
+            ->when(! $user->isAdminMode(), fn (Builder $query): Builder => $user->canSupply() ? $query->where('supplier_organization_id', $user->activeOrganizationId()) : $query->whereIn('buyer_organization_id', $user->purchaseOrganizationIds()))
             ->latest()
             ->paginate();
 
