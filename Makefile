@@ -1,4 +1,5 @@
 COMPOSE ?= docker compose
+COMPOSE_PROJECT ?= oapteka-op
 COMMAND ?=
 
 .DEFAULT_GOAL := help
@@ -15,7 +16,7 @@ up: network ## Build images and start all services in the background.
 	$(COMPOSE) up --build --detach
 
 down: ## Stop and remove containers and project networks (keeps volumes).
-	$(COMPOSE) down
+	$(COMPOSE) --project-name $(COMPOSE_PROJECT) down
 
 restart: ## Restart all services.
 	$(COMPOSE) restart
