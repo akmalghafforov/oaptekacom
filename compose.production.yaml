@@ -20,10 +20,11 @@ x-php: &php
     SESSION_SECURE_COOKIE: 'true'
     SESSION_COOKIE: oapteka_op_session
     TRUSTED_PROXIES: ${NGINX_PRIVATE_ADDRESS:-172.30.85.10}
-    OSON_SMS_LOGIN: ${OSON_SMS_LOGIN:?Set the Oson SMS login}
-    OSON_SMS_TOKEN: ${OSON_SMS_TOKEN:?Set the Oson SMS token}
-    OSON_SMS_SENDER: ${OSON_SMS_SENDER:?Set the Oson SMS sender}
-    OSON_SMS_DUMMY_CODE: ''
+    OSON_SMS_DRIVER: ${OSON_SMS_DRIVER:-oson}
+    OSON_SMS_LOGIN: ${OSON_SMS_LOGIN:-}
+    OSON_SMS_TOKEN: ${OSON_SMS_TOKEN:-}
+    OSON_SMS_SENDER: ${OSON_SMS_SENDER:-}
+    OSON_SMS_DUMMY_CODE: ${OSON_SMS_DUMMY_CODE:-}
     DEVELOPMENT_OTP_CODE: ''
   # Mount source directories, preserving the image's vendor directory and excluding host secrets.
   volumes:

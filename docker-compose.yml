@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     working_dir: /var/www
     command: >-
-      sh -c "composer install --no-interaction --prefer-dist && php artisan migrate --force && php-fpm"
+      sh -c "chown -R www-data:www-data storage bootstrap/cache && composer install --no-interaction --prefer-dist && php artisan migrate --force && php-fpm"
     volumes:
       - ./:/var/www
       - vendor:/var/www/vendor

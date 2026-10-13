@@ -21,7 +21,7 @@ class ResolveAccountMode
         $this->context->resolve($request);
         if (! $request->routeIs('logout')) {
             abort_if($request->user()->is_blocked || $request->user()->organization?->status === 'blocked', 403, 'Учётная запись заблокирована.');
-            if (! $request->routeIs('two-factor.*') && ! app()->environment('local') && $request->user()->isAdmin() && ! $request->user()->two_factor_confirmed_at) {
+            if (! $request->routeIs('two-factor.*') && ! app()->environment('local') && config('auth.admin_two_factor_enabled') && $request->user()->isAdmin() && ! $request->user()->two_factor_confirmed_at) {
                 return redirect()->route('two-factor.enroll');
             }
             if (! $request->isMethodSafe() && ! $request->routeIs('two-factor.*')) {

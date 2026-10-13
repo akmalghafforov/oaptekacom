@@ -227,6 +227,21 @@ class AccountModeTest extends TestCase
         $this->get(route('profile.edit'))->assertForbidden();
     }
 
+    public function test_unconfirmed_admin_can_switch_modes_when_two_factor_is_disabled(): void
+    {
+        config(['auth.admin_two_factor_enabled' => false]);
+        $user = User::factory()->admin()->create();
+
+        $this->actingAs($user)->get(route('admin.index'))->assertOk();
+        $this->switchMode('supplier')->assertRedirect(route('dashboard'));
+        $this->get(route('dashboard'))->assertOk();
+        $this->switchMode('pharmacy')->assertRedirect(route('catalog'));
+        $this->get(route('catalog'))->assertOk();
+        $this->switchMode('admin')->assertRedirect(route('dashboard'));
+        $this->get(route('admin.index'))->assertOk();
+        $this->assertNull($user->fresh()->two_factor_confirmed_at);
+    }
+
     public function test_backfill_dry_run_and_repeated_execution_are_safe(): void
     {
         $user = User::factory()->wholesaler()->create();
