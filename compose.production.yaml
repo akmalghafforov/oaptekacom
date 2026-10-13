@@ -2,18 +2,50 @@ name: oapteka-op
 x-php: &php
   image: oapteka-php:${RELEASE_TAG:?Set an immutable release tag}
   build:
-    context: .
+    context: ${APP_SOURCE_PATH:?Set the absolute OApteka checkout path}
     target: production
   env_file: ${PRODUCTION_ENV_FILE:-.env.production}
   environment:
+    APP_ENV: production
+    APP_DEBUG: 'false'
     APP_KEY: ${APP_KEY:?Set the persistent production key}
+    APP_URL: ${APP_URL:?Set the HTTPS application URL matching TRAEFIK_HOST}
+    DB_CONNECTION: pgsql
+    DB_HOST: postgres
+    DB_PORT: '5432'
     DB_PASSWORD: ${DB_PASSWORD:?Set the database password}
+    QUEUE_CONNECTION: database
+    DB_QUEUE_RETRY_AFTER: '150'
+    SESSION_DRIVER: database
+    SESSION_SECURE_COOKIE: 'true'
+    SESSION_COOKIE: oapteka_op_session
+    TRUSTED_PROXIES: ${NGINX_PRIVATE_ADDRESS:-172.30.85.10}
+    OSON_SMS_LOGIN: ${OSON_SMS_LOGIN:?Set the Oson SMS login}
+    OSON_SMS_TOKEN: ${OSON_SMS_TOKEN:?Set the Oson SMS token}
+    OSON_SMS_SENDER: ${OSON_SMS_SENDER:?Set the Oson SMS sender}
+    OSON_SMS_DUMMY_CODE: ''
+    DEVELOPMENT_OTP_CODE: ''
+  # Mount source directories, preserving the image's vendor directory and excluding host secrets.
   volumes:
+    - ${APP_SOURCE_PATH}/app:/var/www/app:ro
+    - ${APP_SOURCE_PATH}/bootstrap:/var/www/bootstrap:ro
+    - ${APP_SOURCE_PATH}/config:/var/www/config:ro
+    - ${APP_SOURCE_PATH}/database:/var/www/database:ro
+    - ${APP_SOURCE_PATH}/public:/var/www/public:ro
+    - ${APP_SOURCE_PATH}/resources:/var/www/resources:ro
+    - ${APP_SOURCE_PATH}/routes:/var/www/routes:ro
+    - ${APP_SOURCE_PATH}/artisan:/var/www/artisan:ro
+    - ${APP_SOURCE_PATH}/composer.json:/var/www/composer.json:ro
+    - ${APP_SOURCE_PATH}/composer.lock:/var/www/composer.lock:ro
+    - runtime-storage:/var/www/storage
     - private-uploads:/var/www/storage/app/private
+    - bootstrap-cache:/var/www/bootstrap/cache
   networks: [application, database]
   depends_on:
     postgres:
       condition: service_healthy
+    app-init:
+      condition: service_completed_successfully
 services:
   postgres:
     image: postgres:16-alpine
@@ -23,76 +55,117 @@ services:
       POSTGRES_USER: ${DB_USERNAME:-oapteka}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?Set the database password}
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
-    command: [postgres, -c, hba_file=/etc/postgresql/pg_hba.conf, -c, password_encryption=scram-sha-256]
+      DATABASE_SUBNET: ${DATABASE_SUBNET:-172.30.84.0/24}
+    entrypoint: [sh, /etc/postgresql/production-entrypoint.sh]
+    command: [postgres, -c, hba_file=/tmp/pg_hba.conf, -c, password_encryption=scram-sha-256]
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./docker/pg_hba.production.conf:/etc/postgresql/pg_hba.conf:ro
+      - ${APP_SOURCE_PATH}/docker/pg_hba.production.conf:/etc/postgresql/pg_hba.conf.template:ro
+      - ${APP_SOURCE_PATH}/docker/postgres-production-entrypoint.sh:/etc/postgresql/production-entrypoint.sh:ro
     networks: [database]
     healthcheck:
       test: [CMD-SHELL, 'PGPASSWORD="$$POSTGRES_PASSWORD" psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "SELECT 1" >/dev/null']
       interval: 5s
       timeout: 5s
       retries: 10
+  storage-init:
+    <<: *php
+    user: root
+    depends_on: {}
+    network_mode: none
+    networks: []
+    entrypoint: [sh, /usr/local/bin/production-entrypoint]
+    command: [storage-init]
+  app-init:
+    <<: *php
+    command: [app-init]
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
   app:
     <<: *php
     restart: unless-stopped
   queue:
     <<: *php
     restart: unless-stopped
-    command: [php, artisan, 'queue:work', '--queue=price-list-imports,default', '--sleep=2', '--tries=3', '--timeout=120', '--no-interaction']
+    command: [queue]
     stop_grace_period: 150s
   scheduler:
     <<: *php
     restart: unless-stopped
     command: [php, artisan, 'schedule:work', '--no-interaction']
+    stop_grace_period: 150s
   release:
     <<: *php
     profiles: [release]
-    entrypoint: [php, artisan]
-    command: [list, '--no-interaction']
-  storage-init:
-    <<: *php
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    command: [release, list, '--no-interaction']
+  assets:
+    image: node:24-alpine
     profiles: [release]
-    user: root
-    entrypoint: [sh, -c]
-    command: ['chown -R www-data:www-data /var/www/storage/app/private && chmod 700 /var/www/storage/app/private']
+    working_dir: /build
+    command: [sh, -c, 'npm ci && npm run build && rm -f public/hot']
+    volumes:
+      - ${APP_SOURCE_PATH}/package.json:/build/package.json:ro
+      - ${APP_SOURCE_PATH}/package-lock.json:/build/package-lock.json:ro
+      - ${APP_SOURCE_PATH}/vite.config.js:/build/vite.config.js:ro
+      - ${APP_SOURCE_PATH}/resources:/build/resources:ro
+      - ${APP_SOURCE_PATH}/public:/build/public
+      - node-dependencies:/build/node_modules
   nginx:
     image: oapteka-nginx:${RELEASE_TAG:?Set an immutable release tag}
     build:
-      context: .
+      context: ${APP_SOURCE_PATH}
       target: production-nginx
     restart: unless-stopped
     depends_on: [app]
+    environment:
+      TRAEFIK_HOST: ${TRAEFIK_HOST:-oapteka.app}
+      NGINX_PRIVATE_ADDRESS: ${NGINX_PRIVATE_ADDRESS:-172.30.85.10}
+      NGINX_ENVSUBST_FILTER: '^(TRAEFIK_HOST|NGINX_PRIVATE_ADDRESS)$$'
+    volumes:
+      - ${APP_SOURCE_PATH}/public:/var/www/public:ro
+      - ${APP_SOURCE_PATH}/docker/nginx/production.conf:/etc/nginx/templates/default.conf.template:ro
     networks:
       application:
-        ipv4_address: 172.30.85.10
+        ipv4_address: ${NGINX_PRIVATE_ADDRESS:-172.30.85.10}
       traefik-net:
     labels:
       traefik.enable: 'true'
-      traefik.docker.network: traefik-net
+      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik-net}
       traefik.http.routers.oapteka-op-http.rule: Host(`${TRAEFIK_HOST:-oapteka.app}`)
       traefik.http.routers.oapteka-op-http.entrypoints: web
-      traefik.http.routers.oapteka-op-http.middlewares: https-redirect@file
+      traefik.http.routers.oapteka-op-http.middlewares: ${TRAEFIK_HTTP_MIDDLEWARE:-https-redirect@file}
       traefik.http.routers.oapteka-op-http.service: oapteka-op
       traefik.http.routers.oapteka-op-https.rule: Host(`${TRAEFIK_HOST:-oapteka.app}`)
       traefik.http.routers.oapteka-op-https.entrypoints: websecure
       traefik.http.routers.oapteka-op-https.tls: 'true'
-      traefik.http.routers.oapteka-op-https.tls.certresolver: cloudflare
-      traefik.http.routers.oapteka-op-https.middlewares: secureHeaders@file
+      traefik.http.routers.oapteka-op-https.tls.certresolver: ${TRAEFIK_CERT_RESOLVER:-cloudflare}
+      traefik.http.routers.oapteka-op-https.middlewares: ${TRAEFIK_HTTPS_MIDDLEWARE:-secureHeaders@file}
       traefik.http.routers.oapteka-op-https.service: oapteka-op
       traefik.http.services.oapteka-op.loadbalancer.server.port: '80'
 networks:
   traefik-net:
+    name: ${TRAEFIK_NETWORK:-traefik-net}
     external: true
   application:
     ipam:
       config:
-        - subnet: 172.30.85.0/24
+        - subnet: ${APPLICATION_SUBNET:-172.30.85.0/24}
   database:
     internal: true
     ipam:
       config:
-        - subnet: 172.30.84.0/24
+        - subnet: ${DATABASE_SUBNET:-172.30.84.0/24}
 volumes:
   postgres-data:
   private-uploads:
+  runtime-storage:
+  bootstrap-cache:
+  node-dependencies:

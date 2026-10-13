@@ -16,3 +16,5 @@ public/build
 .codex
 .claude
 database/*.sqlite
+*.password
+*.secret
