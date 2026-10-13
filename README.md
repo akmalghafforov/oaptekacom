@@ -35,27 +35,38 @@ secrets; keep password files outside the checkout, with mode 600.
 From that checkout, run these steps in order:
 
 ```sh
-make ENVIRONMENT=production production-check
-make ENVIRONMENT=production network
-make ENVIRONMENT=production build
-make ENVIRONMENT=production production-assets
-make ENVIRONMENT=production production-init
-make ENVIRONMENT=production production-db
-make ENVIRONMENT=production production-migrate
-make ENVIRONMENT=production production-application
+make check
+make network
+make build
+make assets
+make init
+make db-up
+make migrate
+make up
 ```
 
-`production-check` validates without printing the environment. The production network
-check only inspects the existing shared network. Every production command selects
-`compose.production.yaml` and `.env.production`; use `PRODUCTION_ENV_FILE=/absolute/path`
-on **every** Make invocation to select a different protected environment file.
-Production Make commands pin the Compose file and `oapteka-op` project name, ignoring
-`COMPOSE` / `COMPOSE_COMMAND` overrides and inherited `COMPOSE_FILE` /
-`COMPOSE_PROJECT_NAME`. Use `DOCKER_CONTEXT` to select a Docker context if needed.
-Local development remains the default when no production environment file exists.
-If that file exists, service commands require an explicit `ENVIRONMENT=production`
-or `ENVIRONMENT=local`, preventing a bare `make up` from starting the local stack.
-Never use `down --volumes` in production.
+The same Make commands work in both environments. Make prefers `.env.production`
+when it exists, otherwise `.env`, and reads `APP_ENV` without executing the file.
+`APP_ENV=production` selects `compose.production.yaml` and the `oapteka-op` project;
+`local`, `development`, or `testing` selects `docker-compose.yml`. Unknown environments
+and conflicting `ENVIRONMENT` overrides fail. Use `make help` to see the selected
+file and environment, or `ENV_FILE=/absolute/path` on each invocation to choose a
+specific file (for example, `make ENV_FILE=.env up` for local development).
+
+`make check` validates without printing secrets. Production routing stays pinned
+regardless of `COMPOSE`, `COMPOSE_COMMAND`, `COMPOSE_FILE`, or `COMPOSE_PROJECT_NAME`
+overrides. Use `DOCKER_CONTEXT` to select a Docker context if needed. `make network`
+only inspects the existing proxy network in production. `make up` stops production
+application services, initializes writable volumes, starts PostgreSQL, refreshes caches
+and recreates application services;
+run `make migrate` first for a new release. `make restart` stops services and runs
+that startup sequence. Local dependency mutation, tests, source watching and database
+resets are unavailable in the production image; their commands fail clearly instead
+of falling back to the local stack. `make down` stops and removes every service in
+the detected project, including PostgreSQL, all profiles, and orphaned service
+containers, while keeping persistent volumes and the external Traefik network.
+Use `make stop` when PostgreSQL should keep running. Never use `down --volumes` in
+production.
 
 PHP keeps Composer dependencies in its image. Application directories are mounted
 read-only from `APP_SOURCE_PATH`; Nginx mounts only `public/`. The temporary Node 24
@@ -73,7 +84,7 @@ before starting PHP-FPM, the worker and one scheduler. This follows
 [Laravel's deployment guidance](https://laravel.com/framework/docs/13.x/deployment).
 Production one-off Artisan commands use temporary cache paths so they read the current
 environment, even when the serving release has cached configuration. Refresh serving
-caches with `production-application` after stopping services; do not use one-off
+caches with `make up` after stopping services; do not use one-off
 `config:cache` to refresh the serving application.
 
 ### Initial administrator and account modes
@@ -97,8 +108,8 @@ the development seeder. Leave `ACCOUNT_MODES_ENABLED=false` until migrations and
 account-role backfill have succeeded:
 
 ```sh
-make ENVIRONMENT=production artisan COMMAND='oapteka:backfill-account-roles --dry-run'
-make ENVIRONMENT=production artisan COMMAND='oapteka:backfill-account-roles'
+make artisan COMMAND='oapteka:backfill-account-roles --dry-run'
+make artisan COMMAND='oapteka:backfill-account-roles'
 ```
 
 Review and resolve reported errors before enabling account modes on every application
@@ -113,16 +124,16 @@ image tag and protected environment file. Stop OApteka's web and worker services
 changing mounted source, including checkout, asset builds, or cache refresh:
 
 ```sh
-make ENVIRONMENT=production production-stop
+make stop
 # Fetch and check out the reviewed revision in this OApteka checkout.
 # Update RELEASE_TAG in the protected environment file.
-make ENVIRONMENT=production production-check
-make ENVIRONMENT=production build
-make ENVIRONMENT=production production-assets
-make ENVIRONMENT=production production-init
-make ENVIRONMENT=production production-db
-make ENVIRONMENT=production production-migrate
-make ENVIRONMENT=production production-application
+make check
+make build
+make assets
+make init
+make db-up
+make migrate
+make up
 ```
 
 Rebuild the PHP runtime whenever Composer manifests/lockfile, Dockerfile, PHP settings,
@@ -137,13 +148,13 @@ not change passwords in an existing database; plan database credential rotation 
 Verify after each release:
 
 ```sh
-make ENVIRONMENT=production production-status
-make ENVIRONMENT=production logs SERVICE=app
-make ENVIRONMENT=production logs SERVICE=queue
-make ENVIRONMENT=production logs SERVICE=scheduler
-make ENVIRONMENT=production artisan COMMAND='migrate:status'
-make ENVIRONMENT=production artisan COMMAND='queue:failed'
-make ENVIRONMENT=production artisan COMMAND='schedule:list'
+make ps
+make logs SERVICE=app
+make logs SERVICE=queue
+make logs SERVICE=scheduler
+make artisan COMMAND='migrate:status'
+make artisan COMMAND='queue:failed'
+make artisan COMMAND='schedule:list'
 ```
 
 Check the configured domain's `/up` endpoint over HTTPS, secure login/session behavior,

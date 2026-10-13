@@ -1,74 +1,99 @@
 COMPOSE ?= docker compose
-COMPOSE_PROJECT ?= oapteka-op
+COMPOSE_PROJECT ?= oaptekacom
 COMMAND ?=
-ENVIRONMENT ?= local
-PRODUCTION_ENV_FILE ?= .env.production
+ENV_FILE ?= $(if $(wildcard .env.production),.env.production,.env)
 
-# A checkout with production configuration must select its environment explicitly.
-ifeq ($(origin ENVIRONMENT),file)
-ifneq ($(wildcard $(PRODUCTION_ENV_FILE)),)
-ifneq ($(filter-out help,$(MAKECMDGOALS)),)
-$(error Production configuration exists; select ENVIRONMENT=production or ENVIRONMENT=local explicitly)
-endif
-endif
+# Read only APP_ENV; never execute an environment file as shell code.
+DETECTED_ENVIRONMENT := $(shell python3 -c 'import pathlib,re,sys; p=pathlib.Path(sys.argv[1]); match=re.search(r"(?m)^\s*(?:export\s+)?APP_ENV\s*=\s*([^\r\n]*)", p.read_text()) if p.is_file() else None; value=match.group(1).split(" #",1)[0].strip().strip(chr(34)+chr(39)) if match else ("production" if p.name == ".env.production" else "local"); print("local" if value in ("local", "development", "testing") else value)' "$(ENV_FILE)")
+ENVIRONMENT ?= $(DETECTED_ENVIRONMENT)
+
+ifneq ($(ENVIRONMENT),$(DETECTED_ENVIRONMENT))
+$(error ENVIRONMENT conflicts with APP_ENV in $(ENV_FILE); select the appropriate ENV_FILE instead)
 endif
 
 ifeq ($(ENVIRONMENT),production)
+PRODUCTION_ENV_FILE := $(abspath $(ENV_FILE))
 export PRODUCTION_ENV_FILE
-# Pin the file and project even if COMPOSE_FILE / COMPOSE_PROJECT_NAME are inherited.
+# Pin the file and project even if local Compose settings are inherited.
 override COMPOSE_COMMAND := docker compose --project-name oapteka-op --env-file "$(PRODUCTION_ENV_FILE)" -f "$(CURDIR)/compose.production.yaml"
 else ifeq ($(ENVIRONMENT),local)
-COMPOSE_COMMAND = $(COMPOSE)
+override COMPOSE_COMMAND := $(COMPOSE) --project-name $(COMPOSE_PROJECT) --env-file "$(ENV_FILE)" -f "$(CURDIR)/docker-compose.yml"
 else
-$(error ENVIRONMENT must be local or production)
+$(error Unsupported APP_ENV in $(ENV_FILE); expected production, local, development, or testing)
 endif
 
 .DEFAULT_GOAL := help
+.NOTPARALLEL: up restart cache-clear
+.PHONY: help check network up down stop restart build assets init db-up watch ps logs shell artisan composer test migrate migrate-fresh cache-clear queue-restart db
 
-.PHONY: help network up down restart build watch ps logs shell artisan composer test migrate migrate-fresh cache-clear queue-restart db
-
-help: ## Show available commands.
+help: ## Show available commands and selected environment.
+	@printf 'Environment: %s (%s)\n' "$(ENVIRONMENT)" "$(ENV_FILE)"
 	@awk 'BEGIN {FS = ":.*##"}; /^[a-zA-Z_-]+:.*##/ {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-network: ## Create the shared Traefik network if it does not already exist.
-ifeq ($(ENVIRONMENT),production)
+check: ## Validate the selected Compose configuration without printing secrets.
 	$(COMPOSE_COMMAND) config --quiet
+
+network: check ## Inspect the production proxy network, or create it locally if missing.
+ifeq ($(ENVIRONMENT),production)
 	@docker network inspect "$$( $(COMPOSE_COMMAND) config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["networks"]["traefik-net"]["name"])' )" >/dev/null
 else
 	@docker network inspect traefik-net >/dev/null 2>&1 || docker network create traefik-net
 endif
 
+up: ## Start application services; production initializes volumes and refreshes caches first.
 ifeq ($(ENVIRONMENT),production)
-up: production-application ## Start application services after the documented release steps.
+up: check
+	$(COMPOSE_COMMAND) stop nginx app queue scheduler
+	$(MAKE) init
+	$(MAKE) db-up
+	$(COMPOSE_COMMAND) up --force-recreate --no-deps --exit-code-from app-init app-init
+	$(COMPOSE_COMMAND) up --detach --force-recreate --no-deps app queue scheduler nginx
 else
-up: network ## Build images and start all services in the background.
+up: network
 	$(COMPOSE_COMMAND) up --build --detach
 endif
 
-down: ## Stop and remove containers and project networks (keeps volumes).
-ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) down
-else
-	$(COMPOSE_COMMAND) --project-name $(COMPOSE_PROJECT) down
-endif
+down: ## Stop/remove every service, all profiles and project orphans (keeps volumes).
+	$(COMPOSE_COMMAND) --profile "*" down --remove-orphans
 
-ifneq ($(ENVIRONMENT),production)
-restart: ## Restart all services.
-	$(COMPOSE_COMMAND) restart
-endif
+stop: ## Stop web services and workers, leaving PostgreSQL running.
+	$(COMPOSE_COMMAND) stop nginx app queue scheduler
 
-build: ## Build service images.
+restart: ## Stop and restart application services with fresh production caches.
+	$(MAKE) stop
+	$(MAKE) up
+
+build: check ## Build service images.
 	$(COMPOSE_COMMAND) build
 
-ifneq ($(ENVIRONMENT),production)
-watch: ## Start the stack, synchronize code, and run Vite inside Docker.
+assets: check ## Install frontend dependencies and build assets in a temporary container.
+ifeq ($(ENVIRONMENT),production)
+	$(COMPOSE_COMMAND) run --rm --no-deps assets
+else
+	$(COMPOSE_COMMAND) run --rm --no-deps vite sh -c 'npm ci && npm run build && rm -f public/hot'
+endif
+
+init: check ## Initialize writable storage ownership (application services must be stopped).
+ifeq ($(ENVIRONMENT),production)
+	$(COMPOSE_COMMAND) run --rm --no-deps storage-init
+else
+	$(COMPOSE_COMMAND) run --rm --no-deps --user root app sh -c 'mkdir -p storage/app/private storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache && chown -R www-data:www-data storage bootstrap/cache'
+endif
+
+db-up: check ## Start PostgreSQL and wait for health.
+	$(COMPOSE_COMMAND) up --detach --wait postgres
+
+watch: ## Synchronize local code and run Vite (requires development dependencies).
+ifeq ($(ENVIRONMENT),production)
+	$(error Live source synchronization is unavailable in production; use make stop, assets, and up)
+else
 	$(COMPOSE_COMMAND) watch
 endif
 
-ps: ## Show service status.
-	$(COMPOSE_COMMAND) ps
+ps: ## Show service status, including initialization containers.
+	$(COMPOSE_COMMAND) ps --all
 
-logs: ## Follow all logs; pass SERVICE=name to filter (for example: make logs SERVICE=queue).
+logs: ## Follow logs; pass SERVICE=name to filter.
 	$(COMPOSE_COMMAND) logs --follow $(SERVICE)
 
 shell: ## Open a shell in the app container.
@@ -81,71 +106,45 @@ else
 	$(COMPOSE_COMMAND) exec app php artisan $(COMMAND)
 endif
 
-ifneq ($(ENVIRONMENT),production)
-composer: ## Run Composer; pass COMMAND='require vendor/package' (for example).
+composer: ## Run Composer locally; production installs locked dependencies during image builds.
+ifeq ($(ENVIRONMENT),production)
+	$(error Production dependencies are image-owned; use make build after updating the reviewed lockfile)
+else
 	$(COMPOSE_COMMAND) exec app composer $(COMMAND)
 endif
 
-ifneq ($(ENVIRONMENT),production)
-test: ## Run the Laravel test suite inside the app container.
+test: ## Run the Laravel test suite (requires development dependencies).
+ifeq ($(ENVIRONMENT),production)
+	$(error The production image excludes test dependencies; select a local ENV_FILE to run tests)
+else
 	$(COMPOSE_COMMAND) exec app php artisan test --compact
 endif
 
+migrate: check ## Run pending database migrations without seeding.
 ifeq ($(ENVIRONMENT),production)
-migrate: production-migrate ## Run pending production migrations using the current environment.
+	$(COMPOSE_COMMAND) run --rm --no-deps release release migrate --force --no-interaction
 else
-migrate: ## Run pending database migrations.
 	$(COMPOSE_COMMAND) exec app php artisan migrate --force --no-interaction
 endif
 
-ifneq ($(ENVIRONMENT),production)
-migrate-fresh: ## Drop all tables and rerun migrations (destructive).
-	$(COMPOSE_COMMAND) exec app php artisan migrate:fresh --force
+migrate-fresh: ## Drop all tables and rerun migrations (destructive, local only).
+ifeq ($(ENVIRONMENT),production)
+	$(error Production databases cannot be reset with migrate-fresh; use make migrate)
+else
+	$(COMPOSE_COMMAND) exec app php artisan migrate:fresh --force --no-interaction
 endif
 
-ifneq ($(ENVIRONMENT),production)
-cache-clear: ## Clear Laravel's application caches.
-	$(COMPOSE_COMMAND) exec app php artisan optimize:clear
+cache-clear: ## Clear application caches and refresh/restart production services.
+ifeq ($(ENVIRONMENT),production)
+	$(MAKE) stop
+	$(COMPOSE_COMMAND) run --rm --no-deps release release optimize:clear --no-interaction
+	$(MAKE) up
+else
+	$(COMPOSE_COMMAND) exec app php artisan optimize:clear --no-interaction
 endif
 
 queue-restart: ## Signal queue workers to restart after the current job.
-	$(COMPOSE_COMMAND) exec app php artisan queue:restart
+	$(COMPOSE_COMMAND) exec app php artisan queue:restart --no-interaction
 
 db: ## Open a PostgreSQL console.
 	$(COMPOSE_COMMAND) exec postgres sh -lc 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
-
-# Explicit production targets require ENVIRONMENT=production; local stays the default.
-.PHONY: require-production production-check production-assets production-init production-db production-application production-migrate production-stop production-status
-require-production:
-	@test "$(ENVIRONMENT)" = production || { echo 'Set ENVIRONMENT=production for production commands.' >&2; exit 1; }
-
-production-check: require-production ## Validate production Compose without printing secrets.
-	$(COMPOSE_COMMAND) config --quiet
-
-production-assets: production-check ## Build frontend assets with temporary Node 24 service.
-	$(COMPOSE_COMMAND) run --rm --no-deps assets
-
-production-init: production-check ## Initialize writable volume ownership (services must be stopped).
-	$(COMPOSE_COMMAND) run --rm --no-deps storage-init
-
-production-db: production-check ## Start only PostgreSQL and wait for health.
-	$(COMPOSE_COMMAND) up --detach --wait postgres
-
-production-application: production-check ## Refresh caches, then recreate web, queue, and scheduler services.
-	$(COMPOSE_COMMAND) up --force-recreate --no-deps --exit-code-from app-init app-init
-	$(COMPOSE_COMMAND) up --detach --force-recreate --no-deps app queue scheduler nginx
-
-production-migrate: production-check ## Apply migrations using current environment, without seeding.
-	$(COMPOSE_COMMAND) run --rm --no-deps release release migrate --force --no-interaction
-
-production-stop: require-production ## Stop OApteka web services and workers before changing mounted source.
-	$(COMPOSE_COMMAND) stop nginx app queue scheduler
-
-production-status: require-production ## Show production container status.
-	$(COMPOSE_COMMAND) ps --all
-
-ifeq ($(ENVIRONMENT),production)
-# These development shortcuts are unsuitable for an image-owned vendor directory / live source mounts.
-composer test migrate-fresh watch restart cache-clear:
-	$(error Use the documented production release sequence; this shortcut is local-only)
-endif
