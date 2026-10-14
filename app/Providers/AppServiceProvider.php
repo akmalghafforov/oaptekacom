@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Cart;
 use App\Models\CartItem;
+use App\Models\GmailConnection;
 use App\Models\SupplierRequest;
 use App\Models\User;
 use App\Services\AccountModeContext;
@@ -34,7 +35,7 @@ class AppServiceProvider extends ServiceProvider
                 throw new \LogicException('Session lock lifetime must exceed the HTTP execution timeout.');
             }
         }
-        Gate::before(fn (User $user, string $ability, array $arguments): ?bool => $user->isAdminMode() && ! in_array(is_object($arguments[0] ?? null) ? $arguments[0]::class : ($arguments[0] ?? null), [Cart::class, SupplierRequest::class], true) ? true : null);
+        Gate::before(fn (User $user, string $ability, array $arguments): ?bool => $user->isAdminMode() && ! in_array(is_object($arguments[0] ?? null) ? $arguments[0]::class : ($arguments[0] ?? null), [Cart::class, SupplierRequest::class, GmailConnection::class], true) ? true : null);
         View::composer('layouts.app', function ($view): void {
             $user = auth()->user();
             if ($user && config('account-modes.enabled')) {

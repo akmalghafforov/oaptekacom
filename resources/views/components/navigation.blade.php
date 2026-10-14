@@ -20,6 +20,7 @@
         ];
         $navigationItems = [
             ['label' => 'Операционный центр', 'route' => 'admin.index', 'active' => ['admin.index']],
+            ['label' => 'Gmail', 'route' => 'admin.gmail.index', 'active' => ['admin.gmail.*']],
             ['label' => 'Пользователи', 'route' => 'admin.users', 'active' => ['admin.users']],
             ['label' => 'Подписки', 'route' => 'admin.subscriptions.index', 'active' => ['admin.subscriptions.*', 'admin.subscription-prices.*', 'admin.subscription-payments.*']],
             ['label' => 'Прайс-листы', 'route' => 'price-list-imports.index', 'active' => ['price-list-imports.*', 'admin.supplier-import-profiles.*']],

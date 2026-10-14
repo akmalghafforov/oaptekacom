@@ -174,3 +174,65 @@ do not run blind migration rollbacks. Keep the persistent `APP_KEY` and existing
 volume names. Network/subnet availability, image builds, Nginx validation, actual
 volume permissions and end-to-end worker/scheduler behavior must be checked on the
 server before routing production traffic.
+
+## Admin Gmail inbox
+
+Each admin can connect one private Gmail account from the admin Gmail page. This integration
+requests only `https://www.googleapis.com/auth/gmail.readonly`. It reads INBOX pages and
+message bodies without changing unread status. Only attachment names and sizes are shown;
+downloading, importing price lists, background synchronization, and persistent message caches
+are not included. Reading is bounded to 30 MIME nesting levels, eight attachment-backed
+body fetches, 8 MiB per encoded text part, and 1 MiB of sanitized HTML; unsupported or malformed parts fall back
+to plain text or a safe empty state.
+
+1. In Google Cloud Console, enable the Gmail API for your project.
+2. Configure the Google Auth Platform consent screen, audience, app details and the Gmail
+   readonly scope. For an external app in Testing mode, add the intended Google accounts
+   as test users.
+3. Create an OAuth client of type **Web application**. Set `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET` in your deployment environment. Set `GOOGLE_REDIRECT_URI` to
+   your exact absolute HTTPS application URI ending in `/admin/gmail/callback` and register
+   that identical URI as an authorized redirect URI in Google. Local development may use
+   Google's permitted localhost HTTP redirect.
+4. Install the locked dependencies (`composer install --no-interaction`), run
+   `php artisan migrate --no-interaction`, then refresh configuration with
+   `php artisan config:clear --no-interaction` and `php artisan config:cache --no-interaction`.
+   Keep the same persistent `APP_KEY` across deployments and restores: it encrypts stored
+   tokens. Rotate Google credentials through your secret management process.
+5. Use server-side sessions (`SESSION_DRIVER=database` or Redis) and a shared atomic lock
+   store (`SESSION_BLOCK_STORE=database` or Redis) on every application instance. Do not use
+   cookie sessions or a process-local array cache. Setting `GOOGLE_CLIENT_ID` enables session
+   blocking for all web requests so overlapping requests cannot restore consumed OAuth state.
+   Session and credential locks last 300 seconds;
+   keep the HTTP execution timeout below this value.
+
+Docker development equivalents use `docker compose exec app` before the Artisan commands.
+Production uses the existing `make migrate` workflow (with `--force`), then the application
+container through `docker compose --env-file .env.production -f compose.production.yaml exec app`
+for configuration commands; rebuild the release image/assets using the existing Make workflow.
+Do not regenerate `APP_KEY` during an upgrade.
+
+For external applications in Testing mode, refresh tokens for this Gmail scope expire after
+seven days. Gmail readonly is a restricted scope. Production use may require OAuth restricted-scope
+verification and, because this server handles restricted-scope data, a security assessment.
+Google documents exceptions for eligible personal or internal use; admin-only access does **not**
+itself qualify an application for the internal-use exception. Review
+[Google OAuth guidance](https://developers.google.com/identity/protocols/oauth2) and
+[restricted-scope verification requirements](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
+for your audience and deployment.
+
+Bundled Nginx access logs omit query strings and referrers, including callback codes and state.
+Apply equivalent protection to Traefik, upstream proxies, WAFs, APM/error trackers and other
+request logging: never capture callback query strings, token responses, or Google exception
+bodies. Gmail responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+
+Manual acceptance checklist with an authorized Google test account:
+
+- Connect and consent; confirm the displayed account belongs to the signed-in admin.
+- Browse First/Next pages, open plain and HTML messages, and inspect attachment names/sizes.
+- Confirm unread status is unchanged and remote images/links cannot load in the message frame.
+- Refresh after new mail arrives; verify another admin and non-admins cannot read this mailbox.
+- Disconnect; confirm local connection removal even if Google revocation is unavailable.
+- Reconnect the same account and a different account; test denied consent and revoked permissions.
+
+Automated tests use mock Google HTTP responses; they do not demonstrate live Gmail connectivity.

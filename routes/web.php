@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AccountModeController;
 use App\Http\Controllers\Admin\CategoryReviewController;
+use App\Http\Controllers\Admin\GmailController;
 use App\Http\Controllers\Admin\OrganizationDirectoryController;
 use App\Http\Controllers\Admin\SupplierImportProfileController;
 use App\Http\Controllers\AdminController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\SubscriptionRequestController;
 use App\Http\Controllers\SupplierCartExportController;
 use App\Http\Controllers\SupplierRequestController;
 use App\Http\Controllers\TwoFactorController;
+use App\Http\Middleware\ProtectGmailResponse;
 use App\Services\PhoneOtpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -110,6 +112,14 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::get('/price-list-imports/{import}/categorization-report', [PriceListImportController::class, 'categorizationReport'])->name('price-list-imports.categorization-report');
     Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->name('price-list-imports.retry');
     Route::prefix('admin')->middleware('role:admin')->group(function () {
+        Route::prefix('gmail')->middleware(ProtectGmailResponse::class)->group(function () {
+            Route::get('/', [GmailController::class, 'index'])->name('admin.gmail.index');
+            Route::post('/connect', [GmailController::class, 'connect'])->block(300, 10)->name('admin.gmail.connect');
+            Route::get('/callback', [GmailController::class, 'callback'])->block(300, 10)->name('admin.gmail.callback');
+            Route::get('/messages/{message}', [GmailController::class, 'show'])->where('message', '[a-zA-Z0-9_-]+')->name('admin.gmail.show');
+            Route::post('/refresh', [GmailController::class, 'refresh'])->name('admin.gmail.refresh');
+            Route::delete('/connection', [GmailController::class, 'destroy'])->block(300, 10)->name('admin.gmail.destroy');
+        });
         Route::get('/', [AdminController::class, 'index'])->name('admin.index');
         Route::post('/organizations/{organization}/approve', [AdminController::class, 'approve'])->name('admin.approve');
         Route::post('/suppliers', [AdminController::class, 'storeSupplier'])->name('admin.suppliers.store');
