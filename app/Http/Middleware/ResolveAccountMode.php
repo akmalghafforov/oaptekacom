@@ -14,7 +14,7 @@ class ResolveAccountMode
     public function handle(Request $request, Closure $next): Response
     {
         $this->context->reset();
-        if (! config('account-modes.enabled') || ! $request->user() || $request->routeIs('logout')) {
+        if (! config('account-modes.enabled') || ! $request->user() || $request->routeIs('logout', 'legal.*')) {
             return $next($request);
         }
         $request->user()->unsetRelation('organization');

@@ -4,5 +4,5 @@
 <x-ui.card><form method="post" action="{{ route($route) }}" class="space-y-4">@csrf <x-mode-version />
 <x-ui.input :name="$field" :label="$label" required autocomplete="organization" />
 <x-ui.button class="w-full">Получить код SMS</x-ui.button>
-</form></x-ui.card>
+</form><x-registration-legal-links /></x-ui.card>
 @endsection

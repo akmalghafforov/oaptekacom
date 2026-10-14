@@ -11,6 +11,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CartController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\LegalController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\PaymentReceiptController;
@@ -27,6 +28,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn (Request $request) => redirect()->route($request->user()?->defaultLandingRouteName() ?? 'catalog'));
+Route::get('/privacy-policy/{locale?}', [LegalController::class, 'privacy'])->where('locale', 'ru|tg')->name('legal.privacy');
+Route::get('/terms-of-service/{locale?}', [LegalController::class, 'terms'])->where('locale', 'ru|tg')->name('legal.terms');
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
     Route::post('/login/phone', [AuthController::class, 'sendLoginOtp'])->name('login.otp.send');
