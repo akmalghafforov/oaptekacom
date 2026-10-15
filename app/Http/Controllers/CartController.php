@@ -52,7 +52,7 @@ class CartController extends Controller
     {
         $this->authorize('view', $offer);
         abort_unless($request->user()->canBuy() && $this->isCurrent($offer), 404);
-        $validated = $request->validate(['quantity' => 'nullable|integer|min:1|max:999']);
+        $validated = $request->validate(['quantity' => 'nullable|integer|min:1|max:999999']);
         $cartItem = CartItem::firstOrNew(['cart_id' => $this->cart($request)->id, 'offer_id' => $offer->id]);
         $cartItem->quantity = ($cartItem->exists ? $cartItem->quantity : 0) + ($validated['quantity'] ?? 1);
         if ($offer->quantity !== null && $cartItem->quantity > (float) $offer->quantity) {
@@ -95,7 +95,7 @@ class CartController extends Controller
     public function update(CartItem $item, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse|JsonResponse
     {
         $this->authorize('update', $item->cart);
-        $validated = $request->validate(['quantity' => 'required|integer|min:1|max:999']);
+        $validated = $request->validate(['quantity' => 'required|integer|min:1|max:999999']);
         if (! $this->isCurrent($item->offer) || ($item->offer->quantity !== null && $validated['quantity'] > (float) $item->offer->quantity)) {
             throw ValidationException::withMessages(['quantity' => 'Предложение устарело или нужное количество больше остатка.']);
         }

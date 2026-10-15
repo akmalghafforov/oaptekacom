@@ -1,7 +1,7 @@
 <div>
     <!-- Let all your things have their places; let each part of your business have its time. - Benjamin Franklin -->
 </div>
-@props(['name', 'value', 'max' => 999, 'id' => null])
+@props(['name', 'value', 'max' => 999999, 'id' => null])
 @php($inputId = $id ?? $name)
 <div class="flex items-end gap-2" data-quantity-stepper>
     <button type="button" class="grid min-h-10 min-w-10 place-items-center rounded-control border border-control-border bg-surface text-lg font-semibold text-content hover:bg-surface-subtle" aria-label="Уменьшить количество" data-quantity-step="-1">−</button>

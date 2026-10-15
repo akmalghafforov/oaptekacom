@@ -209,6 +209,47 @@ class SupplierRequestCartTest extends TestCase
         $this->assertSame(1, $cartItem->fresh()->quantity);
     }
 
+    public function test_cart_accepts_six_digit_quantities_when_supplier_stock_is_unspecified(): void
+    {
+        [$user, , $offer] = $this->cartWithTwoSuppliers();
+        $offer->update(['quantity' => null]);
+
+        $this->actingAs($user)->postJson(route('cart.add', $offer), ['quantity' => 999999])
+            ->assertOk()
+            ->assertJsonPath('item.quantity', 999999);
+
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->sole();
+        $this->assertSame(999999, $item->quantity);
+
+        $this->patchJson(route('cart.update', $item), ['quantity' => 1000])->assertOk();
+        $this->patchJson(route('cart.update', $item), ['quantity' => 999999])
+            ->assertOk()
+            ->assertJsonPath('item.quantity', 999999);
+
+        $this->assertSame(999999, $item->fresh()->quantity);
+    }
+
+    public function test_cart_rejects_quantities_above_999999_without_changing_items(): void
+    {
+        [$user, , $offer] = $this->cartWithTwoSuppliers();
+        $offer->update(['quantity' => null]);
+
+        $this->actingAs($user)->postJson(route('cart.add', $offer), ['quantity' => 1000000])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('quantity');
+
+        $this->assertDatabaseMissing('cart_items', ['offer_id' => $offer->id]);
+
+        $this->postJson(route('cart.add', $offer), ['quantity' => 1])->assertOk();
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->sole();
+
+        $this->patchJson(route('cart.update', $item), ['quantity' => 1000000])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('quantity');
+
+        $this->assertSame(1, $item->fresh()->quantity);
+    }
+
     public function test_json_quantity_update_returns_current_totals_and_keeps_other_suppliers(): void
     {
         [$user, , $firstOffer, $secondOffer] = $this->cartWithTwoSuppliers();

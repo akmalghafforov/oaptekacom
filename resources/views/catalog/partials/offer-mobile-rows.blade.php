@@ -12,7 +12,7 @@
         <div class="mobile-offer-content min-w-0 grow">
             <div class="mobile-offer-product flex items-start justify-between gap-2">
                 <div class="mobile-offer-name min-w-0">
-                    <h3 class="line-clamp-2 text-sm font-bold leading-tight text-ink">{{ $offer->medicine->name }}</h3>
+                    <h3 class="line-clamp-2 text-sm font-bold leading-tight text-ink"><x-ui.highlighted-text :text="$offer->medicine->name" :query="$searchTerm ?? ''" /></h3>
                     <p @class(['mt-1 text-xs text-muted md:truncate', 'hidden md:block' => ! $offer->medicine->dosage && ! $offer->medicine->form])>{{ collect([$offer->medicine->dosage, $offer->medicine->form])->filter()->join(' · ') ?: 'Форма не указана' }}</p>
                 </div>
                 <div class="mobile-offer-price min-w-0 shrink-0 text-right"><p class="whitespace-nowrap text-base font-extrabold text-accent">{{ $offer->effective_price }} <span class="text-xs">TJS</span></p>@if($hasSupplierDiscount)<p class="mt-0.5 text-xs md:whitespace-nowrap md:text-[10px] text-muted">{{ $offer->price }} TJS · Ваша скидка {{ $offer->applied_supplier_discount_percent }}%</p>@endif</div>
@@ -30,7 +30,7 @@
                     @endif
                 </div>
                 <div data-cart-add-controls data-cart-can-add="{{ $canBuy && $available ? 'true' : 'false' }}" @class(['hidden' => $inCart > 0])><form method="post" action="{{ route('cart.add', $offer) }}" data-cart-form class="flex items-center gap-1.5">@csrf <x-mode-version />
-                    <input type="number" name="quantity" value="1" min="1" max="999" @disabled($inCart > 0) class="min-h-10 w-14 rounded-control border border-control-border px-2 text-center text-sm" aria-label="Количество {{ $offer->medicine->name }}">
+                    <input type="number" name="quantity" value="1" min="1" max="999999" @disabled($inCart > 0) class="min-h-10 w-14 rounded-control border border-control-border px-2 text-center text-sm" aria-label="Количество {{ $offer->medicine->name }}">
                     <x-ui.icon-button type="submit" label="Добавить в корзину" :disabled="$inCart > 0 || ! $canBuy || ! $available" class="!size-10 !min-h-0 !min-w-0 !rounded-lg !border-cart-action-border !bg-cart-action !text-white hover:!border-cart-accent hover:!bg-cart-action-hover disabled:!bg-cart-action" data-cart-submit>
                         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 9V7a4 4 0 0 1 8 0v2M5 9h14l-1 10H6L5 9Zm4 4v3m6-3v3" /></svg>
                     </x-ui.icon-button>

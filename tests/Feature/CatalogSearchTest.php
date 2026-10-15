@@ -22,6 +22,33 @@ class CatalogSearchTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    #[DataProvider('highlightedSearchTerms')]
+    public function test_search_highlights_literal_name_matches_in_all_result_layouts(string $query, string $name, array $matches): void
+    {
+        $user = $this->pharmacyUser();
+        [$supplier, $import] = $this->activeImport();
+        $this->offer($supplier, $import, $name, mb_strtolower($name), 12, 1);
+
+        $response = $this->actingAs($user)->getJson(route('catalog.search', ['q' => $query, 'view' => 'list', 'substring_match' => 1]))->assertOk();
+
+        foreach (['desktop_rows', 'mobile_rows', 'cards'] as $fragment) {
+            $html = $response->json('fragments.'.$fragment);
+            preg_match_all('/<mark[^>]*>(.*?)<\/mark>/s', $html, $highlighted);
+            $this->assertSame($matches, $highlighted[1]);
+            $this->assertStringNotContainsString('<script>', $html);
+        }
+    }
+
+    public static function highlightedSearchTerms(): array
+    {
+        return [
+            'cyrillic ignores case and highlights every occurrence' => ['тиКаГ', 'Тикагрелор ТИКАГ 90мг', ['Тикаг', 'ТИКАГ']],
+            'regex punctuation is literal' => ['Амо+', 'Амо+ таблетки <script>alert(1)</script>', ['Амо+']],
+            'empty search has no highlights' => ['', 'Амоксициллин', []],
+            'matching suffix' => ['таблетки', 'Амоксициллин таблетки', ['таблетки']],
+        ];
+    }
+
     public function test_active_pharmacy_and_wholesaler_can_search_while_guest_and_inactive_pharmacy_cannot(): void
     {
         $pharmacy = $this->pharmacyUser();

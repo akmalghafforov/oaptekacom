@@ -45,7 +45,7 @@ class CatalogController extends Controller
         $cartTotal = $request->user()->canBuy()
             ? (int) CartItem::query()->whereHas('cart', fn ($query) => $query->where('user_id', $request->user()->id))->sum('quantity')
             : 0;
-        $viewData = ['offers' => $offers->getCollection(), 'cartQuantities' => $cartQuantities, 'cartItemIds' => $cartItemIds, 'canBuy' => $request->user()->canBuy()];
+        $viewData = ['searchTerm' => $filters['q'] ?? '', 'offers' => $offers->getCollection(), 'cartQuantities' => $cartQuantities, 'cartItemIds' => $cartItemIds, 'canBuy' => $request->user()->canBuy()];
         $cards = view('catalog.partials.offer-cards', $viewData + ['layout' => $view])->render();
         $rows = $view === 'list' ? view('catalog.partials.offer-table-rows', $viewData)->render() : null;
         $mobileRows = $view === 'list' ? view('catalog.partials.offer-mobile-rows', $viewData)->render() : null;

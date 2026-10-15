@@ -261,7 +261,7 @@ document.querySelectorAll('[data-quantity-stepper]').forEach((stepper) => {
 
     stepper.querySelectorAll('[data-quantity-step]').forEach((button) => button.addEventListener('click', () => {
         const minimum = Number(input.min || 1);
-        const maximum = Number(input.max || 999);
+        const maximum = Number(input.max || 999999);
         const nextValue = Math.max(minimum, Math.min(maximum, Number(input.value || minimum) + Number(button.dataset.quantityStep)));
 
         input.value = String(nextValue);
@@ -371,7 +371,7 @@ cartQuantityGroups.forEach((group) => {
 
     const schedule = (input) => {
         const quantity = Number(input.value);
-        const maximum = Number(input.max || 999);
+        const maximum = Number(input.max || 999999);
 
         if (!Number.isInteger(quantity) || quantity < 1 || quantity > maximum) {
             group.desired = group.confirmed;
