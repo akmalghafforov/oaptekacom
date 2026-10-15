@@ -31,7 +31,7 @@ case "${1:-}" in
         exec php artisan "$@"
         ;;
     queue)
-        exec php artisan queue:work "--queue=${PRICE_LIST_QUEUE:-price-list-imports},default" --sleep=2 --tries=3 --timeout=120 --no-interaction
+        exec php artisan queue:work "--queue=${GMAIL_IMPORTS_QUEUE:-gmail-imports},${PRICE_LIST_QUEUE:-price-list-imports},default" --sleep=2 --tries=3 --timeout=120 --no-interaction
         ;;
 esac
 
