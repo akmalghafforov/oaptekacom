@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\PriceList\ImportActivator;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Throwable;
 
 class CommitPriceListImport implements ShouldQueue
@@ -21,6 +22,22 @@ class CommitPriceListImport implements ShouldQueue
     public array $backoff = [15, 45, 120];
 
     public function __construct(public readonly int $importId, public readonly ?int $actorId = null) {}
+
+    public int $maxExceptions = 3;
+
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addHours(2);
+    }
+
+    public function middleware(): array
+    {
+        if (config('queue.connections.'.($this->connection ?? config('queue.default')).'.driver') === 'sync') {
+            return [];
+        }
+
+        return [(new WithoutOverlapping('price-list-stage:'.$this->importId))->shared()->releaseAfter(30)->expireAfter(140)];
+    }
 
     public function handle(ImportActivator $activator): void
     {

@@ -166,18 +166,20 @@ class GmailService
             Gate::forUser($user)->authorize('view', $connection);
             try {
                 if (! $connection->expires_at || $connection->expires_at->lessThan(now()->addMinute())) {
-                    $token = $this->clients->make()->fetchAccessTokenWithRefreshToken($connection->refresh_token);
-                    if (($token['error'] ?? null) === 'invalid_grant') {
-                        $this->revoked($connection);
-                    }
-                    $this->validateToken($token);
-                    $connection->update(['access_token' => $token['access_token'], 'refresh_token' => $token['refresh_token'] ?? $connection->refresh_token, 'expires_at' => now()->addSeconds((int) $token['expires_in'])]);
+                    app(GmailMailboxAccess::class)->refresh($connection);
                 }
 
                 return $operation(new Gmail($this->clients->make($connection->access_token)));
             } catch (GoogleException $exception) {
                 if ($exception->getCode() === 401) {
-                    $this->revoked($connection);
+                    app(GmailMailboxAccess::class)->refresh($connection);
+                    try {
+                        return $operation(new Gmail($this->clients->make($connection->access_token)));
+                    } catch (GoogleException $retry) {
+                        if ($retry->getCode() === 401) {
+                            $this->revoked($connection);
+                        }
+                    }
                 }
                 throw new GmailException;
             }

@@ -5,8 +5,12 @@ namespace App\Services;
 use Google\Client;
 use GuzzleHttp\Client as HttpClient;
 use GuzzleHttp\ClientInterface;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Log\NullLogger;
 
 class GmailClientFactory
@@ -36,7 +40,22 @@ class GmailClientFactory
         $client->setScopes([self::SCOPE]);
         $client->setAccessType('offline');
         $client->setPrompt('consent');
-        $client->setHttpClient($this->httpClient ?? new HttpClient(['connect_timeout' => 3, 'timeout' => 8, 'http_errors' => false]));
+        $transport = $this->httpClient ?? new HttpClient(['connect_timeout' => 3, 'timeout' => 8, 'http_errors' => false]);
+        $client->setHttpClient(new HttpClient(['http_errors' => false, 'handler' => HandlerStack::create(function (RequestInterface $request, array $options) use ($transport): PromiseInterface {
+            unset($options['handler']);
+
+            return $transport->sendAsync($request, array_replace($options, ['http_errors' => false]))->then(function (ResponseInterface $response) use ($request): ResponseInterface {
+                if ($response->getStatusCode() >= 400 && (str_contains($request->getUri()->getPath(), '/gmail/') || $response->getStatusCode() === 429 || $response->getStatusCode() >= 500)) {
+                    $body = json_decode((string) $response->getBody(), true);
+                    $errors = array_map(fn (array $error): array => ['reason' => (string) ($error['reason'] ?? '')], $body['error']['errors'] ?? []);
+                    $retry = $response->getHeaderLine('Retry-After');
+                    $delay = ctype_digit($retry) ? (int) $retry : max(0, (int) strtotime($retry) - time());
+                    throw new GmailApiException($response->getStatusCode(), $errors, $delay);
+                }
+
+                return $response;
+            });
+        })]));
         if ($accessToken !== null) {
             $client->setAccessToken(['access_token' => $accessToken, 'expires_in' => 3600, 'created' => time()]);
         }

@@ -371,6 +371,7 @@ class PhoneOtpAuthenticationTest extends TestCase
 
     public function test_supplier_phone_login_authenticates_only_supplier_accounts(): void
     {
+        config(['auth.admin_two_factor_enabled' => true]);
         $provider = User::factory()->wholesaler()->create(['phone' => '+992901234567', 'password' => null]);
         $admin = User::factory()->admin()->create(['email' => 'admin@example.com', 'password' => 'password']);
         $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234568']);

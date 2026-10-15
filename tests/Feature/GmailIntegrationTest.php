@@ -406,15 +406,15 @@ class GmailIntegrationTest extends TestCase
         $this->assertCount(1, $history);
     }
 
-    public function test_confirmed_unauthorized_access_requires_reconnect_and_is_not_retried(): void
+    public function test_persistent_unauthorized_access_requires_reconnect_after_one_refresh(): void
     {
         $connection = GmailConnection::factory()->create();
-        $this->google([$this->googleResponse(['error' => ['code' => 401, 'message' => 'secret']], 401)], $history);
+        $this->google([$this->googleResponse(['error' => ['code' => 401, 'message' => 'secret']], 401), $this->googleResponse(['access_token' => 'fresh', 'expires_in' => 3600]), $this->googleResponse(['error' => ['code' => 401]], 401)], $history);
 
         $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('Требуется повторное подключение');
 
         $this->assertSame('reconnect_required', $connection->fresh()->status);
-        $this->assertCount(1, $history);
+        $this->assertCount(3, $history);
     }
 
     public function test_expired_page_token_and_missing_message_have_clean_feedback(): void

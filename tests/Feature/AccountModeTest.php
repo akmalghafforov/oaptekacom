@@ -17,7 +17,6 @@ use App\Services\PriceList\ProfileValidator;
 use App\Services\RoleProvisioningService;
 use App\Services\SupplierCartExport;
 use Illuminate\Contracts\Cache\LockTimeoutException;
-use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
@@ -220,6 +219,7 @@ class AccountModeTest extends TestCase
 
     public function test_admin_two_factor_and_account_blocking_apply_across_modes(): void
     {
+        config(['auth.admin_two_factor_enabled' => true]);
         $user = User::factory()->admin()->create();
         $this->actingAs($user)->get(route('profile.edit'))->assertRedirect(route('two-factor.enroll'));
         $this->patch(route('mode.update'), ['mode' => 'pharmacy', '_mode_version' => $this->version()])->assertRedirect(route('two-factor.enroll'));
@@ -331,6 +331,7 @@ class AccountModeTest extends TestCase
 
     public function test_new_login_resets_mode_and_discards_incompatible_intended_destinations(): void
     {
+        config(['auth.admin_two_factor_enabled' => true]);
         $user = User::factory()->admin()->create(['two_factor_confirmed_at' => now(), 'password' => 'secret-password']);
         $this->actingAs($user)->get(route('dashboard'))->assertOk();
         $this->switchMode('pharmacy')->assertRedirect(route('catalog'));
@@ -339,8 +340,7 @@ class AccountModeTest extends TestCase
         $this->get(route('dashboard'))->assertOk();
         $this->assertSame('admin', session('account_mode.mode'));
         $this->post(route('logout'))->assertRedirect();
-        $this->app->detectEnvironment(fn () => 'local');
-        $this->withoutMiddleware(PreventRequestForgery::class);
+        config(['auth.admin_two_factor_enabled' => false]);
         $this->withSession(['url.intended' => route('cart')])->post(route('admin.login.authenticate'), ['email' => $user->email, 'password' => 'secret-password'])->assertRedirect(route('dashboard'));
     }
 

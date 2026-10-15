@@ -10,6 +10,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Throwable;
 
@@ -23,6 +24,24 @@ class ProcessPriceListImportChunk implements ShouldQueue
 
     public function __construct(public readonly PriceListImport $import, public readonly int $startRow, public readonly int $endRow) {}
 
+    public int $timeout = 120;
+
+    public int $maxExceptions = 3;
+
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addHours(2);
+    }
+
+    public function middleware(): array
+    {
+        if (config('queue.connections.'.($this->connection ?? config('queue.default')).'.driver') === 'sync') {
+            return [];
+        }
+
+        return [(new WithoutOverlapping('price-list-stage:'.$this->import->id))->shared()->releaseAfter(30)->expireAfter(140)];
+    }
+
     public function handle(WorkbookReader $reader, ImportProcessor $processor): void
     {
         $import = $this->import->fresh();
@@ -30,10 +49,11 @@ class ProcessPriceListImportChunk implements ShouldQueue
             return;
         }
         $processor->process($import, $reader->rows($import, $this->startRow, $this->endRow));
+        $import->touch();
     }
 
     public function failed(?Throwable $exception): void
     {
-        $this->import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'parsing', 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
+        $this->import->newQuery()->whereKey($this->import->id)->where('status', PriceListImportStatus::Processing)->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'parsing', 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
     }
 }

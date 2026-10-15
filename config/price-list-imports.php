@@ -4,6 +4,7 @@ return [
     'disk' => env('PRICE_LIST_DISK', 'local'),
     'queue' => env('PRICE_LIST_QUEUE', 'price-list-imports'),
     'max_file_kilobytes' => 20480,
+    'max_expanded_file_bytes' => 200 * 1024 * 1024,
     'max_rows' => 100000,
     'max_columns' => 64,
     'chunk_size' => 500,

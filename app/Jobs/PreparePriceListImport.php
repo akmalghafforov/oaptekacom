@@ -11,6 +11,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Bus;
 use RuntimeException;
@@ -26,25 +27,48 @@ class PreparePriceListImport implements ShouldQueue
 
     public function __construct(public readonly PriceListImport $import) {}
 
+    public int $timeout = 120;
+
+    public int $maxExceptions = 3;
+
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addHours(2);
+    }
+
+    public function middleware(): array
+    {
+        if (config('queue.connections.'.($this->connection ?? config('queue.default')).'.driver') === 'sync') {
+            return [];
+        }
+
+        return [(new WithoutOverlapping('price-list-stage:'.$this->import->id))->shared()->releaseAfter(30)->expireAfter(140)];
+    }
+
     public function handle(WorkbookReader $reader, ValueNormalizer $normalizer, ?ImportLayoutDetector $layoutDetector = null): void
     {
         $layoutDetector ??= app(ImportLayoutDetector::class);
         $import = $this->import->fresh();
-        if ($import->status !== PriceListImportStatus::Pending) {
+        if (! in_array($import->status, [PriceListImportStatus::Pending, PriceListImportStatus::Processing], true)) {
             return;
         }
-        $info = $reader->inspect($import);
-        if ($info['highest_row'] > config('price-list-imports.max_rows') || $info['highest_column'] > config('price-list-imports.max_columns')) {
-            throw new RuntimeException('Файл превышает допустимый лимит строк или столбцов.');
+        if ($import->status === PriceListImportStatus::Pending) {
+            $info = $reader->inspect($import);
+            if ($info['highest_row'] > config('price-list-imports.max_rows') || $info['highest_column'] > config('price-list-imports.max_columns')) {
+                throw new RuntimeException('Файл превышает допустимый лимит строк или столбцов.');
+            }
+            $detection = $layoutDetector->detect($import, $info);
+            $import->update(['effective_layout' => $detection['layout']]);
+            $import = $import->fresh();
+            $start = (int) $import->effective_layout['data_row'];
+            $highestDataRow = $reader->highestDataRow($import, $info['highest_row']);
+            $inventoryAt = $this->inventoryAt($import, $reader, $normalizer);
+            $summary = ['worksheets' => $info['worksheets'], 'highest_row' => $highestDataRow, 'highest_column' => $info['highest_column'], 'layout_detection' => ['confidence' => $detection['confidence'], 'warning' => $detection['warning']]];
+            $import->update(['status' => PriceListImportStatus::Processing, 'processing_started_at' => now(), 'inventory_at' => $inventoryAt, 'total_rows' => max(0, $highestDataRow - $start + 1), 'summary' => $summary]);
+        } else {
+            $start = (int) $import->effective_layout['data_row'];
+            $highestDataRow = (int) $import->summary['highest_row'];
         }
-        $detection = $layoutDetector->detect($import, $info);
-        $import->update(['effective_layout' => $detection['layout']]);
-        $import = $import->fresh();
-        $start = (int) $import->effective_layout['data_row'];
-        $highestDataRow = $reader->highestDataRow($import, $info['highest_row']);
-        $inventoryAt = $this->inventoryAt($import, $reader, $normalizer);
-        $summary = ['worksheets' => $info['worksheets'], 'highest_row' => $highestDataRow, 'highest_column' => $info['highest_column'], 'layout_detection' => ['confidence' => $detection['confidence'], 'warning' => $detection['warning']]];
-        $import->update(['status' => PriceListImportStatus::Processing, 'processing_started_at' => now(), 'inventory_at' => $inventoryAt, 'total_rows' => max(0, $highestDataRow - $start + 1), 'summary' => $summary]);
         $jobs = [];
         for ($row = $start; $row <= $highestDataRow; $row += (int) config('price-list-imports.chunk_size')) {
             $jobs[] = new ProcessPriceListImportChunk($import, $row, min($row + (int) config('price-list-imports.chunk_size') - 1, $highestDataRow));
@@ -70,6 +94,6 @@ class PreparePriceListImport implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        $this->import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'preparation', 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
+        $this->import->newQuery()->whereKey($this->import->id)->whereIn('status', [PriceListImportStatus::Pending, PriceListImportStatus::Processing])->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'preparation', 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
     }
 }

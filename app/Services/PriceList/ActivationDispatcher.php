@@ -2,6 +2,7 @@
 
 namespace App\Services\PriceList;
 
+use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
 use App\Jobs\CommitPriceListImport;
 use App\Jobs\MaterializePriceListImportChunk;
@@ -14,6 +15,10 @@ class ActivationDispatcher
 
     public function dispatch(PriceListImport $import, ?int $actorId = null): void
     {
+        $import = $import->fresh();
+        if (! in_array($import->status, [PriceListImportStatus::Preview, PriceListImportStatus::Committing], true)) {
+            return;
+        }
         $this->activator->reconcileStagedOffers($import);
         $jobs = $import->rows()
             ->whereIn('disposition', [PriceListRowDisposition::Valid, PriceListRowDisposition::Warning])

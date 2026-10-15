@@ -11,6 +11,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 
 class FinalizePriceListImportPreview implements ShouldQueue
@@ -19,9 +20,34 @@ class FinalizePriceListImportPreview implements ShouldQueue
 
     public function __construct(public readonly PriceListImport $import) {}
 
+    public int $timeout = 120;
+
+    public int $tries = 3;
+
+    public array $backoff = [30, 120, 300];
+
+    public int $maxExceptions = 3;
+
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addHours(2);
+    }
+
+    public function middleware(): array
+    {
+        if (config('queue.connections.'.($this->connection ?? config('queue.default')).'.driver') === 'sync') {
+            return [];
+        }
+
+        return [(new WithoutOverlapping('price-list-stage:'.$this->import->id))->shared()->releaseAfter(30)->expireAfter(140)];
+    }
+
     public function handle(CategoryCandidateExtractor $candidates): void
     {
         $import = $this->import->fresh();
+        if ($import->status !== PriceListImportStatus::Processing) {
+            return;
+        }
         $counts = $import->rows()->selectRaw('disposition, count(*) as aggregate')->groupBy('disposition')->pluck('aggregate', 'disposition');
         $attributes = [
             'status' => PriceListImportStatus::Preview, 'previewed_at' => now(),
@@ -45,5 +71,10 @@ class FinalizePriceListImportPreview implements ShouldQueue
         }
 
         app(ActivationDispatcher::class)->dispatch($freshImport);
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        PriceListImport::whereKey($this->import->id)->whereIn('status', [PriceListImportStatus::Processing, PriceListImportStatus::Preview])->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'parsing', 'failed_at' => now(), 'failure_message' => 'Import finalization failed.']);
     }
 }

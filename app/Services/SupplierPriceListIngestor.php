@@ -4,9 +4,12 @@ namespace App\Services;
 
 use App\DataTransferObjects\IngestionContext;
 use App\DataTransferObjects\StoredImportFile;
+use App\Enums\OrganizationType;
 use App\Enums\PriceListImportSource;
 use App\Enums\PriceListImportStatus;
 use App\Jobs\PreparePriceListImport;
+use App\Models\GmailImportContentClaim;
+use App\Models\GmailImportReceipt;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierSenderAddress;
@@ -18,6 +21,52 @@ use Illuminate\Validation\ValidationException;
 
 class SupplierPriceListIngestor
 {
+    /** @return array{outcome: string, import: ?PriceListImport} */
+    public function ingestGmailReceipt(GmailImportReceipt $receipt, StoredImportFile $file): array
+    {
+        $result = DB::transaction(function () use ($receipt, $file): array {
+            $receipt = GmailImportReceipt::whereKey($receipt->id)->lockForUpdate()->firstOrFail();
+            if ($receipt->price_list_import_id) {
+                return ['outcome' => 'duplicate', 'import' => PriceListImport::findOrFail($receipt->price_list_import_id)];
+            }
+            $supplier = Organization::whereKey($receipt->supplier_organization_id)->lockForUpdate()->first();
+            $address = SupplierSenderAddress::where('normalized_email', $receipt->sender_email)->lockForUpdate()->first();
+            $profile = $supplier?->importProfile()->lockForUpdate()->first();
+            $reason = match (true) {
+                ! $supplier || $supplier->status !== 'active' || $supplier->type !== OrganizationType::Wholesaler => 'inactive_supplier',
+                $address?->supplier_organization_id !== $supplier->id => 'sender_mapping_changed',
+                ! $profile => 'missing_profile',
+                ! $profile->is_active => 'inactive_profile',
+                $profile->file_type->value !== ($receipt->selected_part['file_type'] ?? null) => 'profile_changed',
+                default => null,
+            };
+            if ($reason) {
+                $receipt->update(['status' => 'skipped', 'reason' => $reason]);
+
+                return ['outcome' => 'skipped', 'import' => null];
+            }
+            $claim = GmailImportContentClaim::where('supplier_organization_id', $supplier->id)->where('sha256', $file->sha256)->first();
+            $existing = $claim ? PriceListImport::findOrFail($claim->price_list_import_id) : PriceListImport::where('supplier_organization_id', $supplier->id)->where('sha256', $file->sha256)->oldest('id')->first();
+            $duplicateReason = 'duplicate_content';
+            if (! $existing) {
+                $existing = PriceListImport::where('supplier_organization_id', $supplier->id)->where('source_type', PriceListImportSource::Email)->where('message_id', $receipt->gmail_message_id)->first();
+                $duplicateReason = 'duplicate_message';
+            }
+            $import = $existing ?? $this->ingest($supplier, $file, new IngestionContext(PriceListImportSource::Email, senderEmail: $receipt->sender_email, messageId: $receipt->gmail_message_id, receivedAt: $receipt->received_at));
+            if ($import->sha256 === $file->sha256) {
+                GmailImportContentClaim::firstOrCreate(['supplier_organization_id' => $supplier->id, 'sha256' => $file->sha256], ['price_list_import_id' => $import->id]);
+            }
+            $receipt->update(['supplier_import_profile_id' => $profile->id, 'price_list_import_id' => $import->id, 'status' => $existing ? 'duplicate' : 'accepted', 'reason' => $existing ? $duplicateReason : null]);
+
+            return ['outcome' => $existing ? 'duplicate' : 'accepted', 'import' => $import];
+        }, 3);
+        if ($result['import']?->file_path !== $file->path) {
+            Storage::disk($file->disk)->delete($file->path);
+        }
+
+        return $result;
+    }
+
     public function ingestFromEmail(StoredImportFile $file, string $senderEmail, ?string $messageId = null, ?CarbonImmutable $receivedAt = null): PriceListImport
     {
         $address = SupplierSenderAddress::query()->where('normalized_email', mb_strtolower(trim($senderEmail)))->firstOrFail();
@@ -27,7 +76,16 @@ class SupplierPriceListIngestor
 
     public function ingest(Organization $supplier, StoredImportFile $file, IngestionContext $context): PriceListImport
     {
-        $profile = $supplier->importProfile()->where('is_active', true)->first();
+        return DB::transaction(function () use ($supplier, $file, $context): PriceListImport {
+            $supplier = Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
+
+            return $this->ingestLocked($supplier, $file, $context);
+        }, 3);
+    }
+
+    private function ingestLocked(Organization $supplier, StoredImportFile $file, IngestionContext $context): PriceListImport
+    {
+        $profile = $supplier->importProfile()->where('is_active', true)->lockForUpdate()->first();
         if ($profile === null) {
             throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
         }
@@ -50,7 +108,7 @@ class SupplierPriceListIngestor
                 ->first();
             $import = PriceListImport::create([
                 'supplier_organization_id' => $supplier->id, 'supplier_import_profile_id' => $profile->id,
-                'profile_snapshot' => $profile->configuration, 'source_type' => $context->source,
+                'profile_snapshot' => array_replace($profile->configuration, ['file_type' => strtolower(pathinfo($file->originalFilename, PATHINFO_EXTENSION))]), 'source_type' => $context->source,
                 'file_path' => $file->path, 'original_filename' => $file->originalFilename, 'mime_type' => $file->mimeType,
                 'file_size' => $file->size, 'sha256' => $file->sha256, 'sender_email' => $context->senderEmail,
                 'message_id' => $context->messageId, 'received_at' => $context->receivedAt, 'initiated_by' => $context->actor?->id,

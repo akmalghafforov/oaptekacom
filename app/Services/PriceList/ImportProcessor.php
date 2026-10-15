@@ -28,7 +28,7 @@ class ImportProcessor
                 if (($result['medicine_id'] ?? null) === null && $result['disposition'] !== PriceListRowDisposition::Error) {
                     $result = $this->categorizeNewProduct($import, $result);
                 }
-                if (! $import->profile_snapshot['keep_exact_duplicates'] && PriceListImportRow::query()->whereBelongsTo($import, 'import')->where('offer_fingerprint', $result['offer_fingerprint'])->where('source_row', '!=', $sourceRow)->exists()) {
+                if (! $import->profile_snapshot['keep_exact_duplicates'] && PriceListImportRow::query()->whereBelongsTo($import, 'import')->where('offer_fingerprint', $result['offer_fingerprint'])->where('source_row', '<', $sourceRow)->exists()) {
                     $result['disposition'] = PriceListRowDisposition::Skipped;
                     $result['planned_action'] = PriceListRowAction::Skip;
                     $result['warnings'][] = 'Полный дубликат предложения.';

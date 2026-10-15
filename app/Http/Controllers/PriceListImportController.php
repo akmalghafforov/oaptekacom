@@ -9,6 +9,7 @@ use App\Enums\PriceListImportSource;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
+use App\Enums\SupplierFileType;
 use App\Http\Requests\StorePriceListImportRequest;
 use App\Jobs\PreparePriceListImport;
 use App\Models\Medicine;
@@ -19,6 +20,7 @@ use App\Models\ProductCategory;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
 use App\Services\AuditLogger;
+use App\Services\ImportFileValidator;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CategorizationReportExporter;
 use App\Services\SupplierPriceListIngestor;
@@ -56,6 +58,7 @@ class PriceListImportController extends Controller
             throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
         }
         $upload = $request->file('file');
+        app(ImportFileValidator::class)->validate($upload->getRealPath(), $upload->getClientOriginalName(), SupplierFileType::from(strtolower($upload->getClientOriginalExtension())), $supplier->importProfile->configuration);
         $extension = strtolower($upload->getClientOriginalExtension());
         $path = $upload->storeAs('price-list-imports/'.$supplier->id, Str::uuid().'.'.$extension, config('price-list-imports.disk'));
         $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $upload->getClientOriginalName(), $upload->getMimeType() ?: 'application/octet-stream', $upload->getSize(), hash_file('sha256', Storage::disk(config('price-list-imports.disk'))->path($path)));

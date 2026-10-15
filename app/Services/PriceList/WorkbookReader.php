@@ -94,7 +94,7 @@ class WorkbookReader
 
     private function reader(PriceListImport $import): IReader
     {
-        $type = SupplierFileType::from(strtolower(pathinfo((string) $import->original_filename, PATHINFO_EXTENSION)));
+        $type = SupplierFileType::from($import->profile_snapshot['file_type'] ?? strtolower(pathinfo((string) $import->original_filename, PATHINFO_EXTENSION)));
         $reader = match ($type) {
             SupplierFileType::Csv, SupplierFileType::Tsv => new Csv, SupplierFileType::Xls => new Xls, SupplierFileType::Xlsx => new Xlsx
         };
