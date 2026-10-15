@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class PhoneOtpAuthenticationTest extends TestCase
@@ -169,6 +170,50 @@ class PhoneOtpAuthenticationTest extends TestCase
             'phone' => $pharmacy->phone,
             'status' => 'consumed',
         ]);
+    }
+
+    #[TestWith(['expired'])]
+    #[TestWith(['exhausted'])]
+    #[TestWith(['consumed'])]
+    #[TestWith(['missing'])]
+    public function test_dummy_code_logs_in_regardless_of_stored_otp_validity(string $state): void
+    {
+        $this->freezeTime();
+        config()->set('services.oson_sms.driver', 'dummy');
+        config()->set('services.oson_sms.dummy_code', '654321');
+        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
+
+        if ($state !== 'missing') {
+            OneTimePassword::factory()->create([
+                'phone' => $pharmacy->phone,
+                'code_hash' => Hash::make('123456'),
+                'expires_at' => $state === 'expired' ? now()->subDay() : now()->addMinutes(5),
+                'attempts' => $state === 'exhausted' ? 5 : 0,
+                'status' => $state === 'consumed' ? 'consumed' : 'sent',
+                'consumed_at' => $state === 'consumed' ? now() : null,
+            ]);
+        }
+
+        $this->withSession(['phone_otp.login' => $pharmacy->phone])
+            ->post(route('login.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '654321'])
+            ->assertRedirect(route('catalog'));
+
+        $this->assertAuthenticatedAs($pharmacy);
+    }
+
+    public function test_dummy_mode_rejects_a_stored_code_that_does_not_match_the_configured_code(): void
+    {
+        config()->set('services.oson_sms.driver', 'dummy');
+        config()->set('services.oson_sms.dummy_code', '654321');
+        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
+        $otp = OneTimePassword::factory()->create(['phone' => $pharmacy->phone, 'code_hash' => Hash::make('123456')]);
+
+        $this->withSession(['phone_otp.login' => $pharmacy->phone])
+            ->post(route('login.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '123456'])
+            ->assertSessionHasErrors('code');
+
+        $this->assertGuest();
+        $this->assertNull($otp->fresh()->consumed_at);
     }
 
     public function test_registration_routes_existing_pending_unverified_accounts_to_registration_otp(): void

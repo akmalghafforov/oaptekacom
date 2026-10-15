@@ -37,6 +37,17 @@ class PhoneOtpService
     public function consume(string $purpose, string $phone, UserRole $accountType, string $code): bool
     {
         $otp = OneTimePassword::where('purpose', $purpose)->where('account_type', $accountType)->where('phone', $phone)->where('status', 'sent')->whereNull('consumed_at')->latest('id')->first();
+        $dummyCode = config('services.oson_sms.dummy_code');
+        if (config('services.oson_sms.driver') === 'dummy' && filled($dummyCode)) {
+            if (! hash_equals((string) $dummyCode, $code)) {
+                return false;
+            }
+
+            $otp?->update(['status' => 'consumed', 'consumed_at' => now()]);
+
+            return true;
+        }
+
         if (! $otp || $otp->expires_at->isPast() || $otp->attempts >= 5) {
             return false;
         }
