@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Medicine;
 use App\Models\Offer;
 use App\Models\ProductCategory;
 use Illuminate\Contracts\Pagination\CursorPaginator;
@@ -11,16 +12,23 @@ use Illuminate\Support\Facades\DB;
 
 class CatalogSearchService
 {
+    /** @var array<string, list<int>> */
+    private array $fuzzyIds = [];
+
     /** @param array<string, mixed> $filters */
     public function search(array $filters, ?int $pharmacyOrganizationId = null): CursorPaginator
     {
         $query = $this->offersQuery($filters, true, $pharmacyOrganizationId)
             ->with(['medicine.categories', 'organization']);
 
+        if (($filters['q'] ?? '') !== '') {
+            $query->addSelect('matched_medicines.match_rank')->orderBy('match_rank');
+        }
+
         match ($filters['sort'] ?? 'price_asc') {
             'price_desc' => $query->orderByDesc('effective_price')->orderByDesc('offers.id'),
             'updated_desc' => $query->orderByDesc('offers.updated_at')->orderByDesc('offers.id'),
-            'name_asc' => $query->join('medicines as sort_medicines', 'sort_medicines.id', '=', 'offers.medicine_id')->orderBy('sort_medicines.normalized_name')->orderBy('offers.id'),
+            'name_asc' => $query->join('medicines as sort_medicines', 'sort_medicines.id', '=', 'offers.medicine_id')->addSelect('sort_medicines.normalized_name')->orderBy('normalized_name')->orderBy('offers.id'),
             default => $query->orderBy('effective_price')->orderBy('offers.id'),
         };
 
@@ -98,23 +106,12 @@ class CatalogSearchService
             ->selectRaw($effectivePrice.' as effective_price')
             ->selectRaw($pharmacyOrganizationId !== null ? 'pharmacy_supplier_discounts.supplier_discount_percent as applied_supplier_discount_percent' : 'NULL as applied_supplier_discount_percent')
             ->currentCatalog()
-            ->whereHas('medicine', function (Builder $query) use ($filters): void {
-                $search = mb_strtolower($filters['q'] ?? '');
-                $substringMatch = (bool) ($filters['substring_match'] ?? false);
-
-                if ($search === '') {
-                    return;
-                } elseif (DB::connection()->getDriverName() === 'pgsql') {
-                    $escaped = addcslashes($search, '\\%_');
-                    $query->whereRaw("medicines.search_text ILIKE ? ESCAPE '\\'", [($substringMatch ? '%' : '').$escaped.'%']);
-                } else {
-                    $query->whereRaw('instr(medicines.search_text, ?) '.($substringMatch ? '> 0' : '= 1'), [$search]);
-                }
-
-                if (! empty($filters['form'])) {
-                    $query->where('medicines.form', $filters['form']);
-                }
+            ->when(($filters['q'] ?? '') !== '', function (Builder $query) use ($filters): void {
+                $query->joinSub($this->matchingMedicines($filters), 'matched_medicines', 'matched_medicines.id', '=', 'offers.medicine_id');
             })
+            ->when(($filters['q'] ?? '') !== '' && ! empty($filters['form']), fn (Builder $query): Builder => $query->whereHas(
+                'medicine', fn (Builder $medicineQuery): Builder => $medicineQuery->where('form', $filters['form']),
+            ))
             ->when(! empty($filters['cities']), fn (Builder $query): Builder => $query->whereHas(
                 'organization',
                 fn (Builder $organizationQuery): Builder => $organizationQuery->whereIn('city', $filters['cities']),
@@ -126,6 +123,54 @@ class CatalogSearchService
                 'medicine.categories',
                 fn (Builder $categoryQuery): Builder => $categoryQuery->whereKey($filters['category']),
             ));
+    }
+
+    /** @param array<string, mixed> $filters */
+    private function matchingMedicines(array $filters): Builder
+    {
+        $search = mb_strtolower($filters['q']);
+        $substring = (bool) ($filters['substring_match'] ?? false);
+        [$literalSql, $literalBindings] = $this->literalCondition($search, $substring);
+        $matcher = new UnicodeSearchMatcher;
+        $cacheKey = json_encode([$search, $substring], JSON_THROW_ON_ERROR);
+
+        if (! array_key_exists($cacheKey, $this->fuzzyIds)) {
+            $ids = [];
+            if ($matcher->allowedEdits($search) > 0) {
+                Medicine::query()->select(['medicines.id', 'medicines.search_text'])
+                    ->whereIn('medicines.id', Offer::query()->currentCatalog()->select('offers.medicine_id'))
+                    ->whereRaw('NOT ('.$literalSql.')', $literalBindings)
+                    ->where(function (Builder $query) use ($matcher, $search): void {
+                        foreach ($matcher->segments($search) as $segment) {
+                            [$sql, $bindings] = $this->literalCondition($segment, true);
+                            $query->orWhereRaw($sql, $bindings);
+                        }
+                    })
+                    ->chunkById(500, function (Collection $medicines) use (&$ids, $matcher, $search, $substring): void {
+                        foreach ($medicines as $medicine) {
+                            if ($matcher->matches($search, $medicine->search_text, $substring)) {
+                                $ids[] = (int) $medicine->id;
+                            }
+                        }
+                    }, 'medicines.id', 'id');
+            }
+            $this->fuzzyIds[$cacheKey] = $ids;
+        }
+
+        return Medicine::query()->select('medicines.id')
+            ->selectRaw('CASE WHEN '.$literalSql.' THEN 0 ELSE 1 END as match_rank', $literalBindings)
+            ->where(fn (Builder $query): Builder => $query->whereRaw($literalSql, $literalBindings)
+                ->orWhereIntegerInRaw('medicines.id', $this->fuzzyIds[$cacheKey]));
+    }
+
+    /** @return array{string, list<string>} */
+    private function literalCondition(string $search, bool $substring): array
+    {
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            return ["medicines.search_text ILIKE ? ESCAPE '\\'", [($substring ? '%' : '').addcslashes($search, '\\%_').'%']];
+        }
+
+        return ['instr(medicines.search_text, ?) '.($substring ? '> 0' : '= 1'), [$search]];
     }
 
     private function effectivePriceExpression(bool $hasPharmacyContext): string

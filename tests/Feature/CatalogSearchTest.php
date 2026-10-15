@@ -8,6 +8,7 @@ use App\Models\CartItem;
 use App\Models\Medicine;
 use App\Models\Offer;
 use App\Models\Organization;
+use App\Models\PharmacySupplierDiscount;
 use App\Models\PriceListImport;
 use App\Models\ProductCategory;
 use App\Models\Subscription;
@@ -426,6 +427,81 @@ class CatalogSearchTest extends TestCase
         $this->assertCount(50, $firstIds);
         $this->assertSame($expected, $actual);
         $this->assertSame($actual, array_values(array_unique($actual)));
+    }
+
+    #[DataProvider('rankedSorts')]
+    public function test_literal_results_precede_fuzzy_results_across_cursor_pages(string $sort): void
+    {
+        config(['catalog.page_size' => 2]);
+        $this->freezeTime();
+        [$supplier, $import] = $this->activeImport();
+        $fuzzy = $this->offer($supplier, $import, 'Амлозопин', 'амлозопин 10 мг', 1, 1);
+        $exact = $this->offer($supplier, $import, 'Амлозипин', 'амлозипин 10 мг', 100, 2);
+        $exactSecond = $this->offer($supplier, $import, 'Амлозипин 20 мг', 'амлозипин 20 мг', 100, 3);
+        $user = $this->pharmacyUser();
+        PharmacySupplierDiscount::create(['pharmacy_organization_id' => $user->activeOrganizationId(), 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => '50.00']);
+        $filters = ['q' => 'Амлозипин', 'sort' => $sort, 'view' => 'list'];
+
+        $first = $this->actingAs($user)->getJson(route('catalog.search', $filters))
+            ->assertOk()->assertJsonPath('pagination.total', 3)->assertJsonPath('facets.all_count', 3);
+        $expected = in_array($sort, ['price_desc', 'updated_desc']) ? [$exactSecond->id, $exact->id] : [$exact->id, $exactSecond->id];
+        $this->assertSame($expected, $this->offerIds($first->json('html')));
+        $next = $this->getJson(route('catalog.search', [...$filters, 'cursor' => $first->json('next_cursor')]))->assertOk();
+        $this->assertSame([$fuzzy->id], $this->offerIds($next->json('html')));
+        $this->assertFalse($next->json('has_more'));
+    }
+
+    public static function rankedSorts(): array
+    {
+        return ['ascending price' => ['price_asc'], 'descending price' => ['price_desc'], 'name' => ['name_asc'], 'updated' => ['updated_desc']];
+    }
+
+    public function test_fuzzy_matches_share_filters_facets_and_current_import_scope(): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $category = ProductCategory::query()->where('is_active', true)->firstOrFail();
+        $offer = $this->offer($supplier, $import, 'Fuzzy', 'zzамлозопин details', 10, 1);
+        $offer->medicine->categories()->sync([$category->id => ['source' => 'test', 'confidence' => 100]]);
+        $oldImport = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Superseded]);
+        $this->offer($supplier, $oldImport, 'Old', 'амлозопин', 10, 1);
+        $filters = ['q' => 'амлозипин', 'substring_match' => 1, 'view' => 'list', 'category' => $category->id, 'cities' => ['Душанбе'], 'suppliers' => [$supplier->id], 'min_price' => 5, 'max_price' => 15];
+
+        $response = $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', $filters))
+            ->assertOk()->assertJsonPath('pagination.total', 1)->assertJsonPath('facets.categories.0.count', 1);
+        $this->assertSame([$offer->id], $this->offerIds($response->json('html')));
+        $this->assertCount(1, $response->json('facets.cities'));
+        $this->assertCount(1, $response->json('facets.suppliers'));
+        $this->getJson(route('catalog.search', [...$filters, 'min_price' => 11]))->assertOk()->assertJsonPath('pagination.total', 0);
+    }
+
+    #[DataProvider('fuzzyCandidateCases')]
+    public function test_candidate_filter_preserves_valid_edits(string $query, string $text, bool $substring): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $offer = $this->offer($supplier, $import, 'Candidate', $text, 10, 1);
+        $response = $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => $query, 'substring_match' => (int) $substring]))
+            ->assertOk()->assertJsonPath('pagination.total', 1);
+        $this->assertSame([$offer->id], $this->offerIds($response->json('html')));
+    }
+
+    public static function fuzzyCandidateCases(): array
+    {
+        return [
+            'first replacement' => ['abcde', 'xbcde', false],
+            'middle insertion' => ['abcde', 'abxcde', false],
+            'middle deletion' => ['abcde', 'abde', false],
+            'Cyrillic' => ['амлозипин', 'амлозопин', false],
+            'substring' => ['abcde', 'zzabxde', true],
+            'two edits and swap' => ['abcdefghijklmnopqrst', 'bacdefghijklmnopqrst', false],
+            'escaped segment' => ['ab%_cd', 'xb%_cd', false],
+        ];
+    }
+
+    public function test_old_search_cursor_without_rank_returns_validation_error(): void
+    {
+        $cursor = (new Cursor(['effective_price' => 10, 'id' => 1]))->encode();
+        $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => 'abcde', 'cursor' => $cursor]))
+            ->assertUnprocessable()->assertJsonValidationErrors('cursor');
     }
 
     private function pharmacyUser(): User

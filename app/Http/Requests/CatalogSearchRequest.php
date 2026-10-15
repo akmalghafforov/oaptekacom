@@ -64,6 +64,10 @@ class CatalogSearchRequest extends FormRequest
                 default => ['effective_price', 'id'],
             };
 
+            if (is_string($this->input('q')) && $this->filled('q')) {
+                $sortKeys[] = 'match_rank';
+            }
+
             if (! is_numeric($id) || collect($sortKeys)->contains(fn (string $key): bool => ! array_key_exists($key, $parameters) && ! array_key_exists('offers.'.$key, $parameters))) {
                 $validator->errors()->add('cursor', 'Некорректный курсор страницы.');
             }
