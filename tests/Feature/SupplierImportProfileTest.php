@@ -16,6 +16,8 @@ use App\Services\PriceList\WorkbookReader;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xls;
 use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
@@ -56,6 +58,36 @@ class SupplierImportProfileTest extends TestCase
 
         Storage::disk('local')->assertMissing($oldPath);
         Storage::disk('local')->assertExists($supplier->importProfile()->firstOrFail()->sample_metadata['path']);
+    }
+
+    #[TestWith(['Old worksheet', null, 'Точики'])]
+    #[TestWith(['Old worksheet', 'Old worksheet', 'Точики'])]
+    #[TestWith(['Руси', null, 'Руси'])]
+    #[TestWith(['Точики', 'Руси', 'Руси'])]
+    public function test_xls_preview_uses_an_available_worksheet_after_sample_replacement(string $savedWorksheet, ?string $oldWorksheet, string $expectedWorksheet): void
+    {
+        Storage::fake('local');
+        $supplier = Organization::factory()->wholesaler()->create();
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        SupplierImportProfile::factory()->for($supplier, 'supplier')->create([
+            'configuration' => array_replace(ProfileValidator::defaults(), ['worksheet' => $savedWorksheet]),
+        ]);
+        $workbook = new Spreadsheet;
+        $workbook->getActiveSheet()->setTitle('Точики')->fromArray([['Название', 'Цена'], ['Аспирин', 12.5]]);
+        $workbook->createSheet()->setTitle('Руси')->fromArray([['Название', 'Цена'], ['Парацетамол', 15]]);
+        $path = Storage::disk('local')->path('sample.xls');
+        (new Xls($workbook))->save($path);
+        $workbook->disconnectWorksheets();
+        $this->actingAs($admin)->post(route('admin.supplier-import-profiles.sample.store', $supplier), [
+            'sample' => new UploadedFile($path, 'prices.xls', null, null, true),
+        ])->assertSessionHasNoErrors();
+
+        $response = $this->withSession(['_old_input' => $oldWorksheet === null ? [] : ['worksheet' => $oldWorksheet]])
+            ->get(route('admin.supplier-import-profiles.edit', $supplier));
+
+        $response->assertOk()->assertSessionMissing('warning')
+            ->assertViewHas('preview', fn (array $preview): bool => $preview['worksheet'] === $expectedWorksheet)
+            ->assertSee('Столбец A')->assertSee('Столбец B');
     }
 
     public function test_mapper_renders_columns_rows_escaped_values_and_truncation_notice(): void

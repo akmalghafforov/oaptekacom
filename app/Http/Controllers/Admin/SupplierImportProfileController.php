@@ -34,10 +34,15 @@ class SupplierImportProfileController extends Controller
         $preview = null;
         if ($profile->sample_metadata) {
             try {
+                $worksheetNames = array_column($profile->sample_metadata['worksheets'], 'name');
+                $worksheet = old('worksheet', $profile->configuration['worksheet'] ?? null);
+                if (! in_array($worksheet, $worksheetNames, true)) {
+                    $worksheet = null;
+                }
                 $preview = $reader->preview(
                     $profile->sample_metadata['path'],
                     $profile->sample_metadata['extension'],
-                    old('worksheet', $profile->configuration['worksheet'] ?? null),
+                    $worksheet,
                 );
             } catch (Throwable) {
                 session()->flash('warning', 'Сохранённый образец не удалось прочитать. Загрузите его заново.');
