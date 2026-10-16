@@ -27,7 +27,7 @@ class PartnerController extends Controller
             ->orderByRaw('case when active_price_list_import_id is null then 1 else 0 end')
             ->orderByDesc(
                 PriceListImport::query()
-                    ->selectRaw('coalesce(received_at, activated_at, created_at)')
+                    ->selectRaw("coalesce(activated_at, '1970-01-01 00:00:00')")
                     ->whereColumn('price_list_imports.id', 'organizations.active_price_list_import_id')
             )
             ->paginate(20)

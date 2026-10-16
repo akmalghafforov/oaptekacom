@@ -75,7 +75,8 @@ class PartnersTest extends TestCase
         $availableSupplier = Organization::factory()->wholesaler()->create(['name' => 'А Доступный']);
         $availableImport = PriceListImport::factory()->for($availableSupplier, 'supplier')->create([
             'status' => PriceListImportStatus::Completed,
-            'received_at' => '2026-09-20 06:15:00',
+            'received_at' => '2026-09-19 14:19:00',
+            'activated_at' => '2026-09-20 06:15:00',
         ]);
         $availableSupplier->update(['active_price_list_import_id' => $availableImport->id]);
         $medicine = Medicine::factory()->create(['supplier_organization_id' => $availableSupplier->id]);
@@ -88,7 +89,7 @@ class PartnersTest extends TestCase
 
         $this->actingAs($user)->get(route('partners.index'))
             ->assertOk()
-            ->assertSeeTextInOrder(['А Доступный', 'Прайс обновлён 20.09.2026 11:15', 'Прайс доступен', 'Прайс открыт', '20.09.2026 11:15', 'Б Недоступный', 'Прайс недоступен', 'Прайс закрыт']);
+            ->assertSeeTextInOrder(['А Доступный', 'Прайс обновлён 20.09.2026 06:15', 'Прайс доступен', 'Прайс открыт', '20.09.2026 06:15', 'Б Недоступный', 'Прайс недоступен', 'Прайс закрыт']);
     }
 
     public function test_directory_orders_active_price_lists_by_displayed_update_and_scopes_discounts_to_the_pharmacy(): void
@@ -103,13 +104,15 @@ class PartnersTest extends TestCase
         $newestSupplier = Organization::factory()->wholesaler()->create(['name' => 'Я Свежий поставщик']);
         $newestImport = PriceListImport::factory()->for($newestSupplier, 'supplier')->create([
             'status' => PriceListImportStatus::Completed,
-            'received_at' => '2026-09-24 08:00:00',
+            'received_at' => '2026-09-20 08:00:00',
+            'activated_at' => '2026-09-24 08:00:00',
         ]);
         $newestSupplier->update(['active_price_list_import_id' => $newestImport->id]);
 
         $olderSupplier = Organization::factory()->wholesaler()->create(['name' => 'Б Старый поставщик']);
         $olderImport = PriceListImport::factory()->for($olderSupplier, 'supplier')->create([
             'status' => PriceListImportStatus::Completed,
+            'received_at' => '2026-09-23 07:00:00',
             'activated_at' => '2026-09-23 08:00:00',
         ]);
         $olderSupplier->update(['active_price_list_import_id' => $olderImport->id]);
@@ -148,6 +151,7 @@ class PartnersTest extends TestCase
                 'Ваша скидка 12.50%',
                 'Б Старый поставщик',
                 'Г Созданный поставщик',
+                'Время активации не указано',
             ])
             ->assertSeeTextInOrder(['Г Созданный поставщик', 'А Неактивный прайс'])
             ->assertSeeTextInOrder(['Г Созданный поставщик', 'В Без прайса'])

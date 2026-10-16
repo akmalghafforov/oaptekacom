@@ -34,7 +34,7 @@
     @php
         $discount = $discounts->get($supplier->id);
         $activeImport = $supplier->activePriceListImport;
-        $activeImportUpdatedAt = $activeImport ? ($activeImport->received_at ?? $activeImport->activated_at ?? $activeImport->created_at) : null;
+        $activeImportUpdatedAt = $activeImport?->activated_at;
         $email = $supplier->contact_email ?: $supplier->senderAddresses->first()?->email;
         $isValidEmail = $email && filter_var($email, FILTER_VALIDATE_EMAIL);
         $storedPhones = array_values(array_filter(array_merge([$supplier->phone], $supplier->additional_phones ?? [])));
@@ -52,7 +52,7 @@
                     <div class="min-w-0">
                         <h3 class="truncate text-lg font-bold text-ink">{{ $supplier->name }}</h3>
                         <p class="mt-1 text-sm text-muted">{{ $supplier->city ?: 'Город не указан' }}</p>
-                        <p class="mt-1 text-xs text-muted">{{ $activeImportUpdatedAt ? 'Прайс обновлён '.$activeImportUpdatedAt->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : 'Активный прайс-лист не загружен' }}</p>
+                        <p class="mt-1 text-xs text-muted">{{ $activeImportUpdatedAt ? 'Прайс обновлён '.$activeImportUpdatedAt->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : ($activeImport ? 'Время активации не указано' : 'Активный прайс-лист не загружен') }}</p>
                     </div>
                     <div class="flex w-fit shrink-0 flex-wrap gap-2">
                         <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $supplier->has_available_catalog ? 'bg-accent-surface text-accent ring-success-border' : 'bg-surface-hover text-secondary ring-border' }}">
@@ -110,7 +110,7 @@
             <x-ui.card class="!p-4">
                 <dl class="space-y-3 text-sm">
                     <div><dt class="text-muted">Город</dt><dd class="mt-1 font-medium">{{ $supplier->city ?: 'Не указан' }}</dd></div>
-                    <div><dt class="text-muted">Обновление прайс-листа</dt><dd class="mt-1 font-medium">{{ $activeImportUpdatedAt ? $activeImportUpdatedAt->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : 'Активный прайс-лист не загружен' }}</dd></div>
+                    <div><dt class="text-muted">Обновление прайс-листа</dt><dd class="mt-1 font-medium">{{ $activeImportUpdatedAt ? $activeImportUpdatedAt->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : ($activeImport ? 'Время активации не указано' : 'Активный прайс-лист не загружен') }}</dd></div>
                     <div><dt class="text-muted">Срок доступа</dt><dd class="mt-1 font-medium">Без ограничения по сроку</dd></div>
                 </dl>
             </x-ui.card>
