@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Enums\PriceListImportStatus;
 use App\Jobs\PreparePriceListImport;
+use App\Models\AuditEvent;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierImportProfile;
+use App\Models\SupplierSenderAddress;
 use App\Models\User;
 use App\Services\PriceList\ProfileValidator;
 use App\Services\PriceList\ValueNormalizer;
@@ -14,6 +16,7 @@ use App\Services\PriceList\WorkbookReader;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class SupplierImportProfileTest extends TestCase
@@ -172,6 +175,60 @@ class SupplierImportProfileTest extends TestCase
 
         $this->post($url)->assertRedirect(route('login'));
         $this->actingAs($wholesaler)->post($url)->assertForbidden();
+    }
+
+    public function test_filename_filter_is_trimmed_displayed_audited_and_cleared_without_changing_other_suppliers(): void
+    {
+        Storage::fake('local');
+        $supplier = Organization::factory()->wholesaler()->create();
+        $otherProfile = SupplierImportProfile::factory()->create(['attachment_filename_filter' => 'other']);
+        $otherAddress = SupplierSenderAddress::factory()->for($otherProfile->supplier, 'supplier')->create(['email' => 'shared@example.com', 'normalized_email' => 'shared@example.com']);
+        $otherState = $otherAddress->fresh()->getAttributes();
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $this->actingAs($admin)->post(route('admin.supplier-import-profiles.sample.store', $supplier), ['sample' => UploadedFile::fake()->createWithContent('prices.csv', "Name,Price\nAspirin,10\n")]);
+        $route = route('admin.supplier-import-profiles.update', $supplier);
+
+        $this->put($route, $this->payload(['attachment_filename_filter' => '  Прайс [A]*  ', 'sender_emails' => " SHARED@example.com\nshared@example.com "]))->assertRedirect()->assertSessionHasNoErrors();
+
+        $profile = $supplier->importProfile()->sole();
+        $this->assertSame('Прайс [A]*', $profile->attachment_filename_filter);
+        $this->assertSame(2, SupplierSenderAddress::where('normalized_email', 'shared@example.com')->count());
+        $this->get(route('admin.supplier-import-profiles.edit', $supplier))->assertSee('Фильтр имени вложения')->assertSee('Прайс [A]*')->assertSee('без учёта регистра');
+        $audit = AuditEvent::where('event', 'supplier_import_profile.updated')->latest('id')->firstOrFail();
+        $this->assertNull($audit->before['attachment_filename_filter']);
+        $this->assertSame('Прайс [A]*', $audit->after['attachment_filename_filter']);
+
+        $this->put($route, $this->payload(['attachment_filename_filter' => '   ', 'sender_emails' => 'new@example.com']))->assertSessionHasNoErrors();
+
+        $this->assertNull($profile->fresh()->attachment_filename_filter);
+        $this->assertSame($otherState, $otherAddress->fresh()->getAttributes());
+        $this->assertSame('other', $otherProfile->fresh()->attachment_filename_filter);
+        $this->assertDatabaseMissing('supplier_sender_addresses', ['normalized_email' => 'shared@example.com', 'supplier_organization_id' => $supplier->id]);
+        $this->assertDatabaseHas('supplier_sender_addresses', ['normalized_email' => 'new@example.com', 'supplier_organization_id' => $supplier->id]);
+    }
+
+    #[TestWith(['long'])]
+    #[TestWith(['array'])]
+    public function test_filename_filter_rejects_overlong_and_non_string_input(string $case): void
+    {
+        $supplier = Organization::factory()->wholesaler()->create();
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+
+        $this->actingAs($admin)->put(route('admin.supplier-import-profiles.update', $supplier), $this->payload(['attachment_filename_filter' => $case === 'long' ? str_repeat('я', 256) : ['invalid']]))->assertSessionHasErrors('attachment_filename_filter');
+
+        $this->assertDatabaseMissing('supplier_import_profiles', ['supplier_organization_id' => $supplier->id]);
+    }
+
+    public function test_filename_filter_update_requires_authenticated_admin(): void
+    {
+        $profile = SupplierImportProfile::factory()->create(['attachment_filename_filter' => 'original']);
+        $route = route('admin.supplier-import-profiles.update', $profile->supplier);
+        $payload = $this->payload(['attachment_filename_filter' => 'changed']);
+
+        $this->put($route, $payload)->assertRedirect(route('login'));
+        $this->actingAs(User::factory()->wholesaler($profile->supplier)->create())->put($route, $payload)->assertForbidden();
+
+        $this->assertSame('original', $profile->fresh()->attachment_filename_filter);
     }
 
     /** @param array<string, mixed> $overrides @return array<string, mixed> */

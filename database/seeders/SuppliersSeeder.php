@@ -46,8 +46,8 @@ class SuppliersSeeder extends Seeder
                     $normalizedEmail = mb_strtolower(trim($supplier['email']));
 
                     SupplierSenderAddress::query()->updateOrCreate(
-                        ['normalized_email' => $normalizedEmail],
-                        ['email' => $normalizedEmail, 'supplier_organization_id' => $organization->id],
+                        ['normalized_email' => $normalizedEmail, 'supplier_organization_id' => $organization->id],
+                        ['email' => $normalizedEmail],
                     );
                 }
             });

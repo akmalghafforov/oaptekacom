@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Closure;
+use Google\Service\Gmail;
 use Google\Service\Gmail\Message;
 use Google\Service\Gmail\MessagePart;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
@@ -14,6 +15,36 @@ use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
  */
 class GmailMessageReader
 {
+    public function attachmentMetadata(Gmail $gmail, string $messageId): Message
+    {
+        $depth = 4;
+        do {
+            $fields = 'partId,filename,mimeType,body(size,attachmentId),parts(partId)';
+            for ($level = 0; $level < $depth; $level++) {
+                $fields = 'partId,filename,mimeType,body(size,attachmentId),parts('.$fields.')';
+            }
+            $message = $gmail->users_messages->get('me', $messageId, ['format' => 'full', 'fields' => 'id,internalDate,labelIds,payload(headers,'.$fields.')']);
+            $hasMore = $message->getPayload() && $this->hasDeeperParts($message->getPayload(), $depth);
+            $depth += 4;
+        } while ($hasMore);
+
+        return $message;
+    }
+
+    private function hasDeeperParts(MessagePart $part, int $depth): bool
+    {
+        if ($depth === 0) {
+            return count($part->getParts() ?? []) > 0;
+        }
+        foreach ($part->getParts() ?? [] as $child) {
+            if ($this->hasDeeperParts($child, $depth - 1)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @return MessageSummary */
     public function metadata(Message $message): array
     {

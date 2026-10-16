@@ -171,19 +171,19 @@ class SupplierImportProfileController extends Controller
         $configuration = $validator->validate($configuration);
         $emails = collect(preg_split('/\R/u', (string) $request->validated('sender_emails')))->map(fn (string $email): string => mb_strtolower(trim($email)))->filter()->unique()->values();
         foreach ($emails as $email) {
-            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false || SupplierSenderAddress::query()->where('normalized_email', $email)->where('supplier_organization_id', '!=', $organization->id)->exists()) {
-                throw ValidationException::withMessages(['sender_emails' => 'Адрес '.$email.' неверен или уже назначен другому поставщику.']);
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                throw ValidationException::withMessages(['sender_emails' => 'Адрес '.$email.' неверен.']);
             }
         }
-        $before = $profile?->only(['name', 'file_type', 'configuration']) ?? [];
+        $before = $profile?->only(['name', 'file_type', 'configuration', 'attachment_filename_filter']) ?? [];
         DB::transaction(function () use ($organization, $profile, $configuration, $request, $emails): void {
-            $profile->update(['name' => $request->validated('name'), 'file_type' => $request->validated('file_type'), 'configuration' => $configuration, 'updated_by' => $request->user()->id, 'is_active' => true]);
+            $profile->update(['attachment_filename_filter' => $request->validated('attachment_filename_filter'), 'name' => $request->validated('name'), 'file_type' => $request->validated('file_type'), 'configuration' => $configuration, 'updated_by' => $request->user()->id, 'is_active' => true]);
             $organization->senderAddresses()->whereNotIn('normalized_email', $emails)->delete();
             foreach ($emails as $email) {
-                SupplierSenderAddress::updateOrCreate(['normalized_email' => $email], ['email' => $email, 'supplier_organization_id' => $organization->id]);
+                SupplierSenderAddress::updateOrCreate(['normalized_email' => $email, 'supplier_organization_id' => $organization->id], ['email' => $email]);
             }
         });
-        $audit->log('supplier_import_profile.updated', $profile, $before, $profile->only(['name', 'file_type', 'configuration']));
+        $audit->log('supplier_import_profile.updated', $profile, $before, $profile->only(['name', 'file_type', 'configuration', 'attachment_filename_filter']));
 
         return back()->with('success', 'Профиль импорта сохранён.');
     }

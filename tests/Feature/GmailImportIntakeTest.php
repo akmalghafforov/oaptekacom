@@ -69,6 +69,7 @@ class GmailImportIntakeTest extends TestCase
 
     private function google(array $responses): void
     {
+        $responses = array_merge(...array_map(fn ($data): array => is_array($data) && isset($data['payload']) ? [$data, $data] : [$data], $responses ?: [[]]));
         $responses = array_map(fn ($data) => $data instanceof Response ? $data : new Response(200, ['Content-Type' => 'application/json'], json_encode($data)), $responses);
         $this->app->instance(GmailClientFactory::class, new GmailClientFactory(new Client(['handler' => HandlerStack::create(new MockHandler($responses)), 'http_errors' => false])));
     }
@@ -84,6 +85,11 @@ class GmailImportIntakeTest extends TestCase
     private function receipt(string $message = 'message-1'): GmailImportReceipt
     {
         return GmailImportReceipt::factory()->create(['mailbox_email' => 'imports@example.com', 'gmail_message_id' => $message]);
+    }
+
+    private function outcome(GmailImportReceipt $receipt): GmailImportReceipt
+    {
+        return $receipt->children()->first() ?? $receipt->fresh();
     }
 
     private function message(array $parts = [], string $from = 'Supplier <SUPPLIER@example.com>'): array
@@ -143,8 +149,13 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([$this->message([$part])]);
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
-        $this->assertSame($reason, $receipt->fresh()->reason);
-        $this->assertSame('skipped', $receipt->fresh()->status);
+        if ($reason === 'unknown_supplier') {
+            $this->assertSame('unknown_supplier', $receipt->fresh()->attachment_manifest[0]['reason']);
+            $this->assertSame('routed', $receipt->fresh()->status);
+        } else {
+            $this->assertSame($reason, $this->outcome($receipt)->reason);
+            $this->assertSame('skipped', $this->outcome($receipt)->status);
+        }
     }
 
     public function test_nested_embedded_attachment_is_accepted_and_duplicate_email_reuses_import(): void
@@ -158,9 +169,9 @@ class GmailImportIntakeTest extends TestCase
         app(GmailImportIntake::class)->process($receipt);
         $duplicate = $this->receipt('resent');
         app(GmailImportIntake::class)->process($duplicate);
-        $this->assertSame('accepted', $receipt->fresh()->status);
-        $this->assertSame('duplicate_content', $duplicate->fresh()->reason);
-        $this->assertSame($receipt->fresh()->price_list_import_id, $duplicate->fresh()->price_list_import_id);
+        $this->assertSame('accepted', $this->outcome($receipt)->status);
+        $this->assertSame('duplicate_content', $this->outcome($duplicate)->reason);
+        $this->assertSame($this->outcome($receipt)->price_list_import_id, $this->outcome($duplicate)->price_list_import_id);
         $this->assertSame(1, PriceListImport::count());
         $this->assertSame(1, GmailImportContentClaim::count());
         $this->assertCount(1, Storage::disk('local')->allFiles('price-list-imports'));
@@ -185,7 +196,7 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([$this->message($parts)]);
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
-        $this->assertSame($reason, $receipt->fresh()->reason);
+        $this->assertSame($reason, $this->outcome($receipt)->reason);
         $this->assertSame(0, PriceListImport::count());
         $this->assertSame([], Storage::disk('local')->allFiles('price-list-imports'));
     }
@@ -202,7 +213,7 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([$this->message([$part]), ['data' => $data]]);
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
-        $this->assertSame('accepted', $receipt->fresh()->status);
+        $this->assertSame('accepted', $this->outcome($receipt)->status);
         Queue::assertPushed(PreparePriceListImport::class);
     }
 
@@ -297,10 +308,10 @@ class GmailImportIntakeTest extends TestCase
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
         $this->supplier();
-        app(GmailImportIntake::class)->process($receipt->fresh());
-        $this->assertSame('skipped', $receipt->fresh()->status);
+        app(GmailImportIntake::class)->process($this->outcome($receipt));
+        $this->assertSame('routed', $receipt->fresh()->status);
         $this->artisan('gmail-imports:replay', ['--receipt' => $receipt->id])->assertSuccessful();
-        $this->assertSame('pending', $receipt->fresh()->status);
+        $this->assertSame('pending', $this->outcome($receipt)->status);
     }
 
     public function test_deleted_message_is_terminal_and_transient_error_remains_retryable(): void
@@ -308,7 +319,7 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([new Response(404, [], json_encode(['error' => ['code' => 404]]))]);
         $receipt = $this->receipt();
         (new ProcessGmailImportReceipt($receipt->id))->handle(app(GmailImportIntake::class));
-        $this->assertSame('message_unavailable', $receipt->fresh()->reason);
+        $this->assertSame('message_unavailable', $this->outcome($receipt)->reason);
         $retry = $this->receipt('retry');
         $this->google([new Response(503, [], json_encode(['error' => ['code' => 503]]))]);
         try {
@@ -332,8 +343,8 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([$this->message([$this->part()])]);
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
-        $this->assertSame($existing->id, $receipt->fresh()->price_list_import_id);
-        $this->assertSame('duplicate_content', $receipt->fresh()->reason);
+        $this->assertSame($existing->id, $this->outcome($receipt)->price_list_import_id);
+        $this->assertSame('duplicate_content', $this->outcome($receipt)->reason);
         $this->assertSame(1, PriceListImport::count());
         $this->assertSame([], Storage::disk('local')->allFiles('price-list-imports'));
         Queue::assertNothingPushed();
@@ -350,7 +361,7 @@ class GmailImportIntakeTest extends TestCase
         $file = new StoredImportFile('local', 'new.csv', 'prices.csv', 'text/csv', 7, hash('sha256', 'content'));
         $result = app(SupplierPriceListIngestor::class)->ingestGmailReceipt($receipt, $file);
         $this->assertSame('skipped', $result['outcome']);
-        $this->assertSame('inactive_profile', $receipt->fresh()->reason);
+        $this->assertSame('inactive_profile', $this->outcome($receipt)->reason);
         Storage::disk('local')->assertMissing('new.csv');
         $this->assertSame(0, PriceListImport::count());
     }
@@ -367,7 +378,7 @@ class GmailImportIntakeTest extends TestCase
         $this->assertSame($import->id, $supplier->fresh()->active_price_list_import_id);
         Queue::fake([SyncGmailImports::class]);
         $this->artisan('gmail-imports:sync')->assertSuccessful();
-        $this->assertSame('completed', $receipt->fresh()->status);
+        $this->assertSame('completed', $this->outcome($receipt)->status);
         Queue::assertPushed(SyncGmailImports::class);
     }
 
@@ -522,7 +533,7 @@ class GmailImportIntakeTest extends TestCase
     public function test_preview_has_no_import_or_receipt_side_effects(): void
     {
         $this->supplier();
-        $this->mailbox([['messages' => [['id' => 'one']]], $this->message()]);
+        $this->mailbox([['messages' => [['id' => 'one']]], $this->message([$this->part()])]);
         $this->artisan('gmail-imports:preview')->expectsOutputToContain('eligible')->assertSuccessful();
         $this->assertSame(0, GmailImportReceipt::count());
         $this->assertSame(0, PriceListImport::count());
@@ -543,7 +554,7 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([$message]);
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
-        $this->assertSame('not_in_inbox', $receipt->fresh()->reason);
+        $this->assertSame('not_in_inbox', $this->outcome($receipt)->reason);
     }
 
     public function test_declared_size_and_decoded_size_must_match(): void
@@ -554,7 +565,7 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([$this->message([$part])]);
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
-        $this->assertSame('invalid_attachment', $receipt->fresh()->reason);
+        $this->assertSame('invalid_attachment', $this->outcome($receipt)->reason);
     }
 
     public function test_saved_profile_remains_authoritative_after_profile_is_replaced(): void
@@ -587,8 +598,8 @@ class GmailImportIntakeTest extends TestCase
         $import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'preparation']);
         $resent = $this->receipt('resent-failure');
         app(GmailImportIntake::class)->process($resent);
-        $this->assertSame('duplicate_content', $resent->fresh()->reason);
-        $this->assertSame($import->id, $resent->fresh()->price_list_import_id);
+        $this->assertSame('duplicate_content', $this->outcome($resent)->reason);
+        $this->assertSame($import->id, $this->outcome($resent)->price_list_import_id);
         config(['auth.admin_two_factor_enabled' => false]);
         $actor = User::factory()->admin()->create();
         $this->actingAs($actor)->post(route('price-list-imports.retry', $import))->assertRedirect();
@@ -616,19 +627,19 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([new Response(429, ['Retry-After' => '600'], json_encode(['error' => ['code' => 429]]))]);
         $receipt = $this->receipt();
         (new ProcessGmailImportReceipt($receipt->id))->handle(app(GmailImportIntake::class));
-        $this->assertSame(now()->addMinutes(10)->timestamp, $receipt->fresh()->next_attempt_at->timestamp);
+        $this->assertSame(now()->addMinutes(10)->timestamp, $this->outcome($receipt)->next_attempt_at->timestamp);
         $this->travel(3)->minutes();
         Queue::fake();
         $this->artisan('gmail-imports:sync')->assertSuccessful();
         Queue::assertNotPushed(ProcessGmailImportReceipt::class);
         Queue::assertPushed(SyncGmailImports::class);
         (new ProcessGmailImportReceipt($receipt->id))->handle(app(GmailImportIntake::class));
-        $this->assertSame(1, $receipt->fresh()->attempts);
+        $this->assertSame(1, $this->outcome($receipt)->attempts);
         $this->travel(8)->minutes();
         $this->google([$this->message()]);
         (new ProcessGmailImportReceipt($receipt->id))->handle(app(GmailImportIntake::class));
-        $this->assertSame('unknown_supplier', $receipt->fresh()->reason);
-        $this->assertNull($receipt->fresh()->next_attempt_at);
+        $this->assertSame('routed', $receipt->fresh()->status);
+        $this->assertNull($this->outcome($receipt)->next_attempt_at);
     }
 
     public function test_scheduled_polling_respects_discovery_retry_delay(): void
@@ -662,9 +673,9 @@ class GmailImportIntakeTest extends TestCase
             }
             $this->travel(6)->minutes();
         }
-        $this->assertSame('failed', $receipt->fresh()->status);
-        $this->assertSame(4, $receipt->fresh()->attempts);
-        $this->assertSame('intake_failed', $receipt->fresh()->reason);
+        $this->assertSame('failed', $this->outcome($receipt)->status);
+        $this->assertSame(4, $this->outcome($receipt)->attempts);
+        $this->assertSame('intake_failed', $this->outcome($receipt)->reason);
     }
 
     public function test_lock_contention_does_not_terminally_fail_an_unprocessed_receipt(): void
@@ -679,8 +690,8 @@ class GmailImportIntakeTest extends TestCase
         } finally {
             $lock->release();
         }
-        $this->assertSame('pending', $receipt->fresh()->status);
-        $this->assertSame(0, $receipt->fresh()->attempts);
+        $this->assertSame('pending', $this->outcome($receipt)->status);
+        $this->assertSame(0, $this->outcome($receipt)->attempts);
     }
 
     public function test_discovery_can_dispatch_intake_after_releasing_mailbox_lock(): void
@@ -690,7 +701,8 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([['historyId' => '100'], ['messages' => [['id' => 'message-1']]], ['historyId' => '101'], $this->message([$this->part()])]);
         app(GmailImportDiscovery::class)->sync();
         $this->assertSame(PriceListImportStatus::Completed, PriceListImport::sole()->status);
-        $this->assertSame('accepted', GmailImportReceipt::sole()->status);
+        $this->assertSame('routed', GmailImportReceipt::where('receipt_scope', 'message')->sole()->status);
+        $this->assertSame('accepted', GmailImportReceipt::whereNotNull('parent_receipt_id')->sole()->status);
     }
 
     public function test_validation_applies_configured_csv_delimiter_when_counting_columns(): void
@@ -755,8 +767,8 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([$this->message([$part]), new Response(404, [], json_encode(['error' => ['code' => 404]]))]);
         $receipt = $this->receipt();
         (new ProcessGmailImportReceipt($receipt->id))->handle(app(GmailImportIntake::class));
-        $this->assertSame('skipped', $receipt->fresh()->status);
-        $this->assertSame('attachment_unavailable', $receipt->fresh()->reason);
+        $this->assertSame('skipped', $this->outcome($receipt)->status);
+        $this->assertSame('attachment_unavailable', $this->outcome($receipt)->reason);
     }
 
     public function test_existing_supplier_message_constraint_is_handled_without_replacement_import(): void
@@ -768,8 +780,8 @@ class GmailImportIntakeTest extends TestCase
         $this->mailbox([$this->message([$this->part()])]);
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
-        $this->assertSame('duplicate_message', $receipt->fresh()->reason);
-        $this->assertSame($existing->id, $receipt->fresh()->price_list_import_id);
+        $this->assertSame('duplicate_message', $this->outcome($receipt)->reason);
+        $this->assertSame($existing->id, $this->outcome($receipt)->price_list_import_id);
         $this->assertSame(1, PriceListImport::count());
         $this->assertSame(0, GmailImportContentClaim::count());
         $this->assertSame([], Storage::disk('local')->allFiles('price-list-imports'));

@@ -21,6 +21,8 @@ use Illuminate\Validation\ValidationException;
 
 class SupplierPriceListIngestor
 {
+    public function __construct(private SupplierAttachmentResolver $resolver) {}
+
     /** @return array{outcome: string, import: ?PriceListImport} */
     public function ingestGmailReceipt(GmailImportReceipt $receipt, StoredImportFile $file): array
     {
@@ -30,7 +32,7 @@ class SupplierPriceListIngestor
                 return ['outcome' => 'duplicate', 'import' => PriceListImport::findOrFail($receipt->price_list_import_id)];
             }
             $supplier = Organization::whereKey($receipt->supplier_organization_id)->lockForUpdate()->first();
-            $address = SupplierSenderAddress::where('normalized_email', $receipt->sender_email)->lockForUpdate()->first();
+            $address = SupplierSenderAddress::where('normalized_email', $receipt->sender_email)->where('supplier_organization_id', $receipt->supplier_organization_id)->lockForUpdate()->first();
             $profile = $supplier?->importProfile()->lockForUpdate()->first();
             $reason = match (true) {
                 ! $supplier || $supplier->status !== 'active' || $supplier->type !== OrganizationType::Wholesaler => 'inactive_supplier',
@@ -38,6 +40,7 @@ class SupplierPriceListIngestor
                 ! $profile => 'missing_profile',
                 ! $profile->is_active => 'inactive_profile',
                 $profile->file_type->value !== ($receipt->selected_part['file_type'] ?? null) => 'profile_changed',
+                $this->resolver->matchingSuppliers($receipt->sender_email, $file->originalFilename)->modelKeys() !== [$supplier->id] => 'supplier_resolution_changed',
                 default => null,
             };
             if ($reason) {
@@ -69,9 +72,12 @@ class SupplierPriceListIngestor
 
     public function ingestFromEmail(StoredImportFile $file, string $senderEmail, ?string $messageId = null, ?CarbonImmutable $receivedAt = null): PriceListImport
     {
-        $address = SupplierSenderAddress::query()->where('normalized_email', mb_strtolower(trim($senderEmail)))->firstOrFail();
+        $suppliers = $this->resolver->matchingSuppliers($senderEmail, $file->originalFilename);
+        if ($suppliers->count() !== 1 || $this->resolver->eligibilityReason($suppliers->sole(), $file->originalFilename)) {
+            throw ValidationException::withMessages(['file' => 'Вложение не соответствует единственному подходящему поставщику.']);
+        }
 
-        return $this->ingest($address->supplier, $file, new IngestionContext(PriceListImportSource::Email, senderEmail: $senderEmail, messageId: $messageId, receivedAt: $receivedAt));
+        return $this->ingest($suppliers->sole(), $file, new IngestionContext(PriceListImportSource::Email, senderEmail: $senderEmail, messageId: $messageId, receivedAt: $receivedAt));
     }
 
     public function ingest(Organization $supplier, StoredImportFile $file, IngestionContext $context): PriceListImport

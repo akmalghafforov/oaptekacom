@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use App\Models\Organization;
+use App\Models\SupplierSenderAddress;
 use App\Models\User;
 use Database\Seeders\SuppliersSeeder;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -57,5 +58,17 @@ class SuppliersSeederTest extends TestCase
         $this->assertSame(50, Organization::query()->where('type', 'wholesaler')->count());
         $this->assertSame(50, User::query()->where('role', UserRole::Wholesaler)->whereNotNull('organization_id')->count());
         $this->assertDatabaseCount('supplier_sender_addresses', 31);
+    }
+
+    public function test_seeding_preserves_another_suppliers_shared_sender_address(): void
+    {
+        $address = SupplierSenderAddress::factory()->create(['email' => 'apteka.darmon@mail.ru', 'normalized_email' => 'apteka.darmon@mail.ru']);
+        $before = $address->fresh()->getAttributes();
+
+        $this->seed(SuppliersSeeder::class);
+        $this->seed(SuppliersSeeder::class);
+
+        $this->assertSame($before, $address->fresh()->getAttributes());
+        $this->assertSame(2, SupplierSenderAddress::where('normalized_email', 'apteka.darmon@mail.ru')->count());
     }
 }

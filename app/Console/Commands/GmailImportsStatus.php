@@ -15,14 +15,14 @@ class GmailImportsStatus extends Command
 
     public function handle(): int
     {
-        if (! Schema::hasTable('gmail_import_receipts') || ! Schema::hasColumn('gmail_import_receipts', 'next_attempt_at')) {
+        if (! Schema::hasTable('gmail_import_receipts') || ! Schema::hasColumn('gmail_import_receipts', 'receipt_scope')) {
             $this->warn('Gmail import migrations are pending.');
 
             return self::FAILURE;
         }
         $connection = GmailConnection::find(config('gmail-imports.connection_id'));
         $this->table(['Enabled', 'Mailbox', 'Connection', 'Scan complete', 'Last sync', 'Retry after', 'Error'], [[config('gmail-imports.enabled') ? 'yes' : 'no', $connection?->email, $connection?->status, $connection?->scan_completed_at, $connection?->last_synced_at, $connection?->next_sync_at, $connection?->last_sync_error]]);
-        $this->table(['Status', 'Reason', 'Count'], GmailImportReceipt::selectRaw('status, reason, count(*) as total')->groupBy('status', 'reason')->get()->map(fn ($receipt): array => [$receipt->status, $receipt->reason, $receipt->total])->all());
+        $this->table(['Scope', 'Status', 'Reason', 'Count'], GmailImportReceipt::selectRaw('receipt_scope, status, reason, count(*) as total')->groupBy('receipt_scope', 'status', 'reason')->get()->map(fn ($receipt): array => [$receipt->receipt_scope, $receipt->status, $receipt->reason, $receipt->total])->all());
 
         return self::SUCCESS;
     }

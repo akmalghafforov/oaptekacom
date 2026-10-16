@@ -5,6 +5,8 @@ namespace App\Models;
 use Database\Factories\GmailImportReceiptFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Log;
 
 class GmailImportReceipt extends Model
@@ -14,7 +16,17 @@ class GmailImportReceipt extends Model
 
     protected $guarded = [];
 
-    protected $attributes = ['status' => 'pending', 'attempts' => 0];
+    protected $attributes = ['status' => 'pending', 'attempts' => 0, 'receipt_scope' => 'message'];
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_receipt_id');
+    }
+
+    public function children(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_receipt_id');
+    }
 
     protected static function booted(): void
     {

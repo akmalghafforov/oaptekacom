@@ -79,7 +79,7 @@ class GmailImportDiscovery
 
     private function record(GmailConnection $connection, string $id): ?int
     {
-        $receipt = GmailImportReceipt::firstOrCreate(['mailbox_email' => strtolower($connection->email), 'gmail_message_id' => $id]);
+        $receipt = GmailImportReceipt::firstOrCreate(['mailbox_email' => strtolower($connection->email), 'gmail_message_id' => $id, 'receipt_scope' => 'message']);
 
         return $receipt->wasRecentlyCreated ? $receipt->id : null;
     }

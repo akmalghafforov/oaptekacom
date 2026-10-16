@@ -24,7 +24,7 @@ class SyncGmailImports extends Command
 
     public function handle(): int
     {
-        if (! Schema::hasTable('gmail_import_receipts') || ! Schema::hasColumn('gmail_import_receipts', 'next_attempt_at')) {
+        if (! Schema::hasTable('gmail_import_receipts') || ! Schema::hasColumn('gmail_import_receipts', 'receipt_scope')) {
             $this->info('Gmail import migrations are pending. Automatic intake has not started.');
 
             return config('gmail-imports.enabled') ? self::FAILURE : self::SUCCESS;
