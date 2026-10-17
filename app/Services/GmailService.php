@@ -102,7 +102,7 @@ class GmailService
                 try {
                     $batch = $gmail->createBatch();
                     foreach ($pending as $id) {
-                        $batch->add($gmail->users_messages->get('me', $id, ['format' => 'metadata', 'metadataHeaders' => ['From', 'Subject', 'Date']]), $id);
+                        $batch->add($gmail->users_messages->get('me', $id, ['format' => 'full', 'fields' => $this->reader->metadataFields()]), $id);
                     }
                     $results = $batch->execute();
                 } catch (Throwable $exception) {
@@ -119,7 +119,11 @@ class GmailService
                 foreach ($pending as $id) {
                     $result = $results['response-'.$id] ?? null;
                     if ($result instanceof Message) {
-                        $messages[$id] = $this->reader->metadata($result);
+                        $payload = $result->getPayload();
+                        if ($payload && $this->reader->hasDeeperParts($payload, 4)) {
+                            $result = $this->reader->attachmentMetadata($gmail, $id, 8);
+                        }
+                        $messages[$id] = $this->reader->metadata($result) + ['attachments' => $result->getPayload() ? $this->reader->attachments($result->getPayload()) : []];
                     } elseif ($result instanceof GoogleException && $result->getCode() === 404) {
                         continue;
                     } elseif ($result instanceof Throwable && $this->retryable($result) && $attempt < 2) {

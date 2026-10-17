@@ -44,3 +44,60 @@ test('cancelled submission does not disable Gmail actions', () => {
     assert.equal(status.hidden, true);
     assert.equal(buttons[0].disabled, false);
 });
+
+async function progressFixture(results) {
+    const { initializeGmailProgress } = await import('../../resources/js/gmail.js');
+    const status = { textContent: '' };
+    const scheduled = [];
+    const calls = [];
+    const deadlines = [];
+    const panel = { dataset: { active: 'true', statusUrl: '/status' }, querySelector: () => status };
+    initializeGmailProgress({ querySelector: () => panel, querySelectorAll: () => [] }, {
+        fetch: async (url, options) => {
+            calls.push({url, options});
+            const result = results.shift() ?? {active: true, attachments: []};
+            if (result instanceof Error) throw result;
+            return {ok: result.ok ?? true, json: async () => result};
+        },
+        setTimeout: (callback, delay) => { (delay === 120000 ? deadlines : scheduled).push({callback, delay}); },
+        clearTimeout: () => {}, addEventListener: () => {},
+    });
+    return { status, scheduled, calls, deadlines };
+}
+
+test('Gmail polls every three seconds and stops when processing completes', async () => {
+    const fixture = await progressFixture([{active: true, attachments: []}, {active: false, attachments: []}]);
+    await fixture.scheduled.shift().callback();
+    assert.equal(fixture.scheduled[0].delay, 3000);
+    assert.equal(fixture.calls[0].options.cache, 'no-store');
+    await fixture.scheduled.shift().callback();
+    assert.equal(fixture.scheduled.length, 0);
+    assert.match(fixture.status.textContent, /завершена/);
+});
+
+test('Gmail polling stops after two minutes and keeps manual refresh guidance', async () => {
+    const fixture = await progressFixture([]);
+    for (let poll = 0; poll < 40; poll++) await fixture.scheduled.shift().callback();
+    assert.equal(fixture.scheduled.length, 0);
+    assert.equal(fixture.calls.length, 40);
+    assert.match(fixture.status.textContent, /две минуты/);
+});
+
+test('Gmail polling reports network or authorization failures without raw response', async () => {
+    for (const failure of [new Error('secret'), {ok: false}]) {
+        const fixture = await progressFixture([failure]);
+        await fixture.scheduled.shift().callback();
+        assert.equal(fixture.scheduled.length, 0);
+        assert.match(fixture.status.textContent, /Не удалось обновить статус/);
+        assert.doesNotMatch(fixture.status.textContent, /secret/);
+    }
+});
+
+
+test('Gmail stops and aborts a stalled request at the two minute deadline', async () => {
+    const fixture = await progressFixture([]);
+    fixture.deadlines[0].callback();
+    await fixture.scheduled.shift().callback();
+    assert.equal(fixture.calls.length, 0);
+    assert.match(fixture.status.textContent, /две минуты/);
+});

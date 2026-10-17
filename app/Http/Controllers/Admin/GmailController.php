@@ -2,13 +2,20 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\OrganizationType;
 use App\Http\Controllers\Controller;
+use App\Models\Organization;
 use App\Services\GmailClientFactory;
 use App\Services\GmailException;
+use App\Services\GmailImportReplay;
+use App\Services\GmailImportStatus;
+use App\Services\GmailProfileDrafts;
 use App\Services\GmailService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class GmailController extends Controller
 {
@@ -31,7 +38,12 @@ class GmailController extends Controller
             }
         }
 
-        return view('admin.gmail.index', ['connection' => $connection, 'inbox' => $inbox, 'error' => $error, 'configured' => $this->clients->configured(), 'size' => (int) ($input['size'] ?? 20)]);
+        $canImport = $this->canImport($request);
+        if ($canImport) {
+            $inbox['messages'] = app(GmailImportStatus::class)->decorate($connection->email, $inbox['messages'])['messages'];
+        }
+
+        return view('admin.gmail.index', ['canImport' => $canImport, 'connection' => $connection, 'inbox' => $inbox, 'error' => $error, 'configured' => $this->clients->configured(), 'size' => (int) ($input['size'] ?? 20)]);
     }
 
     public function connect(Request $request): RedirectResponse
@@ -76,10 +88,76 @@ class GmailController extends Controller
     public function show(Request $request, string $message): View|RedirectResponse
     {
         try {
-            return view('admin.gmail.show', ['message' => $this->gmail->message($request->user(), $message)]);
+            $data = $this->gmail->message($request->user(), $message);
+            $canImport = $this->canImport($request);
+            $active = false;
+            if ($canImport) {
+                $status = app(GmailImportStatus::class)->decorate($request->user()->gmailConnection()->first()->email, [$data]);
+                $data = $status['messages'][0];
+                $active = $status['active'];
+            }
+
+            return view('admin.gmail.show', ['message' => $data, 'canImport' => $canImport, 'active' => $active, 'selectedPart' => $request->query('part_id'), 'suppliers' => $canImport ? Organization::where('type', OrganizationType::Wholesaler)->orderBy('name')->get(['id', 'name']) : collect()]);
         } catch (GmailException $exception) {
             return $this->failure($exception->getMessage());
         }
+    }
+
+    private function canImport(Request $request): bool
+    {
+        try {
+            app(GmailProfileDrafts::class)->authorize($request);
+
+            return true;
+        } catch (HttpException|GmailException) {
+            return false;
+        }
+    }
+
+    public function importProfile(Request $request, string $message, GmailProfileDrafts $drafts): RedirectResponse
+    {
+        $drafts->authorize($request);
+        $input = $request->validate(['part_id' => ['required', 'string', 'max:255'], 'supplier_organization_id' => ['required', 'integer']]);
+        $supplier = Organization::where('type', OrganizationType::Wholesaler)->findOrFail($input['supplier_organization_id']);
+        try {
+            $token = $drafts->stage($request, $supplier, $message, $input['part_id']);
+
+            return redirect()->route('admin.supplier-import-profiles.edit', ['supplier' => $supplier, 'gmail_draft' => $token]);
+        } catch (GmailException $exception) {
+            return redirect()->route('admin.gmail.show', $message)->with('warning', $exception->getMessage());
+        }
+    }
+
+    public function replay(Request $request, string $message, GmailProfileDrafts $drafts, GmailImportReplay $replay): RedirectResponse
+    {
+        $connection = $drafts->authorize($request);
+        try {
+            $replay->message($connection->email, $message);
+        } catch (GmailException $exception) {
+            return redirect()->route('admin.gmail.show', $message)->with('warning', $exception->getMessage());
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return redirect()->route('admin.gmail.show', $message)->with('warning', 'Не удалось подготовить импорт. Повторите попытку позже.');
+        }
+
+        return redirect()->route('admin.gmail.show', $message)->with('success', 'Импорт поставлен в очередь или уже обрабатывается. Завершённые импорты сохранены; для ошибочного прайс-листа используйте его страницу повтора.');
+    }
+
+    public function importStatus(Request $request, string $message, GmailProfileDrafts $drafts, GmailImportStatus $status): JsonResponse
+    {
+        $connection = $drafts->authorize($request);
+        $receipts = $status->receipts($connection->email, [$message]);
+        $attachments = [];
+        foreach ($receipts as $receipt) {
+            foreach ($receipt->attachment_manifest ?? [] as $entry) {
+                $id = (string) ($entry['part_id'] ?? '');
+                $attachments[$id] = ['part_id' => $id, 'name' => $entry['filename'], 'size' => $entry['size'] ?? 0];
+            }
+        }
+        $result = $status->decorate($connection->email, [['id' => $message, 'attachments' => array_values($attachments)]]);
+
+        return response()->json(['active' => $result['active'], 'reason' => $result['messages'][0]['intake_reason'], 'attachments' => $result['messages'][0]['attachments']]);
     }
 
     public function refresh(): RedirectResponse

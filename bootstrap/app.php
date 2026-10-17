@@ -28,7 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->respond(function (Response $response): Response {
-            if (request()->is('admin/gmail', 'admin/gmail/*')) {
+            if (request()->is('admin/gmail', 'admin/gmail/*') || request()->has('gmail_draft')) {
                 $response->headers->set('Cache-Control', 'no-store, private');
                 $response->headers->set('Referrer-Policy', 'no-referrer');
             }

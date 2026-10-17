@@ -22,6 +22,12 @@ class CleanupGmailImportFiles extends Command
                 $count++;
             }
         }
+        foreach ($disk->allFiles('gmail-profile-drafts') as $path) {
+            if ($disk->lastModified($path) < now()->subDay()->timestamp) {
+                $disk->delete($path);
+                $count++;
+            }
+        }
         $this->info("Removed {$count} abandoned files.");
 
         return self::SUCCESS;

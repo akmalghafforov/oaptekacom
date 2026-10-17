@@ -210,7 +210,7 @@ class GmailIntegrationTest extends TestCase
         $this->assertSame('10', $query['maxResults']);
         $this->assertCount(2, $history);
         $this->assertStringContainsString('/messages/abc', (string) $history[1]['request']->getBody());
-        $this->assertStringContainsString('format=metadata', (string) $history[1]['request']->getBody());
+        $this->assertStringContainsString('format=full', (string) $history[1]['request']->getBody());
     }
 
     public function test_expiring_access_refreshes_and_preserves_refresh_token(): void
@@ -310,7 +310,7 @@ class GmailIntegrationTest extends TestCase
         $this->assertSame('Привет', $result['subject']);
         $this->assertSame('café <script>plain</script>', $result['plain']);
         $this->assertSame(['body-html'], $fetched);
-        $this->assertSame([['name' => '<script>file.txt</script>', 'size' => 123]], $result['attachments']);
+        $this->assertSame([['part_id' => '', 'name' => '<script>file.txt</script>', 'size' => 123]], $result['attachments']);
         $this->assertStringContainsString('<strong>bold</strong>', $result['html']);
         foreach (['script', 'onclick', '<img', 'href=', '<form', '<svg', 'https://evil.test'] as $unsafe) {
             $this->assertStringNotContainsString($unsafe, $result['html']);

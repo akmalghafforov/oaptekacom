@@ -1,6 +1,6 @@
 @extends('layouts.app')
 @section('content')
-    <x-ui.page-header title="Gmail" description="Личный почтовый ящик администратора. Только чтение; письма не сохраняются в системе." />
+    <x-ui.page-header title="Gmail" description="Личный почтовый ящик администратора. Доступ только для чтения; результаты импорта сохраняются в системе." />
     <div class="mt-6 space-y-4" data-gmail-page>
         @if($error)<x-ui.alert type="warning">{{ $error }}</x-ui.alert>@endif
         <x-ui.card>
@@ -45,12 +45,14 @@
             </form>
             @if(count($inbox['messages']))
                 <div class="table-wrap"><table class="data-table">
-                    <thead><tr><th>Статус</th><th>Отправитель</th><th>Письмо</th><th>Дата</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Статус</th><th>Отправитель</th><th>Письмо</th><th>Дата</th><th>Вложения</th></tr></thead>
                     <tbody>@foreach($inbox['messages'] as $message)<tr>
+                        <td class="break-all">{{ $message['id'] }}</td>
                         <td>{{ $message['unread'] ? 'Непрочитано' : 'Прочитано' }}</td>
                         <td>{{ $message['from'] }}</td>
                         <td><a class="font-semibold text-brand underline" href="{{ route('admin.gmail.show', $message['id']) }}">{{ $message['subject'] }}</a><p class="mt-1 text-sm text-muted">{{ $message['snippet'] }}</p></td>
                         <td>{{ $message['date'] }}</td>
+                        <td><details><summary class="min-h-10 cursor-pointer">Вложения: {{ count($message['attachments']) }}</summary>@include('admin.gmail.attachments')</details></td>
                     </tr>@endforeach</tbody>
                 </table></div>
             @elseif(!$error)

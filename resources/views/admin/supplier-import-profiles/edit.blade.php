@@ -6,29 +6,36 @@
     $selectedDataRow = (int) old('data_row', $profile->configuration['data_row'] ?? 1);
 @endphp
 <x-ui.page-header :title="'Профиль импорта: '.$organization->name" description="Загрузите образец, затем укажите назначение столбцов и первую строку товаров." />
+@if($draft)
+<x-ui.alert type="warning" class="mt-6">Черновик из Gmail. Действующий профиль изменится только после сохранения. Черновик доступен 24 часа.</x-ui.alert>
+<x-ui.button variant="secondary" class="mt-3" :href="route('admin.gmail.show', $draft['message'])">Отменить и вернуться к письму</x-ui.button>
+@endif
 <x-ui.card class="mt-6">
     <h2 class="text-lg font-bold">Образец прайс-листа</h2>
     <p class="mt-1 text-sm text-muted">CSV, TSV, XLS или XLSX. Файл хранится приватно и используется только для настройки.</p>
     @if($profile->sample_metadata)<p class="mt-3 text-sm"><span class="font-semibold">Текущий файл:</span> {{ $profile->sample_metadata['filename'] }} ({{ number_format($profile->sample_metadata['size'] / 1024, 1, ',', ' ') }} КБ)</p>@endif
+    @if(!$draft)
     <form method="post" action="{{ route('admin.supplier-import-profiles.sample.store', $organization) }}" enctype="multipart/form-data" class="mt-4 flex flex-wrap items-end gap-3">
         @csrf <x-mode-version />
         <x-ui.input name="sample" type="file" label="Файл-образец" accept=".csv,.tsv,.xls,.xlsx" required />
         <x-ui.button>{{ $profile->sample_metadata ? 'Заменить образец' : 'Загрузить образец' }}</x-ui.button>
     </form>
+    @endif
 </x-ui.card>
 @if($preview)
 <form id="profile-form" method="post" action="{{ route('admin.supplier-import-profiles.update', $organization) }}" class="mt-6 space-y-6" novalidate>
     @csrf <x-mode-version /> @method('PUT')
+    @if($draft)<input type="hidden" name="gmail_draft" value="{{ request('gmail_draft') }}">@endif
     <x-ui.card>
         <div class="grid gap-4 md:grid-cols-3">
             <x-ui.input name="name" label="Название профиля" :value="$profile->name" required />
             <x-ui.select name="file_type" label="Тип импортируемого файла">@foreach(['xlsx' => 'XLSX', 'xls' => 'XLS', 'csv' => 'CSV', 'tsv' => 'TSV'] as $value => $label)<option value="{{ $value }}" @selected(old('file_type', $profile->file_type?->value ?? $profile->file_type) === $value)>{{ $label }}</option>@endforeach</x-ui.select>
-            <x-ui.select name="worksheet" label="Лист" data-worksheet data-preview-url="{{ route('admin.supplier-import-profiles.sample.preview', $organization) }}">@foreach($preview['worksheets'] as $worksheet)<option value="{{ $worksheet }}" @selected(old('worksheet', $preview['worksheet']) === $worksheet)>{{ $worksheet }}</option>@endforeach</x-ui.select>
+            <x-ui.select name="worksheet" label="Лист" data-worksheet data-preview-url="{{ route('admin.supplier-import-profiles.sample.preview', ['supplier' => $organization, 'gmail_draft' => $draft ? request('gmail_draft') : null]) }}">@foreach($preview['worksheets'] as $worksheet)<option value="{{ $worksheet }}" @selected(old('worksheet', $preview['worksheet']) === $worksheet)>{{ $worksheet }}</option>@endforeach</x-ui.select>
         </div>
         <div class="mt-4 grid gap-4 md:grid-cols-2"><x-ui.textarea name="sender_emails" label="Email-адреса отправителей" :value="$senderEmails" hint="Один адрес на строку. Один адрес можно использовать для нескольких поставщиков с разными фильтрами файлов." /><x-ui.input name="attachment_filename_filter" label="Фильтр имени вложения" :value="$profile->attachment_filename_filter" maxlength="255" hint="Имя файла должно содержать указанный текст без учёта регистра. Пустое поле — любое имя файла. Если подходят несколько поставщиков, вложение пропускается." /></div>
         <div class="mt-4 grid gap-4 md:grid-cols-3">
             <x-ui.input name="decimal_separator" label="Десятичный разделитель" :value="$profile->configuration['decimal_separator'] ?? '.'" required />
-            <x-ui.select name="matching_strategy" label="Сопоставление" data-matching-strategy><option value="name">По нормализованному названию</option></x-ui.select>
+            <x-ui.select name="matching_strategy" label="Сопоставление" data-matching-strategy>@foreach(['name' => 'По нормализованному названию', 'sku' => 'Строго по SKU', 'sku_then_name' => 'SKU, затем название'] as $value => $label)<option value="{{ $value }}" @selected(old('matching_strategy', $profile->configuration['matching_strategy'] ?? 'name') === $value)>{{ $label }}</option>@endforeach</x-ui.select>
             <p class="self-end pb-3 text-sm text-muted">Прайс-листы обрабатываются и публикуются автоматически.</p>
         </div>
     </x-ui.card>
@@ -59,7 +66,7 @@
     table.addEventListener('change', update); strategy.addEventListener('change', update);
     form.querySelector('[data-worksheet]').addEventListener('change', async event => {
         const selectedMappings = Object.fromEntries([...table.querySelectorAll('[data-column-mapping]')].map(select => [select.dataset.column, select.value])); const currentRow = Number(form.querySelector('input[name="data_row"]:checked')?.value ?? 1);
-        const response = await fetch(`${event.target.dataset.previewUrl}?worksheet=${encodeURIComponent(event.target.value)}`, {headers: {'Accept': 'application/json'}}); if (!response.ok) { error.textContent = 'Не удалось загрузить выбранный лист.'; error.classList.remove('hidden'); save.disabled = true; return; } const preview = await response.json();
+        const response = await fetch(`${event.target.dataset.previewUrl}${event.target.dataset.previewUrl.includes('?') ? '&' : '?'}worksheet=${encodeURIComponent(event.target.value)}`, {headers: {'Accept': 'application/json'}}); if (!response.ok) { error.textContent = 'Не удалось загрузить выбранный лист.'; error.classList.remove('hidden'); save.disabled = true; return; } const preview = await response.json();
         const head = table.tHead.rows[0]; const corner = document.createElement('th'); corner.textContent = 'Начало импорта'; corner.className = 'sticky left-0 z-10 min-w-44'; head.replaceChildren(corner);
         preview.columns.forEach(column => { const th = document.createElement('th'); th.className = 'min-w-52'; const title = document.createElement('span'); title.className = 'mb-2 block text-center text-xs'; title.dataset.columnLabel = column; th.append(title); const select = document.createElement('select'); select.name = `column_mappings[${column}]`; select.dataset.columnMapping = ''; select.dataset.column = column; select.className = 'block min-w-44 w-full rounded-control border border-control-border bg-surface px-3 py-2.5'; select.setAttribute('aria-label', `Назначение столбца ${column}`); select.innerHTML = document.querySelector('[data-mapping-options]').innerHTML; select.value = selectedMappings[column] ?? 'ignore'; th.append(select); head.append(th); });
         table.tBodies[0].replaceChildren(...preview.rows.map(source => { const row = document.createElement('tr'); row.dataset.sourceRow = source.number; const control = document.createElement('td'); control.className = 'sticky left-0 bg-inherit'; const label = document.createElement('label'); label.className = 'inline-flex min-h-10 cursor-pointer items-center gap-2 whitespace-nowrap text-sm font-medium'; const radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'data_row'; radio.value = source.number; radio.className = 'size-4 accent-accent-strong'; radio.checked = Number(source.number) === Math.min(currentRow, preview.rows.length); label.append(radio, document.createTextNode(` С строки ${source.number}`)); const state = document.createElement('span'); state.className = 'mt-1 block text-xs font-semibold'; state.dataset.rowState = ''; control.append(label, state); row.append(control); preview.columns.forEach(column => { const cell = document.createElement('td'); cell.textContent = source.cells[column] ?? ''; row.append(cell); }); return row; }));

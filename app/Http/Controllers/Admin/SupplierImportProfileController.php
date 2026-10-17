@@ -10,6 +10,7 @@ use App\Models\Organization;
 use App\Models\SupplierImportProfile;
 use App\Models\SupplierSenderAddress;
 use App\Services\AuditLogger;
+use App\Services\GmailProfileDrafts;
 use App\Services\PriceList\ProfileValidator;
 use App\Services\PriceList\SampleWorkbookReader;
 use Illuminate\Http\JsonResponse;
@@ -26,11 +27,19 @@ use Throwable;
 
 class SupplierImportProfileController extends Controller
 {
-    public function edit(int $supplier, SampleWorkbookReader $reader): View
+    public function edit(Request $request, int $supplier, SampleWorkbookReader $reader): View
     {
         $organization = Organization::query()->where('type', OrganizationType::Wholesaler)->findOrFail($supplier);
         $profile = $organization->importProfile ?? new SupplierImportProfile(['name' => 'Основной профиль', 'file_type' => 'xlsx', 'configuration' => ProfileValidator::defaults()]);
         $senderEmails = $organization->senderAddresses()->orderBy('normalized_email')->pluck('email')->implode("\n");
+        $draft = app(GmailProfileDrafts::class)->get($request, $supplier);
+        if ($draft) {
+            $profile = clone $profile;
+            $profile->sample_metadata = $draft['sample'];
+            $profile->file_type = $draft['sample']['extension'];
+            $profile->attachment_filename_filter = $draft['sample']['filename'];
+            $senderEmails = collect(explode("\n", $senderEmails))->push($draft['sender'])->filter()->unique()->implode("\n");
+        }
         $preview = null;
         if ($profile->sample_metadata) {
             try {
@@ -49,7 +58,7 @@ class SupplierImportProfileController extends Controller
             }
         }
 
-        return view('admin.supplier-import-profiles.edit', compact('organization', 'profile', 'senderEmails', 'preview'));
+        return view('admin.supplier-import-profiles.edit', compact('organization', 'profile', 'senderEmails', 'preview', 'draft'));
     }
 
     public function storeSample(StoreSupplierImportProfileSampleRequest $request, int $supplier, SampleWorkbookReader $reader): RedirectResponse
@@ -110,7 +119,8 @@ class SupplierImportProfileController extends Controller
     {
         abort_unless($request->user()?->isAdminMode(), 403);
         $organization = Organization::query()->where('type', OrganizationType::Wholesaler)->findOrFail($supplier);
-        $metadata = $organization->importProfile?->sample_metadata;
+        $draft = app(GmailProfileDrafts::class)->get($request, $supplier);
+        $metadata = $draft['sample'] ?? $organization->importProfile?->sample_metadata;
         if (! $metadata) {
             throw ValidationException::withMessages(['sample' => 'Сначала загрузите образец прайс-листа.']);
         }
@@ -127,7 +137,8 @@ class SupplierImportProfileController extends Controller
     {
         $organization = Organization::query()->where('type', OrganizationType::Wholesaler)->findOrFail($supplier);
         $profile = $organization->importProfile;
-        $metadata = $profile?->sample_metadata;
+        $draft = app(GmailProfileDrafts::class)->get($request, $supplier);
+        $metadata = $draft['sample'] ?? $profile?->sample_metadata;
         if (! $metadata) {
             throw ValidationException::withMessages(['sample' => 'Сначала загрузите образец прайс-листа.']);
         }
@@ -180,15 +191,43 @@ class SupplierImportProfileController extends Controller
                 throw ValidationException::withMessages(['sender_emails' => 'Адрес '.$email.' неверен.']);
             }
         }
+        if ($draft && $request->validated('file_type') !== $metadata['extension']) {
+            throw ValidationException::withMessages(['file_type' => 'Тип файла должен совпадать с образцом.']);
+        }
         $before = $profile?->only(['name', 'file_type', 'configuration', 'attachment_filename_filter']) ?? [];
-        DB::transaction(function () use ($organization, $profile, $configuration, $request, $emails): void {
-            $profile->update(['attachment_filename_filter' => $request->validated('attachment_filename_filter'), 'name' => $request->validated('name'), 'file_type' => $request->validated('file_type'), 'configuration' => $configuration, 'updated_by' => $request->user()->id, 'is_active' => true]);
-            $organization->senderAddresses()->whereNotIn('normalized_email', $emails)->delete();
-            foreach ($emails as $email) {
-                SupplierSenderAddress::updateOrCreate(['normalized_email' => $email, 'supplier_organization_id' => $organization->id], ['email' => $email]);
+        $previousPath = $profile?->sample_metadata['path'] ?? null;
+        if ($draft) {
+            $target = 'supplier-import-samples/'.$organization->id.'/'.Str::uuid().'.'.$metadata['extension'];
+            if (! Storage::disk(config('price-list-imports.disk'))->copy($metadata['path'], $target)) {
+                throw ValidationException::withMessages(['sample' => 'Не удалось сохранить образец. Повторите попытку.']);
             }
-        });
-        $audit->log('supplier_import_profile.updated', $profile, $before, $profile->only(['name', 'file_type', 'configuration', 'attachment_filename_filter']));
+            $metadata['path'] = $target;
+        }
+        $profile ??= new SupplierImportProfile(['supplier_organization_id' => $organization->id]);
+        try {
+            DB::transaction(function () use ($organization, $profile, $configuration, $request, $emails, $metadata, $audit, $before): void {
+                $profile->fill(['sample_metadata' => $metadata, 'attachment_filename_filter' => $request->validated('attachment_filename_filter'), 'name' => $request->validated('name'), 'file_type' => $request->validated('file_type'), 'configuration' => $configuration, 'updated_by' => $request->user()->id, 'is_active' => true])->save();
+                $organization->senderAddresses()->whereNotIn('normalized_email', $emails)->delete();
+                foreach ($emails as $email) {
+                    SupplierSenderAddress::updateOrCreate(['normalized_email' => $email, 'supplier_organization_id' => $organization->id], ['email' => $email]);
+                }
+                $audit->log('supplier_import_profile.updated', $profile, $before, $profile->only(['name', 'file_type', 'configuration', 'attachment_filename_filter']));
+            });
+        } catch (Throwable $exception) {
+            if ($draft) {
+                Storage::disk(config('price-list-imports.disk'))->delete($metadata['path']);
+            }
+            throw $exception;
+        }
+        if ($draft) {
+            $request->session()->forget('gmail_profile_drafts.'.$request->input('gmail_draft'));
+            Storage::disk(config('price-list-imports.disk'))->delete($draft['sample']['path']);
+            if ($previousPath && $previousPath !== $metadata['path']) {
+                Storage::disk(config('price-list-imports.disk'))->delete($previousPath);
+            }
+
+            return redirect()->route('admin.gmail.show', $draft['message'])->with('success', 'Профиль и маршрутизация сохранены. Нажмите «Повторить импорт».');
+        }
 
         return back()->with('success', 'Профиль импорта сохранён.');
     }

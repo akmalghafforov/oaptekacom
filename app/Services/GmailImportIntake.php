@@ -10,6 +10,7 @@ use Carbon\CarbonImmutable;
 use Google\Service\Exception as GoogleException;
 use Google\Service\Gmail;
 use Google\Service\Gmail\MessagePart;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -182,22 +183,32 @@ class GmailImportIntake
                 $child = GmailImportReceipt::firstOrCreate([
                     'mailbox_email' => $parent->mailbox_email, 'gmail_message_id' => $parent->gmail_message_id, 'receipt_scope' => 'supplier:'.$supplierId,
                 ], ['parent_receipt_id' => $parent->id, 'supplier_organization_id' => $supplierId]);
-                if ($child->price_list_import_id || in_array($child->status, ['accepted', 'duplicate', 'completed'], true)) {
+                $isNew = $child->wasRecentlyCreated;
+                $lock = Cache::store(config('session.block_store'))->lock('gmail-receipt:'.$child->id, 120);
+                if (! $lock->get()) {
                     continue;
                 }
-                $count = count($group['candidates']);
-                $child->update([
-                    'sender_email' => $parent->sender_email, 'received_at' => $parent->received_at,
-                    'supplier_import_profile_id' => $group['supplier']->importProfile?->id,
-                    'attachment_manifest' => $routing['manifest'], 'selected_part' => null,
-                    'status' => $count === 1 ? 'pending' : 'skipped',
-                    'reason' => $count === 1 ? null : ($count > 1 ? 'multiple_candidates' : $group['reason']),
-                ]);
-                if ($child->status === 'pending') {
-                    $ids[] = $child->id;
+                try {
+                    $child = GmailImportReceipt::whereKey($child->id)->lockForUpdate()->firstOrFail();
+                    if ($child->price_list_import_id || (! $isNew && $child->status === 'pending') || $child->next_attempt_at?->isFuture() || in_array($child->status, ['accepted', 'duplicate', 'completed'], true)) {
+                        continue;
+                    }
+                    $count = count($group['candidates']);
+                    $child->update([
+                        'sender_email' => $parent->sender_email, 'received_at' => $parent->received_at, 'attempts' => 0, 'next_attempt_at' => null,
+                        'supplier_import_profile_id' => $group['supplier']->importProfile?->id,
+                        'attachment_manifest' => $routing['manifest'], 'selected_part' => null,
+                        'status' => $count === 1 ? 'pending' : 'skipped',
+                        'reason' => $count === 1 ? null : ($count > 1 ? 'multiple_candidates' : $group['reason']),
+                    ]);
+                    if ($child->status === 'pending') {
+                        $ids[] = $child->id;
+                    }
+                } finally {
+                    $lock->release();
                 }
             }
-            $parent->children()->whereNotIn('receipt_scope', $seen)->whereNull('price_list_import_id')->whereIn('status', ['pending', 'failed', 'skipped'])->update(['status' => 'skipped', 'reason' => 'supplier_resolution_changed']);
+            $parent->children()->whereNotIn('receipt_scope', $seen)->whereNull('price_list_import_id')->whereIn('status', ['failed', 'skipped'])->where(fn ($query) => $query->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))->update(['status' => 'skipped', 'reason' => 'supplier_resolution_changed']);
             $parent->update(['attachment_manifest' => $routing['manifest'], 'status' => 'routed', 'reason' => null]);
 
             return $ids;

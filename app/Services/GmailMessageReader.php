@@ -15,15 +15,24 @@ use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
  */
 class GmailMessageReader
 {
-    public function attachmentMetadata(Gmail $gmail, string $messageId): Message
+    public function metadataFields(): string
     {
-        $depth = 4;
+        $fields = 'partId,filename,mimeType,body(size,attachmentId),parts(partId)';
+        for ($level = 0; $level < 4; $level++) {
+            $fields = 'partId,filename,mimeType,body(size,attachmentId),parts('.$fields.')';
+        }
+
+        return 'id,labelIds,snippet,payload(headers,'.$fields.')';
+    }
+
+    public function attachmentMetadata(Gmail $gmail, string $messageId, int $depth = 4): Message
+    {
         do {
             $fields = 'partId,filename,mimeType,body(size,attachmentId),parts(partId)';
             for ($level = 0; $level < $depth; $level++) {
                 $fields = 'partId,filename,mimeType,body(size,attachmentId),parts('.$fields.')';
             }
-            $message = $gmail->users_messages->get('me', $messageId, ['format' => 'full', 'fields' => 'id,internalDate,labelIds,payload(headers,'.$fields.')']);
+            $message = $gmail->users_messages->get('me', $messageId, ['format' => 'full', 'fields' => 'id,internalDate,labelIds,snippet,payload(headers,'.$fields.')']);
             $hasMore = $message->getPayload() && $this->hasDeeperParts($message->getPayload(), $depth);
             $depth += 4;
         } while ($hasMore);
@@ -31,7 +40,7 @@ class GmailMessageReader
         return $message;
     }
 
-    private function hasDeeperParts(MessagePart $part, int $depth): bool
+    public function hasDeeperParts(MessagePart $part, int $depth): bool
     {
         if ($depth === 0) {
             return count($part->getParts() ?? []) > 0;
@@ -43,6 +52,20 @@ class GmailMessageReader
         }
 
         return false;
+    }
+
+    /** @return list<array{part_id: string, name: string, size: int}> */
+    public function attachments(MessagePart $part): array
+    {
+        $attachments = [];
+        if ($part->getFilename()) {
+            $attachments[] = ['part_id' => (string) $part->getPartId(), 'name' => $this->header($part->getFilename()), 'size' => max(0, (int) $part->getBody()?->getSize())];
+        }
+        foreach ($part->getParts() ?? [] as $child) {
+            $attachments = array_merge($attachments, $this->attachments($child));
+        }
+
+        return $attachments;
     }
 
     /** @return MessageSummary */
@@ -74,7 +97,7 @@ class GmailMessageReader
         $html = (new HtmlSanitizer($config))->sanitize($body['html']);
         $document = '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; base-uri \'none\'; form-action \'none\'"></head><body>'.$html.'</body></html>';
 
-        return $this->metadata($message) + ['plain' => $body['plain'], 'html' => $html, 'document' => $document, 'attachments' => $body['attachments']];
+        return $this->metadata($message) + ['plain' => $body['plain'], 'html' => $html, 'document' => $document, 'attachments' => $message->getPayload() ? $this->attachments($message->getPayload()) : []];
     }
 
     /** @return BodyParts */

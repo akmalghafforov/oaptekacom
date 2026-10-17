@@ -1,4 +1,4 @@
-import { initializeGmailActions } from './gmail.js';
+import { initializeGmailActions, initializeGmailProgress } from './gmail.js';
 import { initializeAccountMode } from './account-mode';
 import { createSupplierFileRenderer } from './supplier-file-renderer.js';
 import { createSupplierFileShare } from './supplier-file-share.js';
@@ -491,3 +491,5 @@ document.querySelectorAll('[data-supplier-file-export]').forEach((panel) => {
 initializeAccountMode(document, window);
 
 initializeGmailActions(document, window);
+
+initializeGmailProgress(document, window);

@@ -120,6 +120,9 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
             Route::post('/connect', [GmailController::class, 'connect'])->block(300, 10)->name('admin.gmail.connect');
             Route::get('/callback', [GmailController::class, 'callback'])->block(300, 10)->name('admin.gmail.callback');
             Route::get('/messages/{message}', [GmailController::class, 'show'])->where('message', '[a-zA-Z0-9_-]+')->name('admin.gmail.show');
+            Route::post('/messages/{message}/import-profile', [GmailController::class, 'importProfile'])->where('message', '[a-zA-Z0-9_-]+')->block(300, 10)->name('admin.gmail.import-profile');
+            Route::post('/messages/{message}/replay', [GmailController::class, 'replay'])->where('message', '[a-zA-Z0-9_-]+')->block(300, 10)->name('admin.gmail.replay');
+            Route::get('/messages/{message}/import-status', [GmailController::class, 'importStatus'])->where('message', '[a-zA-Z0-9_-]+')->name('admin.gmail.import-status');
             Route::post('/refresh', [GmailController::class, 'refresh'])->name('admin.gmail.refresh');
             Route::delete('/connection', [GmailController::class, 'destroy'])->block(300, 10)->name('admin.gmail.destroy');
         });
@@ -149,10 +152,10 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::get('/subscription-payments', [AdminSubscriptionController::class, 'paymentRequests'])->name('admin.subscription-payments.index');
         Route::patch('/subscription-payments/methods', [AdminSubscriptionController::class, 'updatePaymentMethods'])->name('admin.subscription-payments.methods.update');
         Route::post('/subscription-payments/{paymentRequest}/review', [AdminSubscriptionController::class, 'reviewPayment'])->name('admin.subscription-payments.review');
-        Route::get('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'edit'])->name('admin.supplier-import-profiles.edit');
-        Route::post('/suppliers/{supplier}/import-profile/sample', [SupplierImportProfileController::class, 'storeSample'])->name('admin.supplier-import-profiles.sample.store');
-        Route::get('/suppliers/{supplier}/import-profile/sample-preview', [SupplierImportProfileController::class, 'samplePreview'])->name('admin.supplier-import-profiles.sample.preview');
-        Route::put('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'update'])->name('admin.supplier-import-profiles.update');
+        Route::get('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'edit'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.edit');
+        Route::post('/suppliers/{supplier}/import-profile/sample', [SupplierImportProfileController::class, 'storeSample'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.sample.store');
+        Route::get('/suppliers/{supplier}/import-profile/sample-preview', [SupplierImportProfileController::class, 'samplePreview'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.sample.preview');
+        Route::put('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'update'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.update');
         Route::post('/price-list-imports/{import}/rows/{row}/override', [PriceListImportController::class, 'override'])->name('admin.price-list-imports.override');
         Route::get('/category-reviews', [CategoryReviewController::class, 'index'])->name('admin.category-reviews.index');
         Route::post('/medicines/{medicine}/categories/unlock', [CategoryReviewController::class, 'unlock'])->name('admin.medicines.categories.unlock');
