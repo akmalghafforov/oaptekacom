@@ -17,6 +17,7 @@ class ProductionMakeTest extends TestCase
         file_put_contents($directory.'/docker', <<<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$*" in *" run "*"--no-build"*) printf 'unknown flag: --no-build\n' >&2; exit 1 ;; esac
 if [ -n "$DOCKER_FAILURE" ]; then
     case "$*" in *"$DOCKER_FAILURE"*) exit 1 ;; esac
 fi
@@ -63,7 +64,12 @@ SH);
         $this->assertStringNotContainsString(' down', $commands);
         $this->assertStringNotContainsString('stop postgres', $commands);
         foreach (explode("\n", trim($commands)) as $command) {
-            if (str_contains($command, ' run ') || str_contains($command, ' up ')) {
+            if (str_contains($command, ' run ')) {
+                $this->assertStringContainsString('--pull never', $command);
+                $this->assertStringNotContainsString('--no-build', $command);
+                $this->assertStringNotContainsString('--build', $command);
+            }
+            if (str_contains($command, ' up ')) {
                 $this->assertStringContainsString('--no-build --pull never', $command);
             }
         }

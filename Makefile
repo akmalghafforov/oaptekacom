@@ -51,7 +51,7 @@ endif
 
 dependencies: ## Install locked production dependencies into the shared volume.
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never dependencies
+	$(COMPOSE_COMMAND) run --rm --no-deps --pull never dependencies
 endif
 
 start: ## Refresh production caches and recreate application services.
@@ -103,14 +103,14 @@ build: check ## Build service images.
 
 assets: check ## Install frontend dependencies and build assets in a temporary container.
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never assets
+	$(COMPOSE_COMMAND) run --rm --no-deps --pull never assets
 else
 	$(COMPOSE_COMMAND) run --rm --no-deps vite sh -c 'npm ci && npm run build && rm -f public/hot'
 endif
 
 init: check ## Initialize writable storage ownership (application services must be stopped).
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never storage-init
+	$(COMPOSE_COMMAND) run --rm --no-deps --pull never storage-init
 else
 	$(COMPOSE_COMMAND) run --rm --no-deps --user root app sh -c 'mkdir -p storage/app/private storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache && chown -R www-data:www-data storage bootstrap/cache'
 endif
@@ -136,7 +136,7 @@ shell: ## Open a shell in the app container.
 
 artisan: ## Run Artisan; pass COMMAND='route:list' (for example).
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never release release $(COMMAND) --no-interaction
+	$(COMPOSE_COMMAND) run --rm --no-deps --pull never release release $(COMMAND) --no-interaction
 else
 	$(COMPOSE_COMMAND) exec app php artisan $(COMMAND)
 endif
@@ -157,7 +157,7 @@ endif
 
 migrate: check ## Run pending database migrations without seeding.
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never release release migrate --force --no-interaction
+	$(COMPOSE_COMMAND) run --rm --no-deps --pull never release release migrate --force --no-interaction
 else
 	$(COMPOSE_COMMAND) exec app php artisan migrate --force --no-interaction
 endif
@@ -172,7 +172,7 @@ endif
 cache-clear: ## Clear application caches and refresh/restart production services.
 ifeq ($(ENVIRONMENT),production)
 	$(MAKE) stop
-	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never release release optimize:clear --no-interaction
+	$(COMPOSE_COMMAND) run --rm --no-deps --pull never release release optimize:clear --no-interaction
 	$(MAKE) up
 else
 	$(COMPOSE_COMMAND) exec app php artisan optimize:clear --no-interaction
