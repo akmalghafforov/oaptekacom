@@ -1,6 +1,6 @@
 name: oapteka-op
 x-php: &php
-  image: oapteka-php:${RELEASE_TAG:?Set an immutable release tag}
+  image: oapteka-php:${RELEASE_TAG:?Set an immutable runtime image tag}
   build:
     context: ${APP_SOURCE_PATH:?Set the absolute OApteka checkout path}
     target: production
@@ -26,8 +26,14 @@ x-php: &php
     OSON_SMS_SENDER: ${OSON_SMS_SENDER:-}
     OSON_SMS_DUMMY_CODE: ${OSON_SMS_DUMMY_CODE:-}
     DEVELOPMENT_OTP_CODE: ''
-  # Mount source directories, preserving the image's vendor directory and excluding host secrets.
+  # Mount source and shared dependencies read-only, excluding host secrets.
   volumes:
+    - type: volume
+      source: php-dependencies
+      target: /var/www/vendor
+      read_only: true
+      volume:
+        nocopy: true
     - ${APP_SOURCE_PATH}/app:/var/www/app:ro
     - ${APP_SOURCE_PATH}/bootstrap:/var/www/bootstrap:ro
     - ${APP_SOURCE_PATH}/config:/var/www/config:ro
@@ -72,11 +78,37 @@ services:
   storage-init:
     <<: *php
     user: root
+    volumes: &writable-php-volumes
+      - type: volume
+        source: php-dependencies
+        target: /var/www/vendor
+        volume:
+          nocopy: true
+      - ${APP_SOURCE_PATH}/app:/var/www/app:ro
+      - ${APP_SOURCE_PATH}/bootstrap:/var/www/bootstrap:ro
+      - ${APP_SOURCE_PATH}/config:/var/www/config:ro
+      - ${APP_SOURCE_PATH}/database:/var/www/database:ro
+      - ${APP_SOURCE_PATH}/public:/var/www/public:ro
+      - ${APP_SOURCE_PATH}/resources:/var/www/resources:ro
+      - ${APP_SOURCE_PATH}/routes:/var/www/routes:ro
+      - ${APP_SOURCE_PATH}/artisan:/var/www/artisan:ro
+      - ${APP_SOURCE_PATH}/composer.json:/var/www/composer.json:ro
+      - ${APP_SOURCE_PATH}/composer.lock:/var/www/composer.lock:ro
+      - runtime-storage:/var/www/storage
+      - private-uploads:/var/www/storage/app/private
+      - bootstrap-cache:/var/www/bootstrap/cache
     depends_on: {}
     network_mode: none
     networks: []
     entrypoint: [sh, /usr/local/bin/production-entrypoint]
     command: [storage-init]
+  dependencies:
+    <<: *php
+    profiles: [release]
+    user: www-data
+    depends_on: {}
+    volumes: *writable-php-volumes
+    command: [dependencies]
   app-init:
     <<: *php
     command: [app-init]
@@ -120,7 +152,7 @@ services:
       - ${APP_SOURCE_PATH}/public:/build/public
       - node-dependencies:/build/node_modules
   nginx:
-    image: oapteka-nginx:${RELEASE_TAG:?Set an immutable release tag}
+    image: oapteka-nginx:${RELEASE_TAG:?Set an immutable runtime image tag}
     build:
       context: ${APP_SOURCE_PATH}
       target: production-nginx
@@ -170,3 +202,4 @@ volumes:
   runtime-storage:
   bootstrap-cache:
   node-dependencies:
+  php-dependencies:

@@ -4,10 +4,18 @@ umask 027
 
 case "${1:-}" in
     storage-init)
-        mkdir -p storage/app/private storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
-        chown -R www-data:www-data storage bootstrap/cache
-        chmod -R u+rwX,g+rX,o-rwx storage bootstrap/cache
+        mkdir -p vendor storage/app/private storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
+        chown -R www-data:www-data storage bootstrap/cache vendor
+        chmod -R u+rwX,g+rX,o-rwx storage bootstrap/cache vendor
         chmod 700 storage/app/private
+        exit 0
+        ;;
+    dependencies)
+        export COMPOSER_HOME="$(mktemp -d /tmp/oapteka-composer.XXXXXX)"
+        export COMPOSER_CACHE_DIR="$COMPOSER_HOME/cache"
+        trap 'rm -rf "$COMPOSER_HOME"' EXIT
+        composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+        composer check-platform-reqs --no-dev
         exit 0
         ;;
     app-init)

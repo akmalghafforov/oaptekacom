@@ -26,7 +26,8 @@ subnet for Nginx. Do not change shared Traefik or other applications.
 Copy `.env.production.example` to `.env.production` and run `chmod 600 .env.production`.
 Fill every required value, especially the persistent `APP_KEY`, a strong `DB_PASSWORD`,
 Oson SMS credentials, the absolute `APP_SOURCE_PATH`, and an immutable `RELEASE_TAG`
-(for example, the Git commit). Generate the key once with
+(for example, the commit used to build the runtime). This tag identifies images, not
+the currently deployed Git revision. Generate the key once with
 `php -r 'echo "base64:".base64_encode(random_bytes(32)).PHP_EOL;'` on a trusted PHP
 installation. Keep it across updates and restores. `APP_URL` must use HTTPS and match
 `TRAEFIK_HOST`. Verify the Traefik and subnet values before proceeding. Never commit
@@ -38,11 +39,9 @@ From that checkout, run these steps in order:
 make check
 make network
 make build
-make assets
-make init
-make db-up
-make migrate
-make up
+docker pull node:24-alpine
+docker pull postgres:16-alpine
+make apply
 ```
 
 The same Make commands work in both environments. Make prefers `.env.production`
@@ -57,9 +56,9 @@ specific file (for example, `make ENV_FILE=.env up` for local development).
 regardless of `COMPOSE`, `COMPOSE_COMMAND`, `COMPOSE_FILE`, or `COMPOSE_PROJECT_NAME`
 overrides. Use `DOCKER_CONTEXT` to select a Docker context if needed. `make network`
 only inspects the existing proxy network in production. `make up` stops production
-application services, initializes writable volumes, starts PostgreSQL, refreshes caches
-and recreates application services;
-run `make migrate` first for a new release. `make restart` stops services and runs
+application services, initializes writable volumes, ensures PostgreSQL is healthy,
+installs locked production dependencies, refreshes caches and recreates application
+services. Use `make apply` for updates that also need assets and migrations. `make restart` stops services and runs
 that startup sequence. Local dependency mutation, tests, source watching and database
 resets are unavailable in the production image; their commands fail clearly instead
 of falling back to the local stack. `make down` stops and removes every service in
@@ -68,7 +67,10 @@ containers, while keeping persistent volumes and the external Traefik network.
 Use `make stop` when PostgreSQL should keep running. Never use `down --volumes` in
 production.
 
-PHP keeps Composer dependencies in its image. Application directories are mounted
+PHP services share a production dependency volume mounted read-only at runtime.
+The ownership initializer and Composer installer have write access. Installation runs
+as `www-data`, skips scripts and development packages, optimizes autoloading, and
+checks platform requirements; package discovery runs during cache initialization. Application directories are mounted
 read-only from `APP_SOURCE_PATH`; Nginx mounts only `public/`. The temporary Node 24
 service builds `public/build` with its own dependency volume. Remove `public/hot` and
 any development `public/storage` symlink before deployment. Ensure checkout directories
@@ -125,21 +127,30 @@ changing mounted source, including checkout, asset builds, or cache refresh:
 
 ```sh
 make stop
-# Fetch and check out the reviewed revision in this OApteka checkout.
-# Update RELEASE_TAG in the protected environment file.
-make check
-make build
-make assets
-make init
-make db-up
-make migrate
-make up
+git pull --ff-only
+make apply
 ```
 
-Rebuild the PHP runtime whenever Composer manifests/lockfile, Dockerfile, PHP settings,
-or runtime entrypoint changes. The sequence above always builds, allowing Docker's
-cache to reuse unchanged layers. Do not overwrite an old immutable image tag; retain
-compatible prior images for recovery. A worker has 150 seconds to stop gracefully;
+Keep `RELEASE_TAG` unchanged when reusing images. `make apply` validates configuration
+and required images before stopping application services, initializes volumes, ensures
+PostgreSQL is healthy, installs locked Composer dependencies, builds frontend assets,
+runs pending migrations, refreshes Laravel caches and recreates PHP-FPM, workers,
+scheduler and Nginx. It never builds images or stops PostgreSQL. Missing application
+images require `make build`; missing external images require `docker pull`.
+Any failed preparation step stops the sequence and leaves application services stopped.
+Fix the cause and rerun `make apply`; migrations are not automatically rolled back.
+Local `make apply` is rejected. Git operations remain manual.
+
+**One-time upgrade:** this dependency-volume setup changes the image-owned entrypoint.
+After stopping services and pulling this change, choose a new runtime `RELEASE_TAG`,
+run `make build`, pull the Node and PostgreSQL images if missing, then run `make apply`.
+
+Rebuild with a new immutable runtime tag when the Dockerfile, PHP extensions/settings,
+image-owned entrypoint, or other image contents change. Composer lockfile and frontend
+changes normally use `make apply` without rebuilding; unavailable PHP extensions
+require a runtime rebuild. Frontend compilation still runs in the Node container.
+Do not overwrite old immutable image tags; retain compatible images for recovery.
+A worker has 150 seconds to stop gracefully;
 its 120-second timeout is below the fixed 150-second database queue reservation.
 It processes the configured `PRICE_LIST_QUEUE` plus `default`. PostgreSQL continues
 running during the application stop. Changing PostgreSQL environment credentials does

@@ -23,8 +23,8 @@ $(error Unsupported APP_ENV in $(ENV_FILE); expected production, local, developm
 endif
 
 .DEFAULT_GOAL := help
-.NOTPARALLEL: up restart cache-clear
-.PHONY: help check network up down stop restart build assets init db-up watch ps logs shell artisan composer test migrate migrate-fresh cache-clear queue-restart db
+.NOTPARALLEL: up apply restart cache-clear
+.PHONY: help check images dependencies start network up apply down stop restart build assets init db-up watch ps logs shell artisan composer test migrate migrate-fresh cache-clear queue-restart db
 
 help: ## Show available commands and selected environment.
 	@printf 'Environment: %s (%s)\n' "$(ENVIRONMENT)" "$(ENV_FILE)"
@@ -40,17 +40,52 @@ else
 	@docker network inspect traefik-net >/dev/null 2>&1 || docker network create traefik-net
 endif
 
-up: ## Start application services; production initializes volumes and refreshes caches first.
+images: check ## Check required production images before stopping services.
 ifeq ($(ENVIRONMENT),production)
-up: check
-	$(COMPOSE_COMMAND) stop nginx app queue scheduler
+	@set -eu; images="$$( $(COMPOSE_COMMAND) --profile release config --images )"; \
+	for image in $$images; do \
+		docker image inspect "$$image" >/dev/null 2>&1 || { \
+			printf 'Required image %s is missing; run make build for application images, or docker pull %s for external images.\n' "$$image" "$$image" >&2; exit 1; }; \
+	done
+endif
+
+dependencies: ## Install locked production dependencies into the shared volume.
+ifeq ($(ENVIRONMENT),production)
+	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never dependencies
+endif
+
+start: ## Refresh production caches and recreate application services.
+ifeq ($(ENVIRONMENT),production)
+	$(COMPOSE_COMMAND) up --no-build --pull never --force-recreate --no-deps --exit-code-from app-init app-init
+	$(COMPOSE_COMMAND) up --no-build --pull never --detach --force-recreate --no-deps app queue scheduler nginx
+endif
+
+up: ## Start application services; production installs dependencies and refreshes caches.
+ifeq ($(ENVIRONMENT),production)
+up: images
+	$(MAKE) stop
 	$(MAKE) init
 	$(MAKE) db-up
-	$(COMPOSE_COMMAND) up --force-recreate --no-deps --exit-code-from app-init app-init
-	$(COMPOSE_COMMAND) up --detach --force-recreate --no-deps app queue scheduler nginx
+	$(MAKE) dependencies
+	$(MAKE) start
 else
 up: network
 	$(COMPOSE_COMMAND) up --build --detach
+endif
+
+apply: ## Apply production code, dependencies, assets, migrations and caches using existing images.
+ifeq ($(ENVIRONMENT),production)
+apply: images
+	$(MAKE) stop
+	$(MAKE) init
+	$(MAKE) db-up
+	$(MAKE) dependencies
+	$(MAKE) assets
+	$(MAKE) migrate
+	$(MAKE) start
+else
+	@printf 'make apply is production-only; select a production ENV_FILE. Use make up locally.\n' >&2
+	@exit 1
 endif
 
 down: ## Stop/remove every service, all profiles and project orphans (keeps volumes).
@@ -68,20 +103,20 @@ build: check ## Build service images.
 
 assets: check ## Install frontend dependencies and build assets in a temporary container.
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps assets
+	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never assets
 else
 	$(COMPOSE_COMMAND) run --rm --no-deps vite sh -c 'npm ci && npm run build && rm -f public/hot'
 endif
 
 init: check ## Initialize writable storage ownership (application services must be stopped).
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps storage-init
+	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never storage-init
 else
 	$(COMPOSE_COMMAND) run --rm --no-deps --user root app sh -c 'mkdir -p storage/app/private storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache && chown -R www-data:www-data storage bootstrap/cache'
 endif
 
 db-up: check ## Start PostgreSQL and wait for health.
-	$(COMPOSE_COMMAND) up --detach --wait postgres
+	$(COMPOSE_COMMAND) up $(if $(filter production,$(ENVIRONMENT)),--no-build --pull never --no-recreate )--detach --wait postgres
 
 watch: ## Synchronize local code and run Vite (requires development dependencies).
 ifeq ($(ENVIRONMENT),production)
@@ -101,14 +136,14 @@ shell: ## Open a shell in the app container.
 
 artisan: ## Run Artisan; pass COMMAND='route:list' (for example).
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps release release $(COMMAND) --no-interaction
+	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never release release $(COMMAND) --no-interaction
 else
 	$(COMPOSE_COMMAND) exec app php artisan $(COMMAND)
 endif
 
-composer: ## Run Composer locally; production installs locked dependencies during image builds.
+composer: ## Run Composer locally; production installs locked dependencies during up/apply.
 ifeq ($(ENVIRONMENT),production)
-	$(error Production dependencies are image-owned; use make build after updating the reviewed lockfile)
+	$(error Production installs reviewed locked dependencies with make apply; update Composer manifests locally)
 else
 	$(COMPOSE_COMMAND) exec app composer $(COMMAND)
 endif
@@ -122,7 +157,7 @@ endif
 
 migrate: check ## Run pending database migrations without seeding.
 ifeq ($(ENVIRONMENT),production)
-	$(COMPOSE_COMMAND) run --rm --no-deps release release migrate --force --no-interaction
+	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never release release migrate --force --no-interaction
 else
 	$(COMPOSE_COMMAND) exec app php artisan migrate --force --no-interaction
 endif
@@ -137,7 +172,7 @@ endif
 cache-clear: ## Clear application caches and refresh/restart production services.
 ifeq ($(ENVIRONMENT),production)
 	$(MAKE) stop
-	$(COMPOSE_COMMAND) run --rm --no-deps release release optimize:clear --no-interaction
+	$(COMPOSE_COMMAND) run --rm --no-deps --no-build --pull never release release optimize:clear --no-interaction
 	$(MAKE) up
 else
 	$(COMPOSE_COMMAND) exec app php artisan optimize:clear --no-interaction
