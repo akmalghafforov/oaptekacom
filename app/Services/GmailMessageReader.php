@@ -95,9 +95,14 @@ class GmailMessageReader
             $config = $config->dropElement($element);
         }
         $html = (new HtmlSanitizer($config))->sanitize($body['html']);
-        $document = '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; base-uri \'none\'; form-action \'none\'"></head><body>'.$html.'</body></html>';
+        $document = $this->document($html);
 
         return $this->metadata($message) + ['plain' => $body['plain'], 'html' => $html, 'document' => $document, 'attachments' => $message->getPayload() ? $this->attachments($message->getPayload()) : []];
+    }
+
+    public function document(string $html): string
+    {
+        return '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; base-uri \'none\'; form-action \'none\'"></head><body>'.$html.'</body></html>';
     }
 
     /** @return BodyParts */

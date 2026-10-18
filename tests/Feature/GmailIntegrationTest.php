@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SyncGmailMessages;
 use App\Models\GmailConnection;
+use App\Models\GmailMessage;
 use App\Models\User;
 use App\Services\GmailClientFactory;
 use App\Services\GmailException;
 use App\Services\GmailMessageReader;
+use App\Services\GmailMessageSync;
 use App\Services\GmailService;
 use Google\Service\Gmail\Message;
 use GuzzleHttp\Client;
@@ -18,7 +21,6 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Sleep;
 use PHPUnit\Framework\Attributes\TestWith;
 use Psr\Http\Message\RequestInterface;
 use Tests\TestCase;
@@ -48,6 +50,14 @@ class GmailIntegrationTest extends TestCase
     private function googleResponse(array $data, int $status = 200): Response
     {
         return new Response($status, ['Content-Type' => 'application/json'], json_encode($data));
+    }
+
+    private function saveMessage(GmailConnection $connection, array $message): void
+    {
+        $message['labelIds'] = ['INBOX'];
+        $message['payload']['parts'][] = ['partId' => 'saved-file', 'filename' => 'attachment.csv', 'body' => ['size' => 1]];
+        $this->google([$this->googleResponse(['historyId' => '100']), $this->googleResponse(['messages' => [['id' => $message['id']]]]), $this->googleResponse($message)], $requests);
+        app(GmailMessageSync::class)->sync($connection->id);
     }
 
     private function state(User $user): string
@@ -188,44 +198,19 @@ class GmailIntegrationTest extends TestCase
     public function test_empty_filtered_inbox_does_not_fetch_message_metadata(): void
     {
         $connection = GmailConnection::factory()->create();
-        $this->google([$this->googleResponse([])], $history);
-
+        $this->google([], $history);
         $result = app(GmailService::class)->inbox($connection->user);
-
-        $this->assertSame(['messages' => [], 'next' => null], $result);
-        $this->assertCount(1, $history);
-        parse_str($history[0]['request']->getUri()->getQuery(), $query);
-        $this->assertSame('has:attachment', $query['q']);
-        $this->assertSame('INBOX', $query['labelIds']);
+        $this->assertSame(['messages' => [], 'next' => null, 'searching' => false], $result);
+        $this->assertCount(0, $history);
     }
 
-    public function test_inbox_uses_page_token_inbox_filter_and_only_batches_returned_ids(): void
+    public function test_inbox_uses_database_cursor_and_escapes_saved_subjects(): void
     {
         $connection = GmailConnection::factory()->create();
-        $this->google([
-            $this->googleResponse(['messages' => [['id' => 'abc'], ['id' => 'gone']], 'nextPageToken' => 'opaque-next']),
-            $this->batch([
-                'abc' => ['data' => [
-                    'id' => 'abc', 'labelIds' => ['INBOX', 'UNREAD'], 'snippet' => '<script>snippet</script>',
-                    'payload' => ['headers' => [
-                        ['name' => 'Subject', 'value' => '<script>subject</script>'],
-                        ['name' => 'From', 'value' => '<b>sender</b>'],
-                    ]],
-                ]],
-                'gone' => ['status' => 404, 'data' => ['error' => ['code' => 404, 'message' => 'gone']]],
-            ]),
-        ], $history);
-
-        $this->actingAs($connection->user)->get(route('admin.gmail.index', ['page' => 'opaque-page', 'size' => 10]))->assertSee('Непрочитано')->assertSee('&lt;script&gt;subject&lt;/script&gt;', false)->assertDontSee('<script>subject</script>', false)->assertSee('opaque-next')->assertHeader('Referrer-Policy', 'no-referrer');
-
-        parse_str($history[0]['request']->getUri()->getQuery(), $query);
-        $this->assertSame('INBOX', $query['labelIds']);
-        $this->assertSame('has:attachment', $query['q']);
-        $this->assertSame('opaque-page', $query['pageToken']);
-        $this->assertSame('10', $query['maxResults']);
-        $this->assertCount(2, $history);
-        $this->assertStringContainsString('/messages/abc', (string) $history[1]['request']->getBody());
-        $this->assertStringContainsString('format=full', (string) $history[1]['request']->getBody());
+        GmailMessage::factory()->count(2)->create(['user_id' => $connection->user_id, 'mailbox_email' => strtolower($connection->email), 'subject' => '<script>subject</script>']);
+        $this->google([], $history);
+        $this->actingAs($connection->user)->get(route('admin.gmail.index', ['size' => 1]))->assertSee('Не проверено')->assertSee('&lt;script&gt;subject&lt;/script&gt;', false)->assertDontSee('<script>subject</script>', false)->assertViewHas('inbox', fn ($inbox) => is_string($inbox['next']))->assertHeader('Referrer-Policy', 'no-referrer');
+        $this->assertCount(0, $history);
     }
 
     #[TestWith(['Привет', 'Привет'])]
@@ -266,11 +251,8 @@ class GmailIntegrationTest extends TestCase
             'headers' => [['name' => 'Subject', 'value' => $header], ['name' => 'From', 'value' => $header.' <sender@example.com>']],
             'parts' => [['partId' => '1', 'mimeType' => 'application/pdf', 'filename' => $header.'.pdf', 'body' => ['size' => 99]]],
         ]];
-        $this->google([
-            $this->googleResponse(['messages' => [['id' => 'abc']]]),
-            $this->batch(['abc' => ['data' => $message]]),
-            $this->googleResponse($message),
-        ], $history);
+        $this->saveMessage($connection, $message);
+        $this->google([], $history);
 
         $this->actingAs($connection->user);
         foreach ([route('admin.gmail.index'), route('admin.gmail.show', 'abc')] as $url) {
@@ -281,9 +263,9 @@ class GmailIntegrationTest extends TestCase
     public function test_expiring_access_refreshes_and_preserves_refresh_token(): void
     {
         $connection = GmailConnection::factory()->create(['expires_at' => now()->subMinute()]);
-        $this->google([$this->googleResponse(['access_token' => 'fresh-access', 'expires_in' => 3600]), $this->googleResponse([])], $history);
+        $this->google([$this->googleResponse(['access_token' => 'fresh-access', 'expires_in' => 3600]), $this->googleResponse(['historyId' => '100']), $this->googleResponse([])], $history);
 
-        $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('Входящих писем нет');
+        (new SyncGmailMessages($connection->id))->handle(app(GmailMessageSync::class));
 
         $this->assertSame('fresh-access', $connection->fresh()->access_token);
         $this->assertSame('test-refresh', $connection->fresh()->refresh_token);
@@ -295,34 +277,32 @@ class GmailIntegrationTest extends TestCase
         $connection = GmailConnection::factory()->create(['expires_at' => now()->subMinute()]);
         $this->google([$this->googleResponse(['error' => 'invalid_grant', 'error_description' => 'secret'], 400)], $history);
 
-        $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('Подключите аккаунт заново.')->assertDontSee('secret');
+        (new SyncGmailMessages($connection->id))->handle(app(GmailMessageSync::class));
+        $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('Требуется повторное подключение')->assertDontSee('secret');
 
         $this->assertSame('reconnect_required', $connection->fresh()->status);
         $this->assertNull($connection->fresh()->refresh_token);
     }
 
-    public function test_read_retries_are_bounded_and_failed_batch_entries_alone_are_retried(): void
+    public function test_failed_batch_preserves_completed_messages_for_retry(): void
     {
-        Sleep::fake();
-        $connection = GmailConnection::factory()->create();
-        $this->google([$this->googleResponse(['messages' => [['id' => 'ok'], ['id' => 'retry']]]), $this->batch(['ok' => ['data' => ['id' => 'ok']], 'retry' => ['status' => 503, 'data' => ['error' => ['code' => 503, 'message' => 'unavailable']]]]), $this->batch(['retry' => ['data' => ['id' => 'retry']]])], $history);
-
-        $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('(Без темы)');
-
+        $connection = GmailConnection::factory()->create(['scan_baseline' => '100']);
+        $message = ['id' => 'ok', 'labelIds' => ['INBOX'], 'payload' => ['parts' => [['partId' => '1', 'filename' => 'prices.csv', 'body' => ['size' => 12]]]]];
+        $this->google([$this->googleResponse(['messages' => [['id' => 'ok'], ['id' => 'retry']]]), $this->googleResponse($message), $this->googleResponse(['error' => ['code' => 503]], 503)], $history);
+        (new SyncGmailMessages($connection->id))->handle(app(GmailMessageSync::class));
+        $this->assertDatabaseCount('gmail_messages', 1);
+        $this->assertNull($connection->fresh()->scan_completed_at);
+        $this->assertNotNull($connection->fresh()->next_sync_at);
         $this->assertCount(3, $history);
-        $this->assertStringNotContainsString('/messages/ok', (string) $history[2]['request']->getBody());
-        $this->assertStringContainsString('/messages/retry', (string) $history[2]['request']->getBody());
     }
 
-    public function test_server_failure_stops_after_three_reads(): void
+    public function test_server_failure_backs_off_and_leaves_inbox_available(): void
     {
-        Sleep::fake();
         $connection = GmailConnection::factory()->create();
-        $this->google(array_fill(0, 3, $this->googleResponse(['error' => ['code' => 503, 'message' => 'secret']], 503)), $history);
-
-        $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('Gmail временно недоступен.')->assertDontSee('secret');
-
-        $this->assertCount(3, $history);
+        $this->google([$this->googleResponse(['error' => ['code' => 503, 'message' => 'secret']], 503)], $history);
+        (new SyncGmailMessages($connection->id))->handle(app(GmailMessageSync::class));
+        $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('Не удалось синхронизировать почту.')->assertDontSee('secret');
+        $this->assertCount(1, $history);
         $this->assertSame('connected', $connection->fresh()->status);
     }
 
@@ -397,12 +377,12 @@ class GmailIntegrationTest extends TestCase
     public function test_full_message_view_is_sandboxed_and_escapes_plain_text_and_headers(): void
     {
         $connection = GmailConnection::factory()->create();
-        $this->google([$this->googleResponse(['id' => 'abc', 'payload' => ['mimeType' => 'multipart/alternative', 'headers' => [['name' => 'Subject', 'value' => '<script>title</script>']], 'parts' => [['mimeType' => 'text/plain', 'body' => ['data' => rtrim(strtr(base64_encode('<script>plain</script>'), '+/', '-_'), '=')]], ['mimeType' => 'text/html', 'body' => ['data' => rtrim(strtr(base64_encode('<p>Safe</p><script>bad()</script>'), '+/', '-_'), '=')]]]]])], $history);
+        $this->saveMessage($connection, ['id' => 'abc', 'payload' => ['mimeType' => 'multipart/alternative', 'headers' => [['name' => 'Subject', 'value' => '<script>title</script>']], 'parts' => [['mimeType' => 'text/plain', 'body' => ['data' => rtrim(strtr(base64_encode('<script>plain</script>'), '+/', '-_'), '=')]], ['mimeType' => 'text/html', 'body' => ['data' => rtrim(strtr(base64_encode('<p>Safe</p><script>bad()</script>'), '+/', '-_'), '=')]]]]]);
+        $this->google([], $history);
 
         $this->actingAs($connection->user)->get(route('admin.gmail.show', 'abc'))->assertSee('sandbox=""', false)->assertSee('referrerpolicy="no-referrer"', false)->assertSee('&lt;script&gt;plain&lt;/script&gt;', false)->assertDontSee('<script>title</script>', false)->assertDontSee('bad()');
 
-        $this->assertStringContainsString('format=full', $history[0]['request']->getUri()->getQuery());
-        $this->assertSame('GET', $history[0]['request']->getMethod());
+        $this->assertCount(0, $history);
     }
 
     public function test_callback_consumes_state_durably_while_session_and_owner_locks_are_held(): void
@@ -433,8 +413,8 @@ class GmailIntegrationTest extends TestCase
         $this->google([$this->googleResponse([])], $history);
 
         $this->assertSame([], app(GmailService::class)->inbox($user)['messages']);
-        $this->assertCount(1, $history);
-        $this->assertSame('Bearer other-request-token', $history[0]['request']->getHeaderLine('Authorization'));
+        $this->assertCount(0, $history);
+        $this->assertSame('other-request-token', $connection->fresh()->access_token);
         $connection->fresh()->delete();
         try {
             app(GmailService::class)->inbox($user);
@@ -443,7 +423,7 @@ class GmailIntegrationTest extends TestCase
             $this->assertSame('Подключите Gmail заново.', $exception->getMessage());
         }
         $this->assertDatabaseCount('gmail_connections', 0);
-        $this->assertCount(1, $history);
+        $this->assertCount(0, $history);
     }
 
     public function test_different_account_replaces_credentials_only_with_new_refresh_token(): void
@@ -476,6 +456,7 @@ class GmailIntegrationTest extends TestCase
         $connection = GmailConnection::factory()->create();
         $this->google([$this->googleResponse(['error' => ['code' => 401, 'message' => 'secret']], 401), $this->googleResponse(['access_token' => 'fresh', 'expires_in' => 3600]), $this->googleResponse(['error' => ['code' => 401]], 401)], $history);
 
+        (new SyncGmailMessages($connection->id))->handle(app(GmailMessageSync::class));
         $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('Требуется повторное подключение');
 
         $this->assertSame('reconnect_required', $connection->fresh()->status);
@@ -485,23 +466,24 @@ class GmailIntegrationTest extends TestCase
     public function test_expired_page_token_and_missing_message_have_clean_feedback(): void
     {
         $connection = GmailConnection::factory()->create();
-        $this->google([$this->googleResponse(['error' => ['code' => 400, 'message' => 'secret-page']], 400), $this->googleResponse(['error' => ['code' => 404, 'message' => 'gone']], 404)], $history);
+        $this->google([$this->googleResponse(['error' => ['code' => 404, 'message' => 'gone']], 404)], $history);
 
         $this->actingAs($connection->user)->get(route('admin.gmail.index', ['page' => 'expired']))->assertSee('Страница устарела.')->assertDontSee('secret-page');
         $this->get(route('admin.gmail.show', 'gone'))->assertSessionHas('warning', 'Письмо больше недоступно.');
 
-        $this->assertCount(2, $history);
+        $this->assertCount(0, $history);
     }
 
     public function test_attachment_backed_body_is_read_but_named_file_is_not_downloaded(): void
     {
         $connection = GmailConnection::factory()->create();
-        $this->google([$this->googleResponse(['id' => 'abc', 'payload' => ['mimeType' => 'multipart/mixed', 'parts' => [['mimeType' => 'text/plain', 'body' => ['attachmentId' => 'text-body']], ['mimeType' => 'application/pdf', 'filename' => 'invoice.pdf', 'body' => ['attachmentId' => 'file', 'size' => 99]]]]]), $this->googleResponse(['data' => 'SGVsbG8'])], $history);
+        $this->google([$this->googleResponse(['historyId' => '100']), $this->googleResponse(['messages' => [['id' => 'abc']]]), $this->googleResponse(['labelIds' => ['INBOX'], 'id' => 'abc', 'payload' => ['mimeType' => 'multipart/mixed', 'parts' => [['mimeType' => 'text/plain', 'body' => ['attachmentId' => 'text-body']], ['mimeType' => 'application/pdf', 'filename' => 'invoice.pdf', 'body' => ['attachmentId' => 'file', 'size' => 99]]]]]), $this->googleResponse(['data' => 'SGVsbG8'])], $history);
 
+        app(GmailMessageSync::class)->sync($connection->id);
         $this->actingAs($connection->user)->get(route('admin.gmail.show', 'abc'))->assertSee('Hello')->assertSee('invoice.pdf')->assertSee('99 байт');
 
-        $this->assertCount(2, $history);
-        $this->assertStringContainsString('/attachments/text-body', $history[1]['request']->getUri()->getPath());
+        $this->assertCount(4, $history);
+        $this->assertStringContainsString('/attachments/text-body', $history[3]['request']->getUri()->getPath());
     }
 
     public function test_account_mode_forms_require_current_version_and_supplier_mode_cannot_access_gmail(): void
@@ -520,14 +502,12 @@ class GmailIntegrationTest extends TestCase
 
     public function test_quota_failure_retries_but_permission_denial_does_not(): void
     {
-        Sleep::fake();
         $connection = GmailConnection::factory()->create();
-        $this->google([$this->googleResponse(['error' => ['code' => 403, 'errors' => [['reason' => 'userRateLimitExceeded']]]], 403), $this->googleResponse([]), $this->googleResponse(['error' => ['code' => 403, 'errors' => [['reason' => 'forbidden']]]], 403)], $history);
-
-        $this->actingAs($connection->user)->get(route('admin.gmail.index'))->assertSee('Входящих писем нет');
-        $this->get(route('admin.gmail.index'))->assertSee('Gmail временно недоступен.');
-
-        $this->assertCount(3, $history);
+        $this->google([$this->googleResponse(['error' => ['code' => 403, 'errors' => [['reason' => 'userRateLimitExceeded']]]], 403)], $history);
+        (new SyncGmailMessages($connection->id))->handle(app(GmailMessageSync::class));
+        $this->assertNotNull($connection->fresh()->next_sync_at);
+        $this->assertCount(1, $history);
+        $this->get(route('admin.gmail.index'))->assertRedirect();
     }
 
     public function test_disconnect_removes_unreadable_credentials_without_network_fallback(): void

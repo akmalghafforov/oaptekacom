@@ -2,21 +2,21 @@
 
 namespace App\Services;
 
-use App\Models\GmailConnection;
+use App\Models\GmailMessage;
 use App\Models\User;
 use Closure;
 use Google\Service\Exception as GoogleException;
 use Google\Service\Gmail;
-use Google\Service\Gmail\Message;
 use GuzzleHttp\Exception\TransferException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Sleep;
 use Throwable;
 
 class GmailService
 {
-    public function __construct(private GmailClientFactory $clients, private GmailMessageReader $reader) {}
+    public function __construct(private GmailClientFactory $clients) {}
 
     private function locked(User $user, Closure $operation): mixed
     {
@@ -77,123 +77,74 @@ class GmailService
         });
     }
 
-    /** @return array{messages: list<array>, next: ?string} */
-    public function inbox(User $user, int $size = 20, ?string $page = null): array
+    /** @return array{messages: list<array>, next: ?string, searching: bool} */
+    public function inbox(User $user, int $size = 20, ?string $page = null, ?string $filter = null): array
     {
         if ($size < 1 || $size > 50) {
             throw new GmailException('Размер страницы должен быть от 1 до 50.');
         }
-
-        return $this->mailbox($user, function (Gmail $gmail) use ($size, $page): array {
+        abort_unless($user->isAdminMode(), 403);
+        $connection = $user->gmailConnection()->first();
+        if (! $connection) {
+            throw new GmailException('Подключите Gmail заново.');
+        }
+        Gate::forUser($user)->authorize('view', $connection);
+        $binding = [$user->id, strtolower($connection->email), $filter, $size];
+        $boundary = null;
+        if ($page !== null) {
             try {
-                $list = $this->read(fn () => $gmail->users_messages->listUsersMessages('me', array_filter(['labelIds' => ['INBOX'], 'q' => 'has:attachment', 'maxResults' => $size, 'pageToken' => $page], fn ($value) => $value !== null)));
-            } catch (GoogleException $exception) {
-                if ($page !== null && $exception->getCode() === 400) {
-                    throw new GmailException('Страница устарела. Откройте первую страницу.');
+                $cursor = json_decode(Crypt::decryptString($page), true, flags: JSON_THROW_ON_ERROR);
+                if ($cursor['binding'] !== $binding || ! is_array($cursor['boundary'])) {
+                    throw new \RuntimeException;
                 }
-                throw $exception;
+                $boundary = $cursor['boundary'];
+            } catch (Throwable) {
+                throw new GmailException('Страница устарела. Откройте первую страницу.');
             }
-            $pending = array_map(fn (Message $message): string => $message->getId(), array_slice($list->getMessages() ?? [], 0, $size));
-            $pageIds = $pending;
-            $messages = [];
-            for ($attempt = 0; $pending && $attempt < 3; $attempt++) {
-                $client = $gmail->getClient();
-                $client->setUseBatch(true);
-                try {
-                    $batch = $gmail->createBatch();
-                    foreach ($pending as $id) {
-                        $batch->add($gmail->users_messages->get('me', $id, ['format' => 'full', 'fields' => $this->reader->metadataFields()]), $id);
-                    }
-                    $results = $batch->execute();
-                } catch (Throwable $exception) {
-                    if ($attempt >= 2 || ! $this->retryable($exception)) {
-                        throw $exception;
-                    }
-                    Sleep::usleep(100000 * ($attempt + 1));
-
+        }
+        $messages = [];
+        $last = null;
+        $next = null;
+        $status = app(GmailImportStatus::class);
+        do {
+            $query = GmailMessage::where('user_id', $user->id)->where('mailbox_email', strtolower($connection->email));
+            if ($boundary) {
+                $query->where(fn ($query) => $query->where('received_at', '<', $boundary[0])->orWhere(fn ($query) => $query->where('received_at', $boundary[0])->where('id', '<', $boundary[1])));
+            }
+            $batch = $query->select(['id', 'gmail_message_id', 'received_at', 'sender', 'subject', 'snippet', 'unread', 'attachment_manifest'])->orderByDesc('received_at')->orderByDesc('id')->limit(100)->get();
+            $decorated = $status->decorate($connection->email, $batch->map(fn ($saved): array => $saved->snapshot())->all())['messages'];
+            foreach ($decorated as $index => $message) {
+                $saved = $batch[$index];
+                $boundary = [$saved->getRawOriginal('received_at'), $saved->id];
+                if ($filter !== null && ! collect($message['attachments'])->contains(fn (array $attachment): bool => $attachment['outcome']['category'] === $filter)) {
                     continue;
-                } finally {
-                    $client->setUseBatch(false);
                 }
-                $retry = [];
-                foreach ($pending as $id) {
-                    $result = $results['response-'.$id] ?? null;
-                    if ($result instanceof Message) {
-                        $payload = $result->getPayload();
-                        if ($payload && $this->reader->hasDeeperParts($payload, 4)) {
-                            $result = $this->reader->attachmentMetadata($gmail, $id, 8);
-                        }
-                        $messages[$id] = $this->reader->metadata($result) + ['attachments' => $result->getPayload() ? $this->reader->attachments($result->getPayload()) : []];
-                    } elseif ($result instanceof GoogleException && $result->getCode() === 404) {
-                        continue;
-                    } elseif ($result instanceof Throwable && $this->retryable($result) && $attempt < 2) {
-                        $retry[] = $id;
-                    } elseif ($result instanceof Throwable) {
-                        throw $result;
-                    } else {
-                        throw new GmailException;
-                    }
+                if (count($messages) === $size) {
+                    $next = Crypt::encryptString(json_encode(['binding' => $binding, 'boundary' => $last], JSON_THROW_ON_ERROR));
+                    break 2;
                 }
-                $pending = $retry;
-                if ($pending) {
-                    Sleep::usleep(100000 * ($attempt + 1));
-                }
+                $messages[] = $message;
+                $last = $boundary;
             }
+        } while ($batch->count() === 100);
 
-            return ['messages' => array_values(array_filter(array_map(fn (string $id): ?array => $messages[$id] ?? null, $pageIds))), 'next' => $list->getNextPageToken()];
-        });
+        return ['messages' => $messages, 'next' => $next, 'searching' => false];
     }
 
     public function message(User $user, string $id): array
     {
-        return $this->mailbox($user, function (Gmail $gmail) use ($id): array {
-            try {
-                $message = $this->read(fn () => $gmail->users_messages->get('me', $id, ['format' => 'full']));
-            } catch (GoogleException $exception) {
-                if ($exception->getCode() === 404) {
-                    throw new GmailException('Письмо больше недоступно.');
-                }
-                throw $exception;
-            }
+        abort_unless($user->isAdminMode(), 403);
+        $connection = $user->gmailConnection()->first();
+        if (! $connection) {
+            throw new GmailException('Подключите Gmail заново.');
+        }
+        Gate::forUser($user)->authorize('view', $connection);
+        $saved = GmailMessage::where('user_id', $user->id)->where('mailbox_email', strtolower($connection->email))->where('gmail_message_id', $id)->first();
+        if (! $saved) {
+            throw new GmailException('Письмо больше недоступно.');
+        }
 
-            return $this->reader->read($message, fn (string $attachment): string => $this->read(fn () => $gmail->users_messages_attachments->get('me', $id, $attachment))->getData() ?? '');
-        });
-    }
-
-    private function mailbox(User $user, Closure $operation): mixed
-    {
-        return $this->locked($user, function () use ($user, $operation): mixed {
-            $connection = $user->gmailConnection()->first();
-            if (! $connection || $connection->status !== 'connected') {
-                throw new GmailException('Подключите Gmail заново.');
-            }
-            Gate::forUser($user)->authorize('view', $connection);
-            try {
-                if (! $connection->expires_at || $connection->expires_at->lessThan(now()->addMinute())) {
-                    app(GmailMailboxAccess::class)->refresh($connection);
-                }
-
-                return $operation(new Gmail($this->clients->make($connection->access_token)));
-            } catch (GoogleException $exception) {
-                if ($exception->getCode() === 401) {
-                    app(GmailMailboxAccess::class)->refresh($connection);
-                    try {
-                        return $operation(new Gmail($this->clients->make($connection->access_token)));
-                    } catch (GoogleException $retry) {
-                        if ($retry->getCode() === 401) {
-                            $this->revoked($connection);
-                        }
-                    }
-                }
-                throw new GmailException;
-            }
-        });
-    }
-
-    private function revoked(GmailConnection $connection): never
-    {
-        $connection->update(['access_token' => null, 'refresh_token' => null, 'status' => 'reconnect_required', 'reconnect_required_at' => now()]);
-        throw new GmailException('Доступ Gmail отозван. Подключите аккаунт заново.');
+        return $saved->snapshot(true);
     }
 
     /** @param array{access_token?: string, refresh_token?: string, expires_in?: int, scope?: string, error?: string} $token */

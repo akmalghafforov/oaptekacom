@@ -6,6 +6,7 @@ use App\Enums\PriceListImportStatus;
 use App\Jobs\ProcessGmailImportReceipt;
 use App\Models\GmailConnection;
 use App\Models\GmailImportReceipt;
+use App\Models\GmailMessage;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierImportProfile;
@@ -13,6 +14,9 @@ use App\Models\SupplierSenderAddress;
 use App\Models\User;
 use App\Services\GmailClientFactory;
 use App\Services\GmailImportIntake;
+use App\Services\GmailImportStatus;
+use App\Services\GmailMessageSync;
+use App\Services\GmailService;
 use App\Services\PriceList\ProfileValidator;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
@@ -41,6 +45,7 @@ class GmailInboxImportControlsTest extends TestCase
         $connection = GmailConnection::factory()->create();
         config(['gmail-imports.enabled' => true, 'gmail-imports.connection_id' => $connection->id, 'gmail-imports.mailbox' => $connection->email]);
         $this->actingAs($connection->user);
+        GmailMessage::factory()->create(['user_id' => $connection->user_id, 'mailbox_email' => strtolower($connection->email), 'gmail_message_id' => 'abc', 'attachment_manifest' => [['part_id' => '0.1', 'name' => 'prices.csv', 'size' => 12]]]);
 
         return $connection;
     }
@@ -69,6 +74,97 @@ class GmailInboxImportControlsTest extends TestCase
         $this->assertStringContainsString('/attachments/file', $requests[1]['request']->getUri()->getPath());
 
         return $query['gmail_draft'];
+    }
+
+    #[TestWith([null, 'unchecked'])]
+    #[TestWith(['pending', 'queued'])]
+    #[TestWith(['accepted', 'processing'])]
+    #[TestWith(['failed', 'failed'])]
+    #[TestWith(['skipped', 'skipped'])]
+    public function test_persisted_parent_outcomes_and_unassessed_attachments(?string $state, string $category): void
+    {
+        $connection = $this->mailbox();
+        config(['gmail-imports.enabled' => false]);
+        if ($state !== null) {
+            GmailImportReceipt::factory()->create(['mailbox_email' => $connection->email, 'gmail_message_id' => 'abc', 'status' => $state, 'reason' => 'invalid_sender']);
+        }
+        $service = app(GmailImportStatus::class);
+        for ($reload = 0; $reload < 2; $reload++) {
+            $result = $service->decorate($connection->email, [['id' => 'abc', 'attachments' => [['part_id' => '1']]]]);
+            $this->assertSame($category, $result['messages'][0]['attachments'][0]['outcome']['category']);
+        }
+        $this->google([$this->message()]);
+        $response = $this->get(route('admin.gmail.show', 'abc'))->assertOk()->assertDontSee('Настроить импорт');
+        $response->assertSee(GmailImportStatus::FILTERS[$category]);
+        $this->assertDatabaseCount('gmail_import_receipts', $state === null ? 0 : 1);
+    }
+
+    #[TestWith(['pending', 'queued'])]
+    #[TestWith(['processing', 'processing'])]
+    #[TestWith(['completed', 'imported'])]
+    #[TestWith(['superseded', 'imported'])]
+    #[TestWith(['failed', 'failed'])]
+    public function test_linked_duplicate_import_outcomes_survive_reload(string $state, string $category): void
+    {
+        $connection = $this->mailbox();
+        $import = PriceListImport::factory()->create(['status' => $state]);
+        GmailImportReceipt::factory()->create(['mailbox_email' => $connection->email, 'gmail_message_id' => 'abc', 'status' => 'duplicate', 'price_list_import_id' => $import->id, 'selected_part' => ['part_id' => '0.1']]);
+        config(['gmail-imports.enabled' => false]);
+        $this->google([$this->message(), $this->message()]);
+        for ($reload = 0; $reload < 2; $reload++) {
+            $this->get(route('admin.gmail.show', 'abc'))->assertOk()->assertSee(GmailImportStatus::FILTERS[$category])->assertSee('Дубликат: используется существующий импорт.')->assertSee(route('price-list-imports.show', $import))->assertDontSee('Настроить импорт');
+        }
+        $this->assertSame($state, $import->fresh()->status->value);
+    }
+
+    private function inboxBatch(array $ids): Response
+    {
+        $body = '';
+        foreach ($ids as $id) {
+            $message = $this->message();
+            $message['id'] = $id;
+            $body .= "--batch\r\nContent-Type: application/http\r\nContent-ID: response-{$id}\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n".json_encode($message)."\r\n";
+        }
+
+        return new Response(200, ['Content-Type' => 'multipart/mixed; boundary=batch'], $body."--batch--\r\n");
+    }
+
+    public function test_filter_searches_later_pages_preserves_remainder_and_binds_cursor(): void
+    {
+        $connection = $this->mailbox();
+        foreach (['b', 'c'] as $id) {
+            GmailImportReceipt::factory()->create(['mailbox_email' => $connection->email, 'gmail_message_id' => $id, 'status' => 'failed']);
+        }
+        GmailMessage::where('gmail_message_id', 'abc')->delete();
+        foreach (['c', 'b', 'a'] as $id) {
+            GmailMessage::factory()->create(['user_id' => $connection->user_id, 'mailbox_email' => strtolower($connection->email), 'gmail_message_id' => $id]);
+        }
+        $this->google([], $requests);
+        $service = app(GmailService::class);
+        $first = $service->inbox($connection->user, 1, null, 'failed');
+        $this->assertSame(['b'], array_column($first['messages'], 'id'));
+        $second = $service->inbox($connection->user, 1, $first['next'], 'failed');
+        $this->assertSame(['c'], array_column($second['messages'], 'id'));
+        $this->assertNull($second['next']);
+        $this->assertCount(0, $requests);
+        foreach ([['size' => 2, 'import_status' => 'failed'], ['size' => 1, 'import_status' => 'unchecked']] as $query) {
+            $this->get(route('admin.gmail.index', $query + ['page' => $first['next']]))->assertSee('Страница устарела.');
+        }
+        $connection->update(['email' => 'changed@example.com']);
+        $this->get(route('admin.gmail.index', ['size' => 1, 'import_status' => 'failed', 'page' => $first['next']]))->assertSee('Страница устарела.');
+        $this->getJson(route('admin.gmail.index', ['import_status' => 'invalid']))->assertUnprocessable()->assertJsonValidationErrors('import_status');
+        $this->assertDatabaseCount('gmail_import_receipts', 2);
+    }
+
+    public function test_filter_searches_all_saved_batches_until_mailbox_end(): void
+    {
+        $connection = $this->mailbox();
+        $connection->update(['last_synced_at' => now(), 'scan_completed_at' => now()]);
+        GmailMessage::factory()->count(105)->create(['user_id' => $connection->user_id, 'mailbox_email' => strtolower($connection->email)]);
+        $this->google([], $requests);
+        $this->get(route('admin.gmail.index', ['import_status' => 'failed']))->assertSee('Писем с выбранным статусом нет')->assertDontSee('Продолжить поиск');
+        $this->assertCount(0, $requests);
+        $this->assertDatabaseCount('gmail_import_receipts', 0);
     }
 
     #[TestWith([false])]
@@ -165,6 +261,7 @@ class GmailInboxImportControlsTest extends TestCase
             ['part_id' => '0.1', 'filename' => 'same.csv', 'size' => 10, 'supplier_ids' => [$import->supplier_organization_id], 'reason' => null],
             ['part_id' => '0.2', 'filename' => 'same.csv', 'size' => 10, 'supplier_ids' => [], 'reason' => 'unknown_supplier'],
         ];
+        GmailMessage::where('gmail_message_id', 'abc')->update(['attachment_manifest' => array_map(fn ($entry): array => ['part_id' => $entry['part_id'], 'name' => $entry['filename'], 'size' => $entry['size']], $manifest)]);
         GmailImportReceipt::factory()->create(['mailbox_email' => $connection->email, 'gmail_message_id' => 'abc', 'receipt_scope' => 'message', 'status' => 'routed', 'attachment_manifest' => $manifest]);
         GmailImportReceipt::factory()->create(['mailbox_email' => $connection->email, 'gmail_message_id' => 'abc', 'receipt_scope' => 'supplier:'.$import->supplier_organization_id, 'status' => 'duplicate', 'price_list_import_id' => $import->id, 'selected_part' => ['part_id' => '0.1'], 'attachment_manifest' => $manifest]);
         GmailImportReceipt::factory()->create(['mailbox_email' => 'other@example.com', 'gmail_message_id' => 'abc', 'status' => 'failed']);
@@ -196,17 +293,15 @@ class GmailInboxImportControlsTest extends TestCase
             $part = ['partId' => 'container-'.$depth, 'mimeType' => 'multipart/mixed', 'parts' => [$part]];
         }
         $full = $this->message([$part]);
-        $boundary = "--batch\r\nContent-Type: application/http\r\nContent-ID: response-abc\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n".json_encode($full)."\r\n--batch--\r\n";
-        $this->google([['messages' => [['id' => 'abc']]], new Response(200, ['Content-Type' => 'multipart/mixed; boundary=batch'], $boundary), $full], $requests);
+        GmailMessage::where('gmail_message_id', 'abc')->delete();
+        $this->google([['historyId' => '100'], ['messages' => [['id' => 'abc']]], $full], $requests);
+        app(GmailMessageSync::class)->sync($connection->id);
         $this->get(route('admin.gmail.index'))->assertOk()->assertViewHas('error', function ($error): bool {
             $this->assertNull($error);
 
             return true;
-        })->assertSeeInOrder(['<th>ID</th>', '<th>Статус</th>', '<th>Вложения</th>'], false)->assertSee('<td>'.$receipt->id.'</td>', false)->assertDontSee('<td>abc</td>', false)->assertSee('Вложения: 1')->assertSee('&lt;prices&gt;.csv', false)->assertSee('42 байт')->assertSee('Настроить импорт');
+        })->assertSeeInOrder(['<th>ID</th>', '<th>Статус импорта</th>', '<th>Вложения</th>'], false)->assertSee('<td>'.$receipt->id.'</td>', false)->assertDontSee('<td>abc</td>', false)->assertSee('Вложения: 1')->assertSee('&lt;prices&gt;.csv', false)->assertSee('42 байт')->assertSee('Настроить импорт');
         $this->assertCount(3, $requests);
-        $batchRequest = urldecode((string) $requests[1]['request']->getBody());
-        $this->assertStringContainsString('body(size,attachmentId)', $batchRequest);
-        $this->assertStringNotContainsString('body(data', $batchRequest);
         foreach ($requests as $entry) {
             $this->assertStringNotContainsString('/attachments/', (string) $entry['request']->getUri());
         }
@@ -295,5 +390,20 @@ class GmailInboxImportControlsTest extends TestCase
         $this->patch(route('mode.update'), ['mode' => 'supplier', '_mode_version' => $version])->assertRedirect();
         $this->getJson(route('admin.gmail.import-status', 'abc'))->assertForbidden();
         Queue::assertPushed(ProcessGmailImportReceipt::class, 1);
+    }
+
+    public function test_saved_archived_message_can_be_used_for_authorized_profile_preview(): void
+    {
+        Storage::fake('local');
+        $this->mailbox();
+        $supplier = Organization::factory()->wholesaler()->create();
+        $message = $this->message();
+        $message['labelIds'] = [];
+        $this->google([$message, ['data' => rtrim(strtr(base64_encode("Name,Price\nAspirin,12\n"), '+/', '-_'), '=')]], $requests);
+
+        $this->post(route('admin.gmail.import-profile', 'abc'), ['part_id' => '0.1', 'supplier_organization_id' => $supplier->id])->assertSessionHasNoErrors()->assertRedirect();
+
+        $this->assertCount(2, $requests);
+        $this->assertDatabaseCount('gmail_messages', 1);
     }
 }

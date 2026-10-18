@@ -5,41 +5,32 @@ namespace App\Services;
 use App\Jobs\ProcessGmailImportReceipt;
 use App\Models\GmailConnection;
 use App\Models\GmailImportReceipt;
-use Google\Service\Exception as GoogleException;
-use Google\Service\Gmail;
+use App\Models\GmailMessage;
 use Illuminate\Support\Facades\Cache;
 
 class GmailImportDiscovery
 {
     public function __construct(private GmailMailboxAccess $access) {}
 
-    public function sync(): void
+    public function sync(): bool
     {
-        $newReceiptIds = [];
-        try {
-            $this->access->run(function (Gmail $gmail, GmailConnection $connection) use (&$newReceiptIds): void {
-                try {
-                    $page = $gmail->users_messages->listUsersMessages('me', array_filter(['labelIds' => ['INBOX'], 'q' => 'has:attachment', 'maxResults' => 100, 'pageToken' => $connection->scan_page]));
-                } catch (GoogleException $exception) {
-                    if ($exception->getCode() !== 400 || ! $connection->scan_page) {
-                        throw $exception;
-                    }
-                    $connection->update(['scan_page' => null, 'scan_completed_at' => null]);
-                    $page = $gmail->users_messages->listUsersMessages('me', ['labelIds' => ['INBOX'], 'q' => 'has:attachment', 'maxResults' => 100]);
-                }
-                foreach ($page->getMessages() ?? [] as $message) {
-                    $newReceiptIds[] = $this->record($connection, $message->getId());
-                }
-                $connection->update(['scan_page' => $page->getNextPageToken()]);
-                if (! $page->getNextPageToken()) {
-                    $connection->update(['scan_completed_at' => now(), 'last_synced_at' => now(), 'last_sync_error' => null]);
-                }
-            });
-        } finally {
-            foreach (array_filter($newReceiptIds) as $id) {
+        $connection = $this->access->connection();
+        $messages = GmailMessage::where('user_id', $connection->user_id)
+            ->where('mailbox_email', strtolower($connection->email))
+            ->whereNotExists(function ($query): void {
+                $query->selectRaw('1')->from('gmail_import_receipts')
+                    ->whereColumn('gmail_import_receipts.mailbox_email', 'gmail_messages.mailbox_email')
+                    ->whereColumn('gmail_import_receipts.gmail_message_id', 'gmail_messages.gmail_message_id')
+                    ->where('receipt_scope', 'message')
+                    ->where(fn ($query) => $query->where('status', '!=', 'skipped')->orWhereNull('reason')->orWhere('reason', '!=', 'attachment_search_required'));
+            })->orderBy('id')->limit(100)->get(['gmail_message_id']);
+        $messages->each(function ($message) use ($connection): void {
+            if ($id = $this->record($connection, $message->gmail_message_id)) {
                 ProcessGmailImportReceipt::dispatch($id)->afterCommit();
             }
-        }
+        });
+
+        return $messages->count() === 100;
     }
 
     private function record(GmailConnection $connection, string $id): ?int

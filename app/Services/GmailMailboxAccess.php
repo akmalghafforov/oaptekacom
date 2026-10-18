@@ -22,12 +22,12 @@ class GmailMailboxAccess
         return $connection;
     }
 
-    public function run(Closure $operation): mixed
+    public function run(Closure $operation, ?int $connectionId = null): mixed
     {
-        $connection = $this->connection();
+        $connection = $connectionId === null ? $this->connection() : $this->authorizedConnection($connectionId);
 
-        return Cache::store(config('session.block_store'))->lock('gmail-owner:'.$connection->user_id, 300)->block(10, function () use ($operation): mixed {
-            $connection = $this->connection();
+        return Cache::store(config('session.block_store'))->lock('gmail-owner:'.$connection->user_id, 300)->block(10, function () use ($operation, $connectionId): mixed {
+            $connection = $connectionId === null ? $this->connection() : $this->authorizedConnection($connectionId);
             if (! $connection->expires_at || $connection->expires_at->lessThan(now()->addMinute())) {
                 $this->refresh($connection);
             }
@@ -48,6 +48,16 @@ class GmailMailboxAccess
                 }
             }
         });
+    }
+
+    private function authorizedConnection(int $id): GmailConnection
+    {
+        $connection = GmailConnection::find($id);
+        if (! $connection || $connection->status !== 'connected' || ! $connection->user?->isAdmin() || $connection->user->is_blocked || ! in_array(GmailClientFactory::SCOPE, $connection->scopes ?? [], true)) {
+            throw new GmailException('mailbox_unavailable');
+        }
+
+        return $connection;
     }
 
     public function refresh(GmailConnection $connection): void

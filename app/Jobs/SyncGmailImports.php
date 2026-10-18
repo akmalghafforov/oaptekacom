@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Models\GmailConnection;
 use App\Services\GmailApiException;
 use App\Services\GmailException;
 use App\Services\GmailImportDiscovery;
@@ -37,19 +36,13 @@ class SyncGmailImports implements ShouldQueue
             return;
         }
         try {
-            $connection = $access->connection();
-            if ($connection->next_sync_at?->isFuture()) {
-                return;
-            }
-            $discovery->sync();
-            $connection->refresh()->update(['next_sync_at' => null]);
-            $connection = $access->connection();
-            if ($connection->scan_page) {
+            $access->connection();
+            if ($discovery->sync()) {
                 self::dispatch()->delay(2);
             }
+
         } catch (Throwable $exception) {
-            $delay = max($this->backoff[min($this->attempts() - 1, 2)], $exception instanceof GmailApiException ? $exception->retryAfter : 0);
-            GmailConnection::whereKey(config('gmail-imports.connection_id'))->update(['last_sync_error' => 'sync_failed', 'next_sync_at' => now()->addSeconds($delay)]);
+
             if ($exception instanceof GmailException && $exception->getMessage() !== 'token_refresh_failed') {
                 return;
             }

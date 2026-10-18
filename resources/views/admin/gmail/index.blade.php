@@ -36,31 +36,52 @@
             </div>
             <p class="mt-3 text-sm text-muted" data-gmail-loading hidden role="status">Загрузка…</p>
         </x-ui.card>
-        @if($connection?->status === 'connected')
+        @if($connection)
+            @if($connection->last_synced_at)
+                <p class="text-sm text-muted">Последняя синхронизация: {{ $connection->last_synced_at->format('d.m.Y H:i') }}</p>
+            @endif
+            @if($connection->status === 'connected' && !$connection->last_synced_at)
+                <x-ui.alert type="warning">Первичная синхронизация выполняется. Сохранённые письма появляются по мере загрузки. Сохранено: {{ $savedCount }}.</x-ui.alert>
+            @elseif($connection->status === 'connected' && !$connection->scan_completed_at)
+                <x-ui.alert type="warning">Восстановление синхронизации выполняется. Сохранённые письма доступны.</x-ui.alert>
+            @endif
+            @if($connection->last_sync_error)
+                <x-ui.alert type="warning">Не удалось синхронизировать почту. Сохранённые письма доступны; повторим попытку позже.</x-ui.alert>
+            @endif
             <form method="get" class="flex flex-wrap items-end gap-3" data-gmail-action>
                 <x-ui.select name="size" label="Писем на странице">
                     @foreach(array_unique([10, 20, 50, $size]) as $option)<option value="{{ $option }}" @selected($size === $option)>{{ $option }}</option>@endforeach
+                </x-ui.select>
+                <x-ui.select name="import_status" label="Статус импорта">
+                    <option value="">Все статусы</option>
+                    @foreach(\App\Services\GmailImportStatus::FILTERS as $value => $label)<option value="{{ $value }}" @selected($importStatus === $value)>{{ $label }}</option>@endforeach
                 </x-ui.select>
                 <x-ui.button variant="secondary">Применить</x-ui.button>
             </form>
             @if(count($inbox['messages']))
                 <div class="table-wrap"><table class="data-table">
-                    <thead><tr><th>ID</th><th>Статус</th><th>Отправитель</th><th>Письмо</th><th>Дата</th><th>Вложения</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Статус импорта</th><th>Отправитель</th><th>Письмо</th><th>Дата</th><th>Вложения</th></tr></thead>
                     <tbody>@foreach($inbox['messages'] as $message)<tr>
                         <td>{{ $message['inbox_id'] ?? '—' }}</td>
-                        <td>{{ $message['unread'] ? 'Непрочитано' : 'Прочитано' }}</td>
+                        <td><ul class="space-y-3">@foreach($message['attachments'] as $attachment)<li class="break-words"><p>{{ $attachment['name'] }}</p>@include('admin.gmail.outcome')</li>@endforeach</ul></td>
                         <td>{{ $message['from'] }}</td>
                         <td><a class="font-semibold text-brand underline" href="{{ route('admin.gmail.show', $message['id']) }}">{{ $message['subject'] }}</a><p class="mt-1 text-sm text-muted">{{ $message['snippet'] }}</p></td>
                         <td>{{ $message['date'] }}</td>
-                        <td><details><summary class="min-h-10 cursor-pointer">Вложения: {{ count($message['attachments']) }}</summary>@include('admin.gmail.attachments')</details></td>
+                        <td><details><summary class="min-h-10 cursor-pointer">Вложения: {{ count($message['attachments']) }}</summary>@include('admin.gmail.attachments', ['inboxAttachments' => true])</details></td>
                     </tr>@endforeach</tbody>
                 </table></div>
             @elseif(!$error)
-                <x-ui.empty-state title="Входящих писем нет" description="Нажмите «Обновить», чтобы проверить почту." />
+                @if($connection->status === 'connected' && !$connection->last_synced_at)
+                    <x-ui.empty-state title="Почта ещё синхронизируется" description="Письма с вложениями появятся после загрузки." />
+                @elseif($importStatus)
+                    <x-ui.empty-state title="Писем с выбранным статусом нет" description="Выберите другой статус импорта." />
+                @else
+                    <x-ui.empty-state title="Входящих писем нет" description="Нажмите «Обновить», чтобы проверить почту." />
+                @endif
             @endif
             <div class="flex flex-wrap gap-3">
-                <x-ui.button variant="secondary" :href="route('admin.gmail.index', ['size' => $size])">Первая страница</x-ui.button>
-                @if($inbox['next'])<x-ui.button variant="secondary" :href="route('admin.gmail.index', ['size' => $size, 'page' => $inbox['next']])">Следующая страница</x-ui.button>@endif
+                <x-ui.button variant="secondary" :href="route('admin.gmail.index', ['size' => $size, 'import_status' => $importStatus])">Первая страница</x-ui.button>
+                @if($inbox['next'])<x-ui.button variant="secondary" :href="route('admin.gmail.index', ['size' => $size, 'import_status' => $importStatus, 'page' => $inbox['next']])">{{ ($inbox['searching'] ?? false) ? 'Продолжить поиск' : 'Следующая страница' }}</x-ui.button>@endif
             </div>
         @elseif(!$connection)
             <x-ui.empty-state title="Подключите личный Gmail" description="Почта доступна только владельцу подключения. Вложения можно просматривать по названию и размеру." />

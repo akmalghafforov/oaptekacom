@@ -6,6 +6,7 @@ use App\DataTransferObjects\StoredImportFile;
 use App\Jobs\ProcessGmailImportReceipt;
 use App\Models\GmailConnection;
 use App\Models\GmailImportReceipt;
+use App\Models\GmailMessage;
 use Carbon\CarbonImmutable;
 use Google\Service\Exception as GoogleException;
 use Google\Service\Gmail;
@@ -36,7 +37,7 @@ class GmailImportIntake
             $message = $receipt->receipt_scope === 'message'
                 ? $this->reader->attachmentMetadata($gmail, $receipt->gmail_message_id)
                 : $gmail->users_messages->get('me', $receipt->gmail_message_id, ['format' => 'full']);
-            if (! in_array('INBOX', $message->getLabelIds() ?? [], true)) {
+            if (! in_array('INBOX', $message->getLabelIds() ?? [], true) && ! GmailMessage::where('user_id', $connection->user_id)->where('mailbox_email', strtolower($connection->email))->where('gmail_message_id', $receipt->gmail_message_id)->exists()) {
                 $this->skip($receipt, 'not_in_inbox');
 
                 return [];

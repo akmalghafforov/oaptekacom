@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\SupplierFileType;
 use App\Models\GmailConnection;
+use App\Models\GmailMessage;
 use App\Models\Organization;
 use App\Services\PriceList\SampleWorkbookReader;
 use Google\Service\Gmail;
@@ -34,11 +35,11 @@ class GmailProfileDrafts
     {
         $connection = $this->authorize($request);
         try {
-            $metadata = $this->access->run(function (Gmail $gmail) use ($messageId, $partId): array {
+            $metadata = $this->access->run(function (Gmail $gmail, GmailConnection $connection) use ($messageId, $partId): array {
                 $reader = $this->reader;
                 $intake = $this->intake;
                 $message = $reader->attachmentMetadata($gmail, $messageId);
-                abort_unless(in_array('INBOX', $message->getLabelIds() ?? [], true), 422, 'Письмо недоступно во входящих.');
+                abort_unless(in_array('INBOX', $message->getLabelIds() ?? [], true) || GmailMessage::where('user_id', $connection->user_id)->where('mailbox_email', strtolower($connection->email))->where('gmail_message_id', $messageId)->exists(), 422, 'Письмо недоступно во входящих.');
                 $parts = [];
                 if ($message->getPayload()) {
                     $intake->parts($message->getPayload(), $parts);

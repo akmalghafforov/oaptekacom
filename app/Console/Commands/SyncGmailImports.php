@@ -5,6 +5,8 @@ namespace App\Console\Commands;
 use App\Enums\PriceListImportStatus;
 use App\Jobs\PreparePriceListImport;
 use App\Jobs\ProcessGmailImportReceipt;
+use App\Jobs\SyncGmailMessages;
+use App\Models\GmailConnection;
 use App\Models\GmailImportReceipt;
 use App\Models\PriceListImport;
 use App\Services\GmailException;
@@ -29,6 +31,13 @@ class SyncGmailImports extends Command
 
             return config('gmail-imports.enabled') ? self::FAILURE : self::SUCCESS;
         }
+        if (Schema::hasTable('gmail_messages')) {
+            GmailConnection::with('user')->where('status', 'connected')->each(function ($connection): void {
+                if ($connection->user?->isAdmin() && ! $connection->user->is_blocked && (! $connection->next_sync_at || $connection->next_sync_at->isPast())) {
+                    SyncGmailMessages::dispatch($connection->id);
+                }
+            });
+        }
         $this->reconcileImports();
         if (! config('gmail-imports.enabled')) {
             $this->info('Automatic Gmail imports are disabled.');
@@ -46,9 +55,7 @@ class SyncGmailImports extends Command
         if (! $connection->last_synced_at || Carbon::parse($connection->last_synced_at)->lt(now()->subMinutes(15))) {
             Log::warning('Gmail synchronization has not succeeded within 15 minutes', ['connection_id' => $connection->id]);
         }
-        if (! $connection->next_sync_at || $connection->next_sync_at->isPast()) {
-            \App\Jobs\SyncGmailImports::dispatch();
-        }
+        \App\Jobs\SyncGmailImports::dispatch();
         GmailImportReceipt::where('mailbox_email', strtolower($connection->email))->where('status', 'pending')->where(fn ($query) => $query->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))->where('updated_at', '<', now()->subMinutes(2))->chunkById(100, function ($receipts): void {
             foreach ($receipts as $receipt) {
                 ProcessGmailImportReceipt::dispatch($receipt->id);

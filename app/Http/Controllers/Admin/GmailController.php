@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\OrganizationType;
 use App\Http\Controllers\Controller;
+use App\Jobs\SyncGmailMessages;
+use App\Models\GmailMessage;
 use App\Models\Organization;
 use App\Services\GmailClientFactory;
 use App\Services\GmailException;
@@ -14,6 +16,7 @@ use App\Services\GmailService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -23,15 +26,16 @@ class GmailController extends Controller
 
     public function index(Request $request): View
     {
-        $input = $request->validate(['page' => ['nullable', 'string', 'max:2048'], 'size' => ['nullable', 'integer', 'between:1,50']]);
+        $input = $request->validate(['page' => ['nullable', 'string', 'max:2048'], 'size' => ['nullable', 'integer', 'between:1,50'], 'import_status' => ['nullable', Rule::in(array_keys(GmailImportStatus::FILTERS))]]);
         $connection = $request->user()->gmailConnection()->first();
         $inbox = ['messages' => [], 'next' => null];
         $error = null;
         if (! $this->clients->configured()) {
             $error = 'Gmail не настроен. Обратитесь к администратору сервера.';
-        } elseif ($connection?->status === 'connected') {
+        }
+        if ($connection) {
             try {
-                $inbox = $this->gmail->inbox($request->user(), (int) ($input['size'] ?? 20), $input['page'] ?? null);
+                $inbox = $this->gmail->inbox($request->user(), (int) ($input['size'] ?? 20), $input['page'] ?? null, $input['import_status'] ?? null);
             } catch (GmailException $exception) {
                 $error = $exception->getMessage();
                 $connection = $request->user()->gmailConnection()->first();
@@ -39,10 +43,6 @@ class GmailController extends Controller
         }
 
         $canImport = $this->canImport($request);
-        if ($canImport) {
-            $inbox['messages'] = app(GmailImportStatus::class)->decorate($connection->email, $inbox['messages'])['messages'];
-        }
-
         if ($connection && $inbox['messages']) {
             $receipts = app(GmailImportStatus::class)->receipts($connection->email, array_column($inbox['messages'], 'id'))->where('receipt_scope', 'message')->keyBy('gmail_message_id');
             foreach ($inbox['messages'] as &$message) {
@@ -51,7 +51,7 @@ class GmailController extends Controller
             unset($message);
         }
 
-        return view('admin.gmail.index', ['canImport' => $canImport, 'connection' => $connection, 'inbox' => $inbox, 'error' => $error, 'configured' => $this->clients->configured(), 'size' => (int) ($input['size'] ?? 20)]);
+        return view('admin.gmail.index', ['savedCount' => $connection ? GmailMessage::where('user_id', $request->user()->id)->where('mailbox_email', strtolower($connection->email))->count() : 0, 'canImport' => $canImport, 'connection' => $connection, 'inbox' => $inbox, 'error' => $error, 'configured' => $this->clients->configured(), 'size' => (int) ($input['size'] ?? 20), 'importStatus' => $input['import_status'] ?? null]);
     }
 
     public function connect(Request $request): RedirectResponse
@@ -99,7 +99,7 @@ class GmailController extends Controller
             $data = $this->gmail->message($request->user(), $message);
             $canImport = $this->canImport($request);
             $active = false;
-            if ($canImport) {
+            if ($request->user()->gmailConnection()->exists()) {
                 $status = app(GmailImportStatus::class)->decorate($request->user()->gmailConnection()->first()->email, [$data]);
                 $data = $status['messages'][0];
                 $active = $status['active'];
@@ -156,11 +156,14 @@ class GmailController extends Controller
     {
         $connection = $drafts->authorize($request);
         $receipts = $status->receipts($connection->email, [$message]);
-        $attachments = [];
-        foreach ($receipts as $receipt) {
-            foreach ($receipt->attachment_manifest ?? [] as $entry) {
-                $id = (string) ($entry['part_id'] ?? '');
-                $attachments[$id] = ['part_id' => $id, 'name' => $entry['filename'], 'size' => $entry['size'] ?? 0];
+        $saved = GmailMessage::where('user_id', $connection->user_id)->where('mailbox_email', strtolower($connection->email))->where('gmail_message_id', $message)->first();
+        $attachments = $saved ? collect($saved->attachment_manifest)->keyBy('part_id')->all() : [];
+        if (! $saved) {
+            foreach ($receipts as $receipt) {
+                foreach ($receipt->attachment_manifest ?? [] as $entry) {
+                    $id = (string) ($entry['part_id'] ?? '');
+                    $attachments[$id] = ['part_id' => $id, 'name' => $entry['filename'], 'size' => $entry['size'] ?? 0];
+                }
             }
         }
         $result = $status->decorate($connection->email, [['id' => $message, 'attachments' => array_values($attachments)]]);
@@ -168,8 +171,13 @@ class GmailController extends Controller
         return response()->json(['active' => $result['active'], 'reason' => $result['messages'][0]['intake_reason'], 'attachments' => $result['messages'][0]['attachments']]);
     }
 
-    public function refresh(): RedirectResponse
+    public function refresh(Request $request): RedirectResponse
     {
+        $connection = $request->user()->gmailConnection()->first();
+        if ($connection?->status === 'connected') {
+            SyncGmailMessages::dispatch($connection->id);
+        }
+
         return redirect()->route('admin.gmail.index');
     }
 

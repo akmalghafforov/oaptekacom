@@ -35,6 +35,6 @@ class GmailConnection extends Model
     /** @return array<string, string> */
     protected function casts(): array
     {
-        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'expires_at' => 'datetime', 'scopes' => 'array', 'connected_at' => 'datetime', 'reconnect_required_at' => 'datetime', 'next_sync_at' => 'immutable_datetime'];
+        return ['access_token' => 'encrypted', 'refresh_token' => 'encrypted', 'expires_at' => 'datetime', 'scopes' => 'array', 'connected_at' => 'datetime', 'reconnect_required_at' => 'datetime', 'next_sync_at' => 'immutable_datetime', 'last_synced_at' => 'immutable_datetime', 'scan_completed_at' => 'immutable_datetime'];
     }
 }
