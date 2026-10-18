@@ -177,8 +177,10 @@ class GmailImportIntakeTest extends TestCase
     {
         Queue::fake([PreparePriceListImport::class]);
         Storage::fake('local');
-        $this->supplier();
-        $message = $this->message([['mimeType' => 'multipart/mixed', 'parts' => [$this->part(), $this->part('notes.txt')]]]);
+        $supplier = $this->supplier();
+        $supplier->importProfile->update(['attachment_filename_filter' => '  ПРАЙС   ЛИСТ  ']);
+        $filename = "прайс\u{00A0}\tлист.csv";
+        $message = $this->message([['mimeType' => 'multipart/mixed', 'parts' => [$this->part($filename), $this->part('notes.txt')]]]);
         $this->mailbox([$message, $message]);
         $receipt = $this->receipt();
         app(GmailImportIntake::class)->process($receipt);
@@ -191,6 +193,8 @@ class GmailImportIntakeTest extends TestCase
         $this->assertSame(1, GmailImportContentClaim::count());
         $this->assertCount(1, Storage::disk('local')->allFiles('price-list-imports'));
         $import = PriceListImport::sole();
+        $this->assertSame($filename, $import->original_filename);
+        $this->assertSame('  ПРАЙС   ЛИСТ  ', $supplier->importProfile->fresh()->attachment_filename_filter);
         $this->assertSame('supplier@example.com', $import->sender_email);
         $this->assertSame('csv', $import->profile_snapshot['file_type']);
         Queue::assertPushed(PreparePriceListImport::class, 1);

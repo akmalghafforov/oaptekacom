@@ -79,21 +79,36 @@ class SupplierFilenameRoutingTest extends TestCase
         return ['id' => 'message-1', 'internalDate' => '1760000000000', 'labelIds' => ['INBOX'], 'payload' => ['headers' => [['name' => 'From', 'value' => $sender]], 'parts' => $parts]];
     }
 
-    #[TestWith(['ПРАЙС', 'ежедневный_прайс.CSV', true])]
-    #[TestWith(['[a]*.csv', 'report-[A]*.CSV', true])]
+    #[TestWith(['ПРАЙС', 'ежедневный_прайс.CSV', false])]
+    #[TestWith(['ПРАЙС', 'прайс.CSV', true])]
+    #[TestWith(['прайс', 'ПРАЙС.CSV', true])]
+    #[TestWith(['Прайс лист', 'пРаЙс   ЛиСт.csv', true])]
+    #[TestWith(['Прайс   лист', 'ПРАЙС лист.csv', true])]
+    #[TestWith(['  Прайс лист  ', '  ПРАЙС лист.csv  ', true])]
+    #[TestWith(["Прайс\tлист", 'ПРАЙС лист.csv', true])]
+    #[TestWith(['Прайс лист', "ПРАЙС\tлист.csv", true])]
+    #[TestWith(["\u{00A0}Прайс\u{00A0}лист\u{00A0}", 'ПРАЙС лист.csv', true])]
+    #[TestWith(['Прайс лист', "\u{00A0}ПРАЙС\u{00A0}лист.csv\u{00A0}", true])]
+    #[TestWith([" \t\u{00A0} ", 'anything.csv', true])]
+    #[TestWith(['прайс лист', 'ежедневный прайс   лист.csv', false])]
+    #[TestWith(['[a]*.csv', '[A]*.CSV', true])]
     #[TestWith(['[a]*.csv', 'aaaa.csv', false])]
+    #[TestWith(['[a]*.csv', 'report-[A]*.CSV', false])]
+    #[TestWith(['%', '%daily.csv', true])]
+    #[TestWith(['_', '_daily.csv', true])]
     #[TestWith(['%', 'daily.csv', false])]
     #[TestWith(['_', 'daily.csv', false])]
     #[TestWith(['med', 'MEDICINES.csv', true])]
     #[TestWith([null, 'anything.csv', true])]
     #[TestWith(['', 'anything.csv', true])]
-    public function test_resolves_literal_case_insensitive_filename_substrings(?string $filter, string $filename, bool $matches): void
+    public function test_resolves_literal_case_insensitive_normalized_filename_prefixes(?string $filter, string $filename, bool $matches): void
     {
         $profile = $this->supplier($filter);
         $resolver = app(SupplierAttachmentResolver::class);
 
         $this->assertSame($matches ? [$profile->supplier_organization_id] : [], $resolver->matchingSuppliers(' SHARED@EXAMPLE.COM ', $filename)->modelKeys());
         $this->assertSame([], $resolver->matchingSuppliers('different@example.com', $filename)->modelKeys());
+        $this->assertSame($filter, $profile->fresh()->attachment_filename_filter);
     }
 
     public function test_shared_sender_routes_nested_attachments_to_separate_supplier_receipts(): void
@@ -101,8 +116,8 @@ class SupplierFilenameRoutingTest extends TestCase
         Queue::fake();
         Storage::fake('local');
         $first = $this->supplier('alpha');
-        $second = $this->supplier('БЕТА');
-        $message = $this->message([['parts' => [$this->part('ALPHA.csv'), ['parts' => [$this->part('бета.csv')]]]], $this->part('unmatched.csv')]);
+        $second = $this->supplier('  БЕТА   ПРАЙС  ');
+        $message = $this->message([['parts' => [$this->part('ALPHA.csv'), ['parts' => [$this->part("бета\tпрайс.csv")]]]], $this->part('unmatched.csv')]);
         $parent = $this->mailbox([$message, $message, $message]);
 
         app(GmailImportIntake::class)->process($parent);

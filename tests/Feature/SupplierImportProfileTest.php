@@ -225,7 +225,7 @@ class SupplierImportProfileTest extends TestCase
         $profile = $supplier->importProfile()->sole();
         $this->assertSame('Прайс [A]*', $profile->attachment_filename_filter);
         $this->assertSame(2, SupplierSenderAddress::where('normalized_email', 'shared@example.com')->count());
-        $this->get(route('admin.supplier-import-profiles.edit', $supplier))->assertSee('Фильтр имени вложения')->assertSee('Прайс [A]*')->assertSee('без учёта регистра');
+        $this->get(route('admin.supplier-import-profiles.edit', $supplier))->assertSee('Фильтр имени вложения')->assertSee('Прайс [A]*')->assertSee('должно начинаться с указанного текста без учёта регистра и лишних пробелов');
         $audit = AuditEvent::where('event', 'supplier_import_profile.updated')->latest('id')->firstOrFail();
         $this->assertNull($audit->before['attachment_filename_filter']);
         $this->assertSame('Прайс [A]*', $audit->after['attachment_filename_filter']);
