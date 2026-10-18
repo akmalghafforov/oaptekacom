@@ -213,6 +213,56 @@ class GmailIntegrationTest extends TestCase
         $this->assertStringContainsString('format=full', (string) $history[1]['request']->getBody());
     }
 
+    #[TestWith(['Привет', 'Привет'])]
+    #[TestWith(['До =?UTF-8?B?0J/RgNC40LLQtdGC?= после', 'До Привет после'])]
+    #[TestWith(['=?UTF-8?B?0J/RgNC40LLQtdGC?=', 'Привет'])]
+    #[TestWith(['=?UTF-8?Q?=D0=9F=D1=80=D0=B8=D0=B2=D0=B5=D1=82?=', 'Привет'])]
+    #[TestWith(['=?windows-1251?Q?=CF=F0=E8=E2=E5=F2?=', 'Привет'])]
+    #[TestWith(['=?windows-1251?B?z/Do4uXy?=', 'Привет'])]
+    #[TestWith(["=?UTF-8?B?0J/RgNC4?=\r\n\t=?UTF-8?Q?=D0=B2=D0=B5=D1=82?=", 'Привет'])]
+    #[TestWith(['=?unknown-charset?B?SGVsbG8=?=', '=?unknown-charset?B?SGVsbG8=?='])]
+    #[TestWith(['=?UTF-8?B?%%%?=', '=?UTF-8?B?%%%?='])]
+    #[TestWith(['=?UTF-8?B?A?=', '=?UTF-8?B?A?='])]
+    #[TestWith(['=?UTF-8?Q?=ZZ?=', '=?UTF-8?Q?=ZZ?='])]
+    #[TestWith(['=?UTF-8?B?SGVsbG8=?= =?unknown-charset?B?SGVsbG8=?=', '=?UTF-8?B?SGVsbG8=?= =?unknown-charset?B?SGVsbG8=?='])]
+    #[TestWith(['=?UTF-8?Q?unfinished', '=?UTF-8?Q?unfinished'])]
+    public function test_headers_and_attachment_names_preserve_utf8_and_decode_mime_words(string $header, string $expected): void
+    {
+        $message = new Message(['id' => 'abc', 'payload' => [
+            'headers' => [['name' => 'Subject', 'value' => $header], ['name' => 'From', 'value' => $header.' <sender@example.com>']],
+            'parts' => [['filename' => $header.'.pdf', 'body' => ['size' => 99]]],
+        ]]);
+
+        $result = app(GmailMessageReader::class)->read($message, fn (string $id): string => '');
+
+        $this->assertSame($expected, $result['subject']);
+        $this->assertSame($expected.' <sender@example.com>', $result['from']);
+        $this->assertSame($expected.'.pdf', $result['attachments'][0]['name']);
+    }
+
+    #[TestWith(['Привет', 'Привет'])]
+    #[TestWith(['До =?UTF-8?Q?=3Cscript=3Eheader=3C/script=3E?= после', 'До <script>header</script> после'])]
+    #[TestWith(['=?unknown-charset?B?SGVsbG8=?=', '=?unknown-charset?B?SGVsbG8=?='])]
+    #[TestWith(['=?UTF-8?B?%%%?=', '=?UTF-8?B?%%%?='])]
+    public function test_inbox_and_message_render_decoded_headers_and_filenames_safely(string $header, string $expected): void
+    {
+        $connection = GmailConnection::factory()->create();
+        $message = ['id' => 'abc', 'payload' => [
+            'headers' => [['name' => 'Subject', 'value' => $header], ['name' => 'From', 'value' => $header.' <sender@example.com>']],
+            'parts' => [['partId' => '1', 'mimeType' => 'application/pdf', 'filename' => $header.'.pdf', 'body' => ['size' => 99]]],
+        ]];
+        $this->google([
+            $this->googleResponse(['messages' => [['id' => 'abc']]]),
+            $this->batch(['abc' => ['data' => $message]]),
+            $this->googleResponse($message),
+        ], $history);
+
+        $this->actingAs($connection->user);
+        foreach ([route('admin.gmail.index'), route('admin.gmail.show', 'abc')] as $url) {
+            $this->get($url)->assertSee($expected)->assertSee($expected.' <sender@example.com>')->assertSee($expected.'.pdf')->assertDontSee('<script>header</script>', false);
+        }
+    }
+
     public function test_expiring_access_refreshes_and_preserves_refresh_token(): void
     {
         $connection = GmailConnection::factory()->create(['expires_at' => now()->subMinute()]);

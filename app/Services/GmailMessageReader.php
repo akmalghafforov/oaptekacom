@@ -168,6 +168,12 @@ class GmailMessageReader
 
     private function header(string $value): string
     {
-        return mb_convert_encoding(mb_decode_mimeheader($value), 'UTF-8', 'UTF-8');
+        $encodedWord = '=\?[^?\s]+\?(?:b\?(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?|q\?(?:[!\x23-\x3C\x3E\x40-\x7E]|=[A-Fa-f0-9]{2})*)\?=';
+
+        return preg_replace_callback('~'.$encodedWord.'(?:[ \t\r\n]*'.$encodedWord.')*~i', static function (array $matches): string {
+            $decoded = @iconv_mime_decode($matches[0], ICONV_MIME_DECODE_STRICT, 'UTF-8');
+
+            return $decoded === false ? $matches[0] : $decoded;
+        }, $value) ?? $value;
     }
 }
