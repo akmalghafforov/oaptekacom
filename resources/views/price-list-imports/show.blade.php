@@ -1,7 +1,17 @@
 @extends('layouts.app')
 @section('content')
     <x-ui.page-header :title="$import->original_filename" :description="$import->supplier->name.' · загружен '. $import->created_at->format('d.m.Y H:i')">
-        <x-slot:actions><div class="flex flex-wrap gap-2"><a href="{{ route('price-list-imports.download', $import) }}"><x-ui.button type="button" variant="secondary">Скачать исходник</x-ui.button></a><a href="{{ route('price-list-imports.categorization-report', $import) }}"><x-ui.button type="button" variant="secondary">CSV категорий</x-ui.button></a>@if($import->status === \App\Enums\PriceListImportStatus::Failed)<form method="post" action="{{ route('price-list-imports.retry', $import) }}">@csrf <x-mode-version /><x-ui.button>Повторить</x-ui.button></form>@endif</div></x-slot:actions>
+        <x-slot:actions><div class="flex flex-wrap gap-2"><a href="{{ route('price-list-imports.download', $import) }}"><x-ui.button type="button" variant="secondary">Скачать исходник</x-ui.button></a><a href="{{ route('price-list-imports.categorization-report', $import) }}"><x-ui.button type="button" variant="secondary">CSV категорий</x-ui.button></a>@if($import->status === \App\Enums\PriceListImportStatus::Failed)<form method="post" action="{{ route('price-list-imports.retry', $import) }}">@csrf <x-mode-version /><x-ui.button>Повторить</x-ui.button></form>@endif
+            @if(in_array($import->status, [\App\Enums\PriceListImportStatus::Completed, \App\Enums\PriceListImportStatus::Superseded], true))
+                @can('replay', $import)
+                    <form method="post" action="{{ route('price-list-imports.replay', $import) }}">
+                        @csrf
+                        <x-mode-version />
+                        <x-ui.button variant="secondary">Обработать заново</x-ui.button>
+                    </form>
+                @endcan
+            @endif
+        </div></x-slot:actions>
     </x-ui.page-header>
     <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         @foreach(['total_rows' => 'Всего', 'valid_rows' => 'Корректные', 'warning_rows' => 'С предупреждением', 'error_rows' => 'Ошибки', 'skipped_rows' => 'Пропущены'] as $field => $label)<x-ui.card><p class="text-sm text-muted">{{ $label }}</p><p class="mt-1 text-2xl font-bold">{{ $import->{$field} }}</p></x-ui.card>@endforeach

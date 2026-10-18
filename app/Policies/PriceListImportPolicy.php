@@ -68,6 +68,11 @@ class PriceListImportPolicy
         return $this->belongsToUser($user, $priceListImport);
     }
 
+    public function replay(User $user, PriceListImport $priceListImport): bool
+    {
+        return $this->belongsToUser($user, $priceListImport);
+    }
+
     private function belongsToUser(User $user, PriceListImport $import): bool
     {
         return $user->isAdminMode() || ($user->canSupply() && $user->activeOrganizationId() === $import->supplier_organization_id);

@@ -115,6 +115,27 @@ class PriceListImportController extends Controller
         return back()->with('success', 'Повторная обработка запущена.');
     }
 
+    public function replay(Request $request, int $import, SupplierPriceListIngestor $ingestor): RedirectResponse
+    {
+        $importModel = $this->scoped($request, $import);
+        $this->authorize('replay', $importModel);
+        abort_unless(in_array($importModel->status, [PriceListImportStatus::Completed, PriceListImportStatus::Superseded], true), 422);
+        if (! $importModel->supplier->importProfile()->where('is_active', true)->exists()) {
+            throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
+        }
+        $disk = Storage::disk(config('price-list-imports.disk'));
+        if (! $disk->exists($importModel->file_path)) {
+            throw ValidationException::withMessages(['file' => 'Исходный файл импорта недоступен. Загрузите файл заново.']);
+        }
+        $extension = strtolower(pathinfo($importModel->original_filename, PATHINFO_EXTENSION));
+        $path = 'price-list-imports/'.$importModel->supplier_organization_id.'/'.Str::uuid().'.'.$extension;
+        abort_unless($disk->copy($importModel->file_path, $path), 500);
+        $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $importModel->original_filename, $importModel->mime_type, $disk->size($path), $importModel->sha256);
+        $replay = $ingestor->ingest($importModel->supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))));
+
+        return redirect()->route('price-list-imports.show', $replay)->with('success', 'Повторная обработка исходного файла запущена с текущим профилем поставщика. Результаты предыдущего импорта сохранены в истории.');
+    }
+
     public function override(Request $request, int $import, int $row, AuditLogger $audit): RedirectResponse
     {
         abort_unless($request->user()->isAdminMode(), 403);

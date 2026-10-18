@@ -114,6 +114,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::get('/price-list-imports/{import}/download', [PriceListImportController::class, 'download'])->name('price-list-imports.download');
     Route::get('/price-list-imports/{import}/categorization-report', [PriceListImportController::class, 'categorizationReport'])->name('price-list-imports.categorization-report');
     Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->name('price-list-imports.retry');
+    Route::post('/price-list-imports/{import}/replay', [PriceListImportController::class, 'replay'])->name('price-list-imports.replay');
     Route::prefix('admin')->middleware('role:admin')->group(function () {
         Route::prefix('gmail')->middleware(ProtectGmailResponse::class)->group(function () {
             Route::get('/', [GmailController::class, 'index'])->name('admin.gmail.index');

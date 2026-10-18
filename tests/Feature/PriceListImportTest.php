@@ -15,6 +15,7 @@ use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\PriceListImportRow;
 use App\Models\ProductCategoryRuleSet;
+use App\Models\Subscription;
 use App\Models\SupplierImportProfile;
 use App\Models\User;
 use App\Services\PriceList\CategoryCandidateExtractor;
@@ -29,6 +30,7 @@ use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xls;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class PriceListImportTest extends TestCase
@@ -195,6 +197,115 @@ class PriceListImportTest extends TestCase
             $this->assertDatabaseHas('offers', ['price_list_import_id' => $import->id, 'source_name' => $name, 'price' => $price, 'is_active' => true]);
         }
         $this->assertDatabaseMissing('offers', ['price_list_import_id' => $import->id, 'source_name' => 'Ибупрофен']);
+    }
+
+    #[TestWith(['completed', false])]
+    #[TestWith(['superseded', false])]
+    #[TestWith(['completed', true])]
+    public function test_replay_creates_a_new_import_with_current_profile_and_preserves_history(string $status, bool $asAdmin): void
+    {
+        Storage::fake('local');
+        Queue::fake([PreparePriceListImport::class]);
+        $supplier = Organization::factory()->wholesaler()->create();
+        $actor = $asAdmin ? User::factory()->admin()->create(['two_factor_confirmed_at' => now()]) : User::factory()->wholesaler($supplier)->create();
+        $configuration = array_replace(ProfileValidator::defaults(), ['mapping' => ['name' => 'B', 'price' => 'D']]);
+        $profile = SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['file_type' => 'csv', 'configuration' => $configuration]);
+        $content = "id,name,other,price\n1,Аспирин,,\"12,5\"\n2,Парацетамол,,\"2,3\"\n";
+        Storage::disk('local')->put('original.csv', $content);
+        $original = PriceListImport::factory()->for($supplier, 'supplier')->create([
+            'supplier_import_profile_id' => $profile->id,
+            'status' => $status,
+            'file_path' => 'original.csv',
+            'original_filename' => 'original.csv',
+            'mime_type' => 'text/csv',
+            'sha256' => hash('sha256', $content),
+            'profile_snapshot' => ProfileValidator::defaults(),
+        ]);
+        $originalRow = PriceListImportRow::factory()->for($original, 'import')->create();
+        $originalAttributes = $original->refresh()->getAttributes();
+        $this->actingAs($actor)->get(route('price-list-imports.show', $original))->assertSee('Обработать заново');
+
+        $response = $this->post(route('price-list-imports.replay', $original));
+
+        $replay = PriceListImport::query()->whereKeyNot($original->id)->sole();
+        $response->assertRedirectToRoute('price-list-imports.show', $replay)->assertSessionHas('success');
+        $this->assertSame($originalAttributes, $original->fresh()->getAttributes());
+        $this->assertModelExists($originalRow);
+        $this->assertSame($original->id, $replay->duplicate_of_import_id);
+        $this->assertSame($actor->id, $replay->initiated_by);
+        $this->assertSame($configuration['mapping'], $replay->profile_snapshot['mapping']);
+        $this->assertSame(PriceListImportStatus::Pending, $replay->status);
+        $this->assertNotSame($original->file_path, $replay->file_path);
+        $this->assertSame($content, Storage::disk('local')->get($replay->file_path));
+
+        $this->post(route('price-list-imports.replay', $original))->assertRedirectToRoute('price-list-imports.show', $replay);
+        $this->assertSame(2, PriceListImport::count());
+        $this->assertCount(2, Storage::disk('local')->allFiles());
+        Queue::assertPushed(PreparePriceListImport::class, 1);
+
+        (new PreparePriceListImport($replay))->handle(app(WorkbookReader::class), app(ValueNormalizer::class));
+
+        $this->assertSame(PriceListImportStatus::Completed, $replay->fresh()->status);
+        $this->assertSame(2, $replay->offers()->count());
+        $this->assertDatabaseHas('offers', ['price_list_import_id' => $replay->id, 'source_name' => 'Аспирин', 'price' => '12.50', 'is_active' => true]);
+        $this->assertDatabaseHas('offers', ['price_list_import_id' => $replay->id, 'source_name' => 'Парацетамол', 'price' => '2.30', 'is_active' => true]);
+        $this->assertModelExists($originalRow);
+        Storage::disk('local')->assertExists($original->file_path);
+    }
+
+    #[TestWith(['pending'])]
+    #[TestWith(['processing'])]
+    #[TestWith(['preview'])]
+    #[TestWith(['committing'])]
+    #[TestWith(['failed'])]
+    public function test_replay_rejects_imports_that_have_not_succeeded(string $status): void
+    {
+        Queue::fake([PreparePriceListImport::class]);
+        $supplier = Organization::factory()->wholesaler()->create();
+        $actor = User::factory()->wholesaler($supplier)->create();
+        $import = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => $status, 'profile_snapshot' => ProfileValidator::defaults()]);
+
+        $this->actingAs($actor)->get(route('price-list-imports.show', $import))->assertDontSee('Обработать заново');
+        $this->post(route('price-list-imports.replay', $import))->assertUnprocessable();
+
+        $this->assertSame(1, PriceListImport::count());
+        Queue::assertNotPushed(PreparePriceListImport::class);
+    }
+
+    public function test_replay_rejects_other_suppliers_and_buyers(): void
+    {
+        Queue::fake([PreparePriceListImport::class]);
+        $import = PriceListImport::factory()->create(['status' => PriceListImportStatus::Completed]);
+        $otherSupplier = User::factory()->wholesaler()->create();
+        $buyer = User::factory()->pharmacy()->create(['two_factor_confirmed_at' => now()]);
+        Subscription::factory()->for($buyer)->create();
+
+        $this->post(route('price-list-imports.replay', $import))->assertRedirectToRoute('login');
+        $this->actingAs($otherSupplier)->post(route('price-list-imports.replay', $import))->assertNotFound();
+        $this->actingAs($buyer)->post(route('price-list-imports.replay', $import))->assertNotFound();
+
+        $this->assertSame(1, PriceListImport::count());
+        Queue::assertNotPushed(PreparePriceListImport::class);
+    }
+
+    #[TestWith([true])]
+    #[TestWith([false])]
+    public function test_replay_requires_an_active_profile_and_available_source_file(bool $activeProfile): void
+    {
+        Storage::fake('local');
+        Queue::fake([PreparePriceListImport::class]);
+        $supplier = Organization::factory()->wholesaler()->create();
+        $actor = User::factory()->wholesaler($supplier)->create();
+        $profile = SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['is_active' => $activeProfile]);
+        $import = PriceListImport::factory()->for($supplier, 'supplier')->create(['supplier_import_profile_id' => $profile->id, 'status' => PriceListImportStatus::Completed]);
+
+        $this->actingAs($actor)->post(route('price-list-imports.replay', $import))->assertSessionHasErrors([
+            'file' => $activeProfile ? 'Исходный файл импорта недоступен. Загрузите файл заново.' : 'Для поставщика не настроен активный профиль импорта.',
+        ]);
+
+        $this->assertSame(1, PriceListImport::count());
+        $this->assertSame(PriceListImportStatus::Completed, $import->fresh()->status);
+        Queue::assertNotPushed(PreparePriceListImport::class);
     }
 
     public function test_import_stores_expired_dates_and_treats_undetected_dates_as_null(): void
