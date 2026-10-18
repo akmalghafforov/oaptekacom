@@ -44,9 +44,14 @@ class GmailController extends Controller
 
         $canImport = $this->canImport($request);
         if ($connection && $inbox['messages']) {
-            $receipts = app(GmailImportStatus::class)->receipts($connection->email, array_column($inbox['messages'], 'id'))->where('receipt_scope', 'message')->keyBy('gmail_message_id');
+            $receipts = app(GmailImportStatus::class)->receipts($connection->email, array_column($inbox['messages'], 'id'));
+            $supplierNames = Organization::whereIn('id', $receipts->pluck('supplier_organization_id')->filter()->unique())->pluck('name', 'id');
+            $parents = $receipts->where('receipt_scope', 'message')->keyBy('gmail_message_id');
             foreach ($inbox['messages'] as &$message) {
-                $message['inbox_id'] = $receipts->get($message['id'])?->id;
+                $message['inbox_id'] = $parents->get($message['id'])?->id;
+                $message['supplier_names'] = $receipts->where('gmail_message_id', $message['id'])
+                    ->pluck('supplier_organization_id')->filter()->unique()
+                    ->map(fn (int $supplierId): ?string => $supplierNames->get($supplierId))->filter()->values()->all();
             }
             unset($message);
         }

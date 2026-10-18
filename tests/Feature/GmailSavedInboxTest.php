@@ -7,6 +7,7 @@ use App\Jobs\SyncGmailMessages;
 use App\Models\GmailConnection;
 use App\Models\GmailImportReceipt;
 use App\Models\GmailMessage;
+use App\Models\Organization;
 use App\Services\GmailApiException;
 use App\Services\GmailClientFactory;
 use App\Services\GmailImportDiscovery;
@@ -163,6 +164,22 @@ class GmailSavedInboxTest extends TestCase
         }
         $this->get(route('admin.gmail.show', 'third'))->assertSee('sandbox=""', false)->assertSee('<script>file.csv</script>')->assertDontSee('<script>subject</script>', false);
         $this->assertCount(0, $requests);
+    }
+
+    public function test_inbox_shows_matched_supplier_below_sender_without_other_mailbox_matches(): void
+    {
+        $connection = GmailConnection::factory()->create(['last_synced_at' => now(), 'scan_completed_at' => now()]);
+        $this->saved($connection, ['gmail_message_id' => 'matched', 'sender' => 'sender@example.com']);
+        $supplier = Organization::factory()->wholesaler()->create(['name' => '<b>Matched firm</b>']);
+        $otherSupplier = Organization::factory()->wholesaler()->create(['name' => 'Other mailbox firm']);
+        GmailImportReceipt::factory()->create(['mailbox_email' => $connection->email, 'gmail_message_id' => 'matched', 'receipt_scope' => 'supplier:'.$supplier->id, 'supplier_organization_id' => $supplier->id]);
+        GmailImportReceipt::factory()->create(['mailbox_email' => 'other@example.com', 'gmail_message_id' => 'matched', 'supplier_organization_id' => $otherSupplier->id]);
+
+        $response = $this->actingAs($connection->user)->get(route('admin.gmail.index'));
+
+        $response->assertSeeInOrder(['sender@example.com', '<b>Matched firm</b>'])
+            ->assertDontSee('<b>Matched firm</b>', false)
+            ->assertDontSee('Other mailbox firm');
     }
 
     public function test_filter_searches_entire_mailbox_and_preserves_all_attachments(): void

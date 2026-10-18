@@ -60,14 +60,13 @@
             </form>
             @if(count($inbox['messages']))
                 <div class="table-wrap"><table class="data-table">
-                    <thead><tr><th>ID</th><th>Статус импорта</th><th>Отправитель</th><th>Письмо</th><th>Дата</th><th>Вложения</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Статус импорта</th><th>Отправитель</th><th>Письмо</th><th>Дата</th></tr></thead>
                     <tbody>@foreach($inbox['messages'] as $message)<tr>
                         <td>{{ $message['inbox_id'] ?? '—' }}</td>
                         <td><ul class="space-y-3">@foreach($message['attachments'] as $attachment)<li class="break-words"><p>{{ $attachment['name'] }}</p>@include('admin.gmail.outcome')</li>@endforeach</ul></td>
-                        <td>{{ $message['from'] }}</td>
+                        <td>{{ $message['from'] }}@foreach($message['supplier_names'] ?? [] as $supplierName)<p class="mt-1 text-sm text-muted">{{ $supplierName }}</p>@endforeach</td>
                         <td><a class="font-semibold text-brand underline" href="{{ route('admin.gmail.show', $message['id']) }}">{{ $message['subject'] }}</a><p class="mt-1 text-sm text-muted">{{ $message['snippet'] }}</p></td>
                         <td>{{ $message['date'] }}</td>
-                        <td><details><summary class="min-h-10 cursor-pointer">Вложения: {{ count($message['attachments']) }}</summary>@include('admin.gmail.attachments', ['inboxAttachments' => true])</details></td>
                     </tr>@endforeach</tbody>
                 </table></div>
             @elseif(!$error)
