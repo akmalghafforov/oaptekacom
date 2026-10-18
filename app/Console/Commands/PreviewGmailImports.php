@@ -20,7 +20,7 @@ class PreviewGmailImports extends Command
         $token = null;
         do {
             $token = $access->run(function (Gmail $gmail) use (&$counts, $intake, $reader, $token): ?string {
-                $page = $gmail->users_messages->listUsersMessages('me', array_filter(['labelIds' => ['INBOX'], 'maxResults' => 20, 'pageToken' => $token]));
+                $page = $gmail->users_messages->listUsersMessages('me', array_filter(['labelIds' => ['INBOX'], 'q' => 'has:attachment', 'maxResults' => 20, 'pageToken' => $token]));
                 foreach ($page->getMessages() ?? [] as $item) {
                     $message = $reader->attachmentMetadata($gmail, $item->getId());
                     $headers = array_values(array_filter($message->getPayload()?->getHeaders() ?? [], fn ($header): bool => strcasecmp($header->getName(), 'From') === 0));

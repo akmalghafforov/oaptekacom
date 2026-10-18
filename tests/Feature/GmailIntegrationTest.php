@@ -185,6 +185,20 @@ class GmailIntegrationTest extends TestCase
         return new Response(200, ['Content-Type' => 'multipart/mixed; boundary=batch'], $body."--batch--\r\n");
     }
 
+    public function test_empty_filtered_inbox_does_not_fetch_message_metadata(): void
+    {
+        $connection = GmailConnection::factory()->create();
+        $this->google([$this->googleResponse([])], $history);
+
+        $result = app(GmailService::class)->inbox($connection->user);
+
+        $this->assertSame(['messages' => [], 'next' => null], $result);
+        $this->assertCount(1, $history);
+        parse_str($history[0]['request']->getUri()->getQuery(), $query);
+        $this->assertSame('has:attachment', $query['q']);
+        $this->assertSame('INBOX', $query['labelIds']);
+    }
+
     public function test_inbox_uses_page_token_inbox_filter_and_only_batches_returned_ids(): void
     {
         $connection = GmailConnection::factory()->create();
@@ -206,6 +220,7 @@ class GmailIntegrationTest extends TestCase
 
         parse_str($history[0]['request']->getUri()->getQuery(), $query);
         $this->assertSame('INBOX', $query['labelIds']);
+        $this->assertSame('has:attachment', $query['q']);
         $this->assertSame('opaque-page', $query['pageToken']);
         $this->assertSame('10', $query['maxResults']);
         $this->assertCount(2, $history);

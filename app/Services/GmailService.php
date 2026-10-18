@@ -86,7 +86,7 @@ class GmailService
 
         return $this->mailbox($user, function (Gmail $gmail) use ($size, $page): array {
             try {
-                $list = $this->read(fn () => $gmail->users_messages->listUsersMessages('me', array_filter(['labelIds' => ['INBOX'], 'maxResults' => $size, 'pageToken' => $page], fn ($value) => $value !== null)));
+                $list = $this->read(fn () => $gmail->users_messages->listUsersMessages('me', array_filter(['labelIds' => ['INBOX'], 'q' => 'has:attachment', 'maxResults' => $size, 'pageToken' => $page], fn ($value) => $value !== null)));
             } catch (GoogleException $exception) {
                 if ($page !== null && $exception->getCode() === 400) {
                     throw new GmailException('Страница устарела. Откройте первую страницу.');

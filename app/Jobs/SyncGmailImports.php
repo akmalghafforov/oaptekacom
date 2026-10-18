@@ -44,7 +44,7 @@ class SyncGmailImports implements ShouldQueue
             $discovery->sync();
             $connection->refresh()->update(['next_sync_at' => null]);
             $connection = $access->connection();
-            if ($connection->scan_page || $connection->history_page || ! $connection->history_cursor) {
+            if ($connection->scan_page) {
                 self::dispatch()->delay(2);
             }
         } catch (Throwable $exception) {

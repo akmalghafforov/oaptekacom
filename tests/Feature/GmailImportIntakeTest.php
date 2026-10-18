@@ -71,7 +71,19 @@ class GmailImportIntakeTest extends TestCase
     {
         $responses = array_merge(...array_map(fn ($data): array => is_array($data) && isset($data['payload']) ? [$data, $data] : [$data], $responses ?: [[]]));
         $responses = array_map(fn ($data) => $data instanceof Response ? $data : new Response(200, ['Content-Type' => 'application/json'], json_encode($data)), $responses);
-        $this->app->instance(GmailClientFactory::class, new GmailClientFactory(new Client(['handler' => HandlerStack::create(new MockHandler($responses)), 'http_errors' => false])));
+        $stack = HandlerStack::create(new MockHandler($responses));
+        $stack->push(function (callable $handler): callable {
+            return function ($request, array $options) use ($handler) {
+                if (str_ends_with($request->getUri()->getPath(), '/messages')) {
+                    parse_str($request->getUri()->getQuery(), $query);
+                    $this->assertSame('INBOX', $query['labelIds']);
+                    $this->assertSame('has:attachment', $query['q']);
+                }
+
+                return $handler($request, $options);
+            };
+        });
+        $this->app->instance(GmailClientFactory::class, new GmailClientFactory(new Client(['handler' => $stack, 'http_errors' => false])));
     }
 
     private function supplier(): Organization
@@ -217,49 +229,75 @@ class GmailImportIntakeTest extends TestCase
         Queue::assertPushed(PreparePriceListImport::class);
     }
 
-    public function test_full_scan_pages_then_replays_arrivals_and_repeated_discovery_keeps_receipts(): void
+    public function test_filtered_scan_pages_then_revisits_receipts_and_discovers_new_arrivals(): void
     {
         $connection = $this->mailbox([
-            ['historyId' => '100'], ['messages' => [['id' => 'one']], 'nextPageToken' => 'page-2'],
+            ['messages' => [['id' => 'one']], 'nextPageToken' => 'page-2'],
             ['messages' => [['id' => 'two']]],
-            ['history' => [['messagesAdded' => [['message' => ['id' => 'three']]]]], 'historyId' => '103'],
-            ['history' => [['labelsAdded' => [['message' => ['id' => 'one'], 'labelIds' => ['INBOX']]]]], 'historyId' => '104'],
+            ['messages' => [['id' => 'one'], ['id' => 'two'], ['id' => 'three']]],
         ]);
-        Queue::fake([ProcessGmailImportReceipt::class]);
-        $discovery = app(GmailImportDiscovery::class);
-        $discovery->sync();
+        Queue::fake([ProcessGmailImportReceipt::class, SyncGmailImports::class]);
+        $job = new SyncGmailImports;
+        $job->handle(app(GmailImportDiscovery::class), app(GmailMailboxAccess::class));
         $this->assertSame('page-2', $connection->fresh()->scan_page);
-        $this->assertSame(1, GmailImportReceipt::count());
-        $discovery->sync();
-        $discovery->sync();
+        $this->assertNull($connection->fresh()->last_synced_at);
+        Queue::assertPushed(SyncGmailImports::class, fn ($job): bool => $job->delay === 2);
+        $job->handle(app(GmailImportDiscovery::class), app(GmailMailboxAccess::class));
+        $this->assertNull($connection->fresh()->scan_page);
+        $this->assertNotNull($connection->fresh()->last_synced_at);
+        Queue::assertPushed(SyncGmailImports::class, 1);
+        $job->handle(app(GmailImportDiscovery::class), app(GmailMailboxAccess::class));
         $this->assertSame(3, GmailImportReceipt::count());
-        $this->assertSame('104', $connection->fresh()->history_cursor);
         Queue::assertPushed(ProcessGmailImportReceipt::class, 3);
     }
 
-    public function test_history_checkpoint_stays_at_original_cursor_until_last_page(): void
+    public function test_empty_attachment_search_creates_no_receipts_or_jobs(): void
     {
-        $connection = $this->mailbox([['history' => [['messagesAdded' => [['message' => ['id' => 'one']]]]], 'nextPageToken' => 'next', 'historyId' => '200'], ['historyId' => '201']]);
-        $connection->update(['history_cursor' => '100']);
-        Queue::fake([ProcessGmailImportReceipt::class]);
-        $discovery = app(GmailImportDiscovery::class);
-        $discovery->sync();
-        $this->assertSame('100', $connection->fresh()->history_cursor);
-        $this->assertSame('next', $connection->fresh()->history_page);
-        $discovery->sync();
-        Queue::assertPushed(ProcessGmailImportReceipt::class, 1);
-        $this->assertSame('201', $connection->fresh()->history_cursor);
-        $this->assertNull($connection->fresh()->history_page);
+        Queue::fake();
+        $connection = $this->mailbox([[]]);
+
+        (new SyncGmailImports)->handle(app(GmailImportDiscovery::class), app(GmailMailboxAccess::class));
+
+        $this->assertSame(0, GmailImportReceipt::count());
+        $this->assertNotNull($connection->fresh()->last_synced_at);
+        Queue::assertNothingPushed();
     }
 
-    public function test_expired_history_restarts_scan_without_discarding_receipts(): void
+    public function test_legacy_receipts_resume_only_when_found_by_filtered_search_and_unlocked(): void
     {
-        $connection = $this->mailbox([new Response(404, [], json_encode(['error' => ['code' => 404]]))]);
-        $connection->update(['history_cursor' => 'old']);
-        $this->receipt();
-        app(GmailImportDiscovery::class)->sync();
+        Queue::fake([ProcessGmailImportReceipt::class]);
+        $connection = $this->mailbox([['messages' => [['id' => 'eligible']]], ['messages' => [['id' => 'eligible']]], ['messages' => [['id' => 'eligible']]]]);
+        $connection->update(['scan_page' => 'legacy', 'history_cursor' => '100']);
+        $eligible = $this->receipt('eligible');
+        $excluded = $this->receipt('excluded');
+        $completed = $this->receipt('completed');
+        $completed->update(['status' => 'completed']);
+        $supplierWork = GmailImportReceipt::factory()->create(['receipt_scope' => 'supplier:1', 'parent_receipt_id' => $completed->id]);
+        $migration = require database_path('migrations/2026_10_18_064841_reset_gmail_discovery_for_attachment_search.php');
+        $migration->up();
+        $this->assertNull($connection->fresh()->scan_page);
         $this->assertNull($connection->fresh()->history_cursor);
-        $this->assertSame(1, GmailImportReceipt::count());
+        $this->assertSame('attachment_search_required', $excluded->fresh()->reason);
+        $this->assertSame('completed', $completed->fresh()->status);
+        $this->assertSame('pending', $supplierWork->fresh()->status);
+        (new ProcessGmailImportReceipt($excluded->id))->handle(app(GmailImportIntake::class));
+        $lock = Cache::store(config('session.block_store'))->lock('gmail-receipt:'.$eligible->id, 120);
+        $lock->get();
+        try {
+            app(GmailImportDiscovery::class)->sync();
+            $this->assertSame('skipped', $eligible->fresh()->status);
+        } finally {
+            $lock->release();
+        }
+
+        app(GmailImportDiscovery::class)->sync();
+        app(GmailImportDiscovery::class)->sync();
+
+        $this->assertSame('pending', $eligible->fresh()->status);
+        $this->assertNull($eligible->fresh()->reason);
+        $this->assertSame('skipped', $excluded->fresh()->status);
+        Queue::assertPushed(ProcessGmailImportReceipt::class, fn ($job): bool => $job->receiptId === $eligible->id);
+        Queue::assertPushed(ProcessGmailImportReceipt::class, 1);
     }
 
     public function test_reconnecting_to_another_mailbox_resets_cursor_and_preserves_receipts(): void
@@ -513,20 +551,22 @@ class GmailImportIntakeTest extends TestCase
         }
     }
 
-    public function test_failure_during_history_request_keeps_full_scan_receipts_and_cursor(): void
+    public function test_failure_during_next_page_keeps_receipts_and_checkpoint_for_retry(): void
     {
         Queue::fake([ProcessGmailImportReceipt::class]);
-        $connection = $this->mailbox([['historyId' => '100'], ['messages' => [['id' => 'one']]], new Response(503, [], json_encode(['error' => ['code' => 503]]))]);
+        $connection = $this->mailbox([['messages' => [['id' => 'one']], 'nextPageToken' => 'next'], new Response(503, [], json_encode(['error' => ['code' => 503]]))]);
+        app(GmailImportDiscovery::class)->sync();
         try {
             app(GmailImportDiscovery::class)->sync();
             $this->fail('Expected retry');
         } catch (GoogleException) {
         }
-        $this->assertSame('100', $connection->fresh()->history_cursor);
+        $this->assertSame('next', $connection->fresh()->scan_page);
         $this->assertSame(1, GmailImportReceipt::count());
-        $this->google([['historyId' => '101']]);
+        $this->google([[]]);
         app(GmailImportDiscovery::class)->sync();
-        $this->assertSame('101', $connection->fresh()->history_cursor);
+        $this->assertNull($connection->fresh()->scan_page);
+        $this->assertNotNull($connection->fresh()->last_synced_at);
         Queue::assertPushed(ProcessGmailImportReceipt::class, 1);
     }
 
@@ -612,8 +652,8 @@ class GmailImportIntakeTest extends TestCase
 
     public function test_expired_full_scan_page_token_restarts_scan_and_preserves_receipts(): void
     {
-        $connection = $this->mailbox([new Response(400, [], json_encode(['error' => ['code' => 400]]))]);
-        $connection->update(['scan_baseline' => '100', 'scan_page' => 'expired']);
+        $connection = $this->mailbox([new Response(400, [], json_encode(['error' => ['code' => 400]])), []]);
+        $connection->update(['scan_page' => 'expired']);
         $this->receipt();
         app(GmailImportDiscovery::class)->sync();
         $this->assertNull($connection->fresh()->scan_page);
@@ -655,10 +695,10 @@ class GmailImportIntakeTest extends TestCase
         (new SyncGmailImports)->handle(app(GmailImportDiscovery::class), app(GmailMailboxAccess::class));
         Queue::assertNothingPushed();
         $this->travel(11)->minutes();
-        $this->google([['historyId' => '101']]);
+        $this->google([[]]);
         (new SyncGmailImports)->handle(app(GmailImportDiscovery::class), app(GmailMailboxAccess::class));
         $this->assertNull($connection->fresh()->next_sync_at);
-        $this->assertSame('101', $connection->fresh()->history_cursor);
+        $this->assertNotNull($connection->fresh()->last_synced_at);
     }
 
     public function test_four_actual_intake_failures_are_terminal_even_after_recovery_dispatch(): void
@@ -698,7 +738,7 @@ class GmailImportIntakeTest extends TestCase
     {
         Storage::fake('local');
         $this->supplier();
-        $this->mailbox([['historyId' => '100'], ['messages' => [['id' => 'message-1']]], ['historyId' => '101'], $this->message([$this->part()])]);
+        $this->mailbox([['messages' => [['id' => 'message-1']]], $this->message([$this->part()])]);
         app(GmailImportDiscovery::class)->sync();
         $this->assertSame(PriceListImportStatus::Completed, PriceListImport::sole()->status);
         $this->assertSame('routed', GmailImportReceipt::where('receipt_scope', 'message')->sole()->status);
