@@ -69,13 +69,10 @@
                         <td>{{ $message['date'] }}</td>
                         @if($canImport)
                             <td>
-                                <details>
-                                    <summary class="min-h-10 cursor-pointer rounded-control px-3 py-2 text-sm font-semibold focus-visible:outline-focus">Действия</summary>
-                                    <form method="post" action="{{ route('admin.gmail.replay', $message['id']) }}" class="mt-2" data-gmail-action>
-                                        @csrf <x-mode-version />
-                                        <x-ui.button variant="secondary">Повторить импорт</x-ui.button>
-                                    </form>
-                                </details>
+                                <form method="post" action="{{ route('admin.gmail.replay', $message['id']) }}" data-gmail-action>
+                                    @csrf <x-mode-version />
+                                    <x-ui.button variant="secondary">Повторить импорт</x-ui.button>
+                                </form>
                             </td>
                         @endif
                     </tr>@endforeach</tbody>

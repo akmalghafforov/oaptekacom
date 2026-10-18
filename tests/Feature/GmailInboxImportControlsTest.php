@@ -253,7 +253,7 @@ class GmailInboxImportControlsTest extends TestCase
         @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
         $xpath = new \DOMXPath($document);
         foreach (['abc', 'second'] as $messageId) {
-            $forms = $xpath->query('//tbody/tr[td/a[@href="'.route('admin.gmail.show', $messageId).'"]]//details/form[@action="'.route('admin.gmail.replay', $messageId).'"]');
+            $forms = $xpath->query('//tbody/tr[td/a[@href="'.route('admin.gmail.show', $messageId).'"]]/td/form[@action="'.route('admin.gmail.replay', $messageId).'"]');
             $this->assertCount(1, $forms);
             $form = $forms->item(0);
             $this->assertSame('post', $form->getAttribute('method'));
