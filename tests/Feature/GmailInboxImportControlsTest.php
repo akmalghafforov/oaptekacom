@@ -239,6 +239,49 @@ class GmailInboxImportControlsTest extends TestCase
         $this->assertCount($failure === 'malformed' ? 2 : 1, $requests);
     }
 
+    public function test_inbox_renders_replay_forms_for_each_message(): void
+    {
+        config(['account-modes.enabled' => true]);
+        $connection = $this->mailbox();
+        GmailMessage::factory()->create(['user_id' => $connection->user_id, 'mailbox_email' => strtolower($connection->email), 'gmail_message_id' => 'second']);
+        $this->google([], $requests);
+
+        $response = $this->get(route('admin.gmail.index'));
+
+        $response->assertSee('<th>Действия</th>', false);
+        $document = new \DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new \DOMXPath($document);
+        foreach (['abc', 'second'] as $messageId) {
+            $forms = $xpath->query('//tbody/tr[td/a[@href="'.route('admin.gmail.show', $messageId).'"]]//details/form[@action="'.route('admin.gmail.replay', $messageId).'"]');
+            $this->assertCount(1, $forms);
+            $form = $forms->item(0);
+            $this->assertSame('post', $form->getAttribute('method'));
+            $this->assertTrue($form->hasAttribute('data-gmail-action'));
+            $this->assertCount(1, $xpath->query('input[@name="_token"]', $form));
+            $this->assertCount(1, $xpath->query('input[@name="_mode_version"]', $form));
+            $this->assertSame('Повторить импорт', trim($xpath->query('button', $form)->item(0)->textContent));
+        }
+        $this->assertCount(0, $requests);
+    }
+
+    #[TestWith(['disabled'])]
+    #[TestWith(['other_mailbox'])]
+    public function test_inbox_hides_replay_actions_when_importing_is_unavailable(string $reason): void
+    {
+        $this->mailbox();
+        config($reason === 'disabled' ? ['gmail-imports.enabled' => false] : ['gmail-imports.mailbox' => 'other@example.com']);
+        $this->google([], $requests);
+
+        $this->get(route('admin.gmail.index'))
+            ->assertSee(route('admin.gmail.show', 'abc'))
+            ->assertDontSee('<th>Действия</th>', false)
+            ->assertDontSee('Повторить импорт')
+            ->assertDontSee(route('admin.gmail.replay', 'abc'));
+
+        $this->assertCount(0, $requests);
+    }
+
     public function test_replay_before_discovery_is_durable_and_repeated_submissions_preserve_processing(): void
     {
         Queue::fake();
