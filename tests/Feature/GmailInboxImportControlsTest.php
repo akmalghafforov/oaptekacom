@@ -188,7 +188,9 @@ class GmailInboxImportControlsTest extends TestCase
 
     public function test_inbox_renders_id_first_and_fetches_deep_attachment_metadata_without_downloading_files(): void
     {
-        $this->mailbox();
+        $connection = $this->mailbox();
+        $receipt = GmailImportReceipt::factory()->create(['mailbox_email' => $connection->email, 'gmail_message_id' => 'abc']);
+        GmailImportReceipt::factory()->create(['mailbox_email' => 'other@example.com', 'gmail_message_id' => 'abc']);
         $part = ['partId' => '0.1.1.1.1.1.1', 'filename' => '<prices>.csv', 'body' => ['size' => 42, 'attachmentId' => 'never-download']];
         for ($depth = 0; $depth < 7; $depth++) {
             $part = ['partId' => 'container-'.$depth, 'mimeType' => 'multipart/mixed', 'parts' => [$part]];
@@ -200,7 +202,7 @@ class GmailInboxImportControlsTest extends TestCase
             $this->assertNull($error);
 
             return true;
-        })->assertSeeInOrder(['<th>ID</th>', '<th>Статус</th>', '<th>Вложения</th>'], false)->assertSee('Вложения: 1')->assertSee('&lt;prices&gt;.csv', false)->assertSee('42 байт')->assertSee('Настроить импорт');
+        })->assertSeeInOrder(['<th>ID</th>', '<th>Статус</th>', '<th>Вложения</th>'], false)->assertSee('<td>'.$receipt->id.'</td>', false)->assertDontSee('<td>abc</td>', false)->assertSee('Вложения: 1')->assertSee('&lt;prices&gt;.csv', false)->assertSee('42 байт')->assertSee('Настроить импорт');
         $this->assertCount(3, $requests);
         $batchRequest = urldecode((string) $requests[1]['request']->getBody());
         $this->assertStringContainsString('body(size,attachmentId)', $batchRequest);

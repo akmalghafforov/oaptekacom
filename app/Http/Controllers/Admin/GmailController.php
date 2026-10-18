@@ -43,6 +43,14 @@ class GmailController extends Controller
             $inbox['messages'] = app(GmailImportStatus::class)->decorate($connection->email, $inbox['messages'])['messages'];
         }
 
+        if ($connection && $inbox['messages']) {
+            $receipts = app(GmailImportStatus::class)->receipts($connection->email, array_column($inbox['messages'], 'id'))->where('receipt_scope', 'message')->keyBy('gmail_message_id');
+            foreach ($inbox['messages'] as &$message) {
+                $message['inbox_id'] = $receipts->get($message['id'])?->id;
+            }
+            unset($message);
+        }
+
         return view('admin.gmail.index', ['canImport' => $canImport, 'connection' => $connection, 'inbox' => $inbox, 'error' => $error, 'configured' => $this->clients->configured(), 'size' => (int) ($input['size'] ?? 20)]);
     }
 

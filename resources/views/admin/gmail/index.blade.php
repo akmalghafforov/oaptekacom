@@ -47,7 +47,7 @@
                 <div class="table-wrap"><table class="data-table">
                     <thead><tr><th>ID</th><th>Статус</th><th>Отправитель</th><th>Письмо</th><th>Дата</th><th>Вложения</th></tr></thead>
                     <tbody>@foreach($inbox['messages'] as $message)<tr>
-                        <td class="break-all">{{ $message['id'] }}</td>
+                        <td>{{ $message['inbox_id'] ?? '—' }}</td>
                         <td>{{ $message['unread'] ? 'Непрочитано' : 'Прочитано' }}</td>
                         <td>{{ $message['from'] }}</td>
                         <td><a class="font-semibold text-brand underline" href="{{ route('admin.gmail.show', $message['id']) }}">{{ $message['subject'] }}</a><p class="mt-1 text-sm text-muted">{{ $message['snippet'] }}</p></td>
