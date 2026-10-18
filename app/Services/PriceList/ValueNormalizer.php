@@ -41,7 +41,8 @@ class ValueNormalizer
         if ($value === null || trim((string) $value) === '') {
             return null;
         }
-        $number = str_replace(["\xc2\xa0", ' '], '', trim((string) $value));
+        $cleaned = str_replace(["\xc2\xa0", ' '], '', trim((string) $value));
+        $number = $cleaned;
         if ($thousandsSeparator !== '') {
             $number = str_replace($thousandsSeparator, '', $number);
         }
@@ -49,7 +50,14 @@ class ValueNormalizer
             $number = str_replace($decimalSeparator, '.', $number);
         }
 
-        return is_numeric($number) ? (float) $number : null;
+        if (is_numeric($number)) {
+            return (float) $number;
+        }
+        if ($thousandsSeparator !== ',' && ! str_contains($cleaned, '.') && preg_match('/^[+-]?[0-9]+,[0-9]{1,2}$/D', $cleaned) === 1) {
+            return (float) str_replace(',', '.', $cleaned);
+        }
+
+        return null;
     }
 
     /** @param list<string> $formats */

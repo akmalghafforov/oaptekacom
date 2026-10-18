@@ -7,6 +7,7 @@ use App\Services\PriceList\ProfileValidator;
 use App\Services\PriceList\RowParser;
 use App\Services\PriceList\ValueNormalizer;
 use Illuminate\Validation\ValidationException;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class PriceListParsingTest extends TestCase
@@ -26,6 +27,65 @@ class PriceListParsingTest extends TestCase
         $this->assertSame(1234.50, $normalizer->decimal('1 234,50', ',', ' '));
         $this->assertSame('2026-01-01', $normalizer->date(46023, ['d.m.Y'])->toDateString());
         $this->assertSame('2069-12-31', $normalizer->date('31.12.69', ['d.m.y'])->toDateString());
+    }
+
+    #[TestWith(['12,5', '.', '', 12.5])]
+    #[TestWith(['2,3', '.', '', 2.3])]
+    #[TestWith(['+12,50', '.', '', 12.5])]
+    #[TestWith(['-2,3', '.', '', -2.3])]
+    #[TestWith(['0,00', '.', '', 0.0])]
+    #[TestWith([' 1 234,50 ', '.', '', 1234.5])]
+    #[TestWith([" 1\u{00a0}234,50 ", '.', '', 1234.5])]
+    #[TestWith(['12.50', '.', '', 12.5])]
+    #[TestWith([12.5, '.', '', 12.5])]
+    #[TestWith([12, '.', '', 12.0])]
+    #[TestWith(['1.234,50', ',', '.', 1234.5])]
+    #[TestWith(['1,234.50', '.', ',', 1234.5])]
+    #[TestWith(['1,234', '.', ',', 1234.0])]
+    #[TestWith(['1,234', ',', '', 1.234])]
+    #[TestWith(['12,5', '.', ',', 125.0])]
+    #[TestWith(['1,234', '.', '', null])]
+    #[TestWith(['1.234,50', '.', '', null])]
+    #[TestWith(['1,2,3', '.', '', null])]
+    #[TestWith(['12,', '.', '', null])]
+    #[TestWith([',5', '.', '', null])]
+    #[TestWith(['12,5e2', '.', '', null])]
+    #[TestWith(['12,5 сом', '.', '', null])]
+    #[TestWith(['--12,5', '.', '', null])]
+    #[TestWith([null, '.', '', null])]
+    #[TestWith([' ', '.', '', null])]
+    public function test_recognizes_unambiguous_comma_decimals_and_preserves_configured_parsing(mixed $value, string $decimalSeparator, string $thousandsSeparator, ?float $expected): void
+    {
+        $this->assertSame($expected, (new ValueNormalizer)->decimal($value, $decimalSeparator, $thousandsSeparator));
+    }
+
+    #[TestWith([null])]
+    #[TestWith(['invalid'])]
+    #[TestWith(['0'])]
+    #[TestWith(['0,0'])]
+    #[TestWith(['-2,3'])]
+    public function test_rejects_missing_malformed_and_nonpositive_prices(mixed $price): void
+    {
+        $result = app(RowParser::class)->parse(['A' => 'Аспирин', 'B' => $price], 2, ProfileValidator::defaults());
+
+        $this->assertSame(PriceListRowDisposition::Error, $result['disposition']);
+        $this->assertSame(['Цена должна быть положительным числом.'], $result['errors']);
+        $this->assertSame($price, $result['raw_values']['price']);
+    }
+
+    public function test_recognizes_comma_decimals_in_quantity_and_total_without_changing_raw_values(): void
+    {
+        $profile = array_replace(ProfileValidator::defaults(), ['mapping' => ['name' => 'A', 'price' => 'B', 'quantity' => 'C', 'total' => 'D']]);
+
+        $result = app(RowParser::class)->parse(['A' => 'Аспирин', 'B' => '12,5', 'C' => '2,3', 'D' => '28,75'], 2, $profile);
+
+        $this->assertSame(PriceListRowDisposition::Valid, $result['disposition']);
+        $this->assertSame(12.5, $result['parsed_values']['price']);
+        $this->assertSame(2.3, $result['parsed_values']['quantity']);
+        $this->assertSame(28.75, $result['parsed_values']['total']);
+        $this->assertSame('12,5', $result['raw_values']['price']);
+        $this->assertSame('2,3', $result['raw_values']['quantity']);
+        $this->assertSame('28,75', $result['raw_values']['total']);
     }
 
     public function test_row_parser_keeps_unknown_quantity_and_isolates_invalid_price(): void

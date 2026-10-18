@@ -26,6 +26,9 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xls;
 use Tests\TestCase;
 
 class PriceListImportTest extends TestCase
@@ -134,6 +137,64 @@ class PriceListImportTest extends TestCase
         $this->assertSame(1, $import->fresh()->valid_rows);
         $this->assertSame(1, $import->fresh()->skipped_rows);
         $this->assertDatabaseHas('price_list_import_rows', ['price_list_import_id' => $import->id, 'source_row' => 3, 'disposition' => PriceListRowDisposition::Skipped->value]);
+    }
+
+    public function test_xls_import_publishes_comma_decimal_and_numeric_prices_while_isolating_invalid_rows(): void
+    {
+        Storage::fake('local');
+        $supplier = Organization::factory()->wholesaler()->create();
+        $configuration = array_replace(ProfileValidator::defaults(), [
+            'worksheet' => 'Точики',
+            'header_row' => 3,
+            'data_row' => 4,
+            'mapping' => ['name' => 'B', 'price' => 'D'],
+        ]);
+        $profile = SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['file_type' => 'xls', 'configuration' => $configuration]);
+        $workbook = new Spreadsheet;
+        $workbook->getActiveSheet()->setTitle('Other')->fromArray([['Wrong sheet', 999]]);
+        $sheet = $workbook->createSheet()->setTitle('Точики');
+        $sheet->fromArray([
+            [null, 'Название', null, 'Цена'],
+            [null, 'Аспирин', null, '12,5'],
+            [null, 'Ибупрофен', null, 'invalid'],
+            [null, 'Парацетамол', null, '2,3'],
+            [null, 'Амоксициллин', null, 15.75],
+        ], null, 'A3');
+        $sheet->setCellValueExplicit('D4', '12,5', DataType::TYPE_STRING);
+        $sheet->setCellValueExplicit('D6', '2,3', DataType::TYPE_STRING);
+        $path = 'fixture.xls';
+        (new Xls($workbook))->save(Storage::disk('local')->path($path));
+        $workbook->disconnectWorksheets();
+        $import = PriceListImport::factory()->for($supplier, 'supplier')->create([
+            'supplier_import_profile_id' => $profile->id,
+            'profile_snapshot' => $configuration,
+            'file_path' => $path,
+            'original_filename' => 'fixture.xls',
+            'mime_type' => 'application/vnd.ms-excel',
+        ]);
+
+        (new PreparePriceListImport($import))->handle(app(WorkbookReader::class), app(ValueNormalizer::class));
+
+        $this->assertSame(PriceListImportStatus::Completed, $import->fresh()->status);
+        $import->refresh();
+        $this->assertSame(3, $import->valid_rows);
+        $this->assertSame(1, $import->error_rows);
+        $rows = $import->rows()->orderBy('source_row')->get()->keyBy('source_row');
+        foreach ([4 => 12.5, 6 => 2.3, 7 => 15.75] as $sourceRow => $price) {
+            $this->assertSame(PriceListRowDisposition::Valid, $rows[$sourceRow]->disposition);
+            $this->assertSame($price, $rows[$sourceRow]->parsed_values['price']);
+        }
+        $this->assertSame('12,5', $rows[4]->raw_values['price']);
+        $this->assertSame('2,3', $rows[6]->raw_values['price']);
+        $this->assertSame('invalid', $rows[5]->raw_values['price']);
+        $this->assertSame(PriceListRowDisposition::Error, $rows[5]->disposition);
+        $this->assertNull($rows[5]->parsed_values['price']);
+        $this->assertSame(['Цена должна быть положительным числом.'], $rows[5]->errors);
+        $this->assertSame(3, $import->offers()->count());
+        foreach (['Аспирин' => '12.50', 'Парацетамол' => '2.30', 'Амоксициллин' => '15.75'] as $name => $price) {
+            $this->assertDatabaseHas('offers', ['price_list_import_id' => $import->id, 'source_name' => $name, 'price' => $price, 'is_active' => true]);
+        }
+        $this->assertDatabaseMissing('offers', ['price_list_import_id' => $import->id, 'source_name' => 'Ибупрофен']);
     }
 
     public function test_import_stores_expired_dates_and_treats_undetected_dates_as_null(): void
