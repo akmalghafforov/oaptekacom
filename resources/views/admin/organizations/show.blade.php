@@ -8,6 +8,16 @@
 <x-ui.page-header :title="$organization->name" :description="$isProvider ? 'Карточка поставщика.' : 'Карточка аптеки.'">
     <x-slot:actions><div class="flex flex-wrap gap-3"><x-ui.button variant="ghost" :href="route($prefix.'.index')">К каталогу</x-ui.button><x-ui.button :href="route($prefix.'.edit', $organization)">Редактировать</x-ui.button></div></x-slot:actions>
 </x-ui.page-header>
+@if($isProvider)
+<x-ui.card class="mb-6">
+    <p>{{ $organization->price_list_hidden ? 'Прайс-лист временно скрыт' : 'Прайс-лист виден в каталоге и Партнёрах' }}</p>
+    <form method="post" action="{{ route('admin.providers.price-list-visibility.update', $organization) }}" class="mt-3">
+        @csrf <x-mode-version /> @method('PATCH')
+        <input type="hidden" name="price_list_hidden" value="{{ $organization->price_list_hidden ? '0' : '1' }}">
+        <x-ui.button variant="secondary">{{ $organization->price_list_hidden ? 'Восстановить прайс-лист' : 'Скрыть прайс-лист' }}</x-ui.button>
+    </form>
+</x-ui.card>
+@endif
 <div class="grid gap-6 lg:grid-cols-3">
     <x-ui.card class="lg:col-span-2">
         <dl class="grid gap-4 sm:grid-cols-2">

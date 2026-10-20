@@ -124,6 +124,30 @@ class PriceListImportTest extends TestCase
         $this->assertDatabaseHas('offers', ['id' => $oldOffer->id]);
     }
 
+    public function test_activation_while_hidden_preserves_visibility_and_restoration_reveals_latest_offers(): void
+    {
+        $supplier = Organization::factory()->wholesaler()->create();
+        $actor = User::factory()->wholesaler($supplier)->create();
+        $oldImport = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Completed, 'inventory_at' => '2026-09-10']);
+        $medicine = Medicine::factory()->create(['name' => 'Старый', 'normalized_name' => 'старый']);
+        $oldOffer = $oldImport->offers()->create(['organization_id' => $supplier->id, 'medicine_id' => $medicine->id, 'price' => 10, 'stock' => 1, 'quantity' => 1, 'is_active' => true]);
+        $supplier->update(['active_price_list_import_id' => $oldImport->id, 'price_list_hidden' => true]);
+        $newImport = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Preview, 'inventory_at' => '2026-09-11', 'profile_snapshot' => ProfileValidator::defaults(), 'valid_rows' => 1]);
+        PriceListImportRow::create(['price_list_import_id' => $newImport->id, 'source_row' => 4, 'raw_values' => [], 'parsed_values' => ['name' => 'Новый', 'normalized_name' => 'новый', 'normalized_sku' => null, 'sku' => null, 'price' => 20, 'quantity' => null, 'total' => null, 'expiration' => null], 'disposition' => PriceListRowDisposition::Valid, 'planned_action' => PriceListRowAction::Create, 'errors' => [], 'warnings' => []]);
+
+        app(ImportActivator::class)->activate($newImport, $actor);
+
+        $this->assertSame(PriceListImportStatus::Superseded, $oldImport->fresh()->status);
+        $this->assertFalse($oldOffer->fresh()->is_active);
+        $this->assertSame($newImport->id, $supplier->fresh()->active_price_list_import_id);
+        $this->assertTrue($newImport->offers()->first()->is_active);
+        $this->assertDatabaseHas('offers', ['id' => $oldOffer->id]);
+        $this->assertTrue($supplier->fresh()->price_list_hidden);
+        $this->assertSame(0, Offer::query()->currentCatalog()->where('organization_id', $supplier->id)->count());
+        $supplier->update(['price_list_hidden' => false]);
+        $this->assertSame($newImport->offers()->sole()->id, Offer::query()->currentCatalog()->where('organization_id', $supplier->id)->sole()->id);
+    }
+
     public function test_csv_processing_activates_automatically_and_skips_exact_duplicate(): void
     {
         Storage::fake('local');

@@ -16,9 +16,9 @@ class PartnerController extends Controller
     public function index(Request $request): View
     {
         $request->validate(['name' => ['nullable', 'string', 'max:255'], 'city' => ['nullable', 'string', 'max:255']]);
-        $cities = Organization::query()->where('type', OrganizationType::Wholesaler)->where('status', 'active')->whereNotNull('city')->where('city', '!=', '')->distinct()->orderBy('city')->pluck('city');
+        $cities = Organization::query()->where('type', OrganizationType::Wholesaler)->where('status', 'active')->where('price_list_hidden', false)->whereNotNull('city')->where('city', '!=', '')->distinct()->orderBy('city')->pluck('city');
         $suppliers = Organization::query()
-            ->where('type', OrganizationType::Wholesaler)->where('status', 'active')
+            ->where('type', OrganizationType::Wholesaler)->where('status', 'active')->where('price_list_hidden', false)
             ->when($request->filled('name'), fn ($query) => $query->where('name', 'like', '%'.$request->string('name')->toString().'%'))
             ->when($request->filled('city'), fn ($query) => $query->where('city', $request->string('city')->toString()))
             ->with(['senderAddresses' => fn ($query) => $query->orderBy('id')])

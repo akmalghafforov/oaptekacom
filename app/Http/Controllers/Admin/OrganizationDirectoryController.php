@@ -7,6 +7,7 @@ use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UpdateAdminOrganizationRequest;
 use App\Http\Requests\UpdateOrganizationAccountRequest;
+use App\Http\Requests\UpdatePriceListVisibilityRequest;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\AuditLogger;
@@ -55,6 +56,22 @@ class OrganizationDirectoryController extends Controller
     public function updateProvider(UpdateAdminOrganizationRequest $request, Organization $organization, AuditLogger $auditLogger): RedirectResponse
     {
         return $this->update($request, $organization, OrganizationType::Wholesaler, $auditLogger);
+    }
+
+    public function updatePriceListVisibility(UpdatePriceListVisibilityRequest $request, Organization $organization, AuditLogger $auditLogger): RedirectResponse
+    {
+        $this->organizationOfType($organization, OrganizationType::Wholesaler);
+        DB::transaction(function () use ($request, $organization, $auditLogger): void {
+            $supplier = Organization::query()->lockForUpdate()->findOrFail($organization->id);
+            $before = $supplier->only('price_list_hidden');
+            $supplier->fill($request->validated());
+            if ($supplier->isDirty('price_list_hidden')) {
+                $supplier->save();
+                $auditLogger->log('organization.price_list_visibility_updated', $supplier, $before, $supplier->only('price_list_hidden'));
+            }
+        });
+
+        return redirect()->route('admin.providers.show', $organization)->with('success', 'Видимость прайс-листа обновлена.');
     }
 
     public function updatePharmacyAccount(UpdateOrganizationAccountRequest $request, Organization $organization, User $user, AuditLogger $auditLogger): RedirectResponse

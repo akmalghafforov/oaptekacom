@@ -39,11 +39,21 @@ class Offer extends Model
         return $this->hasOne(PriceListImportRow::class);
     }
 
-    public function scopeCurrentCatalog(Builder $query): Builder
+    public function scopeCurrentImport(Builder $query): Builder
     {
         return $query
             ->whereNotNull('price_list_import_id')
             ->whereHas('organization', fn (Builder $query): Builder => $query->whereColumn('organizations.active_price_list_import_id', 'offers.price_list_import_id'));
+    }
+
+    public function scopeCurrentCatalog(Builder $query): Builder
+    {
+        return $query->currentImport()->whereHas('organization', fn (Builder $query): Builder => $query->where('price_list_hidden', false));
+    }
+
+    public function scopeCurrentImportAvailable(Builder $query): Builder
+    {
+        return $query->currentImport()->where(fn (Builder $query): Builder => $query->whereNull('quantity')->orWhere('quantity', '>', 0));
     }
 
     public function scopeCurrentAvailable(Builder $query): Builder

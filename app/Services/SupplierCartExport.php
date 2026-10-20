@@ -18,6 +18,7 @@ class SupplierCartExport
     public function data(User $user, Organization $supplier): array
     {
         abort_unless($user->canBuy(), 403);
+        abort_if($supplier->price_list_hidden, 404);
         $items = CartItem::query()->whereHas('cart', fn ($query) => $query->where('user_id', $user->id))
             ->whereHas('offer', fn ($query) => $query->where('organization_id', $supplier->id))->orderBy('id')->get();
         abort_if($items->isEmpty(), 404);

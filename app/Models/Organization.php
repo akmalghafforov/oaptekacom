@@ -102,6 +102,6 @@ class Organization extends Model
 
     protected function casts(): array
     {
-        return ['subscription_until' => 'datetime', 'type' => OrganizationType::class, 'additional_phones' => 'array', 'setup_required' => 'boolean'];
+        return ['price_list_hidden' => 'boolean', 'subscription_until' => 'datetime', 'type' => OrganizationType::class, 'additional_phones' => 'array', 'setup_required' => 'boolean'];
     }
 }

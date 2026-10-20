@@ -9,9 +9,11 @@ use App\Models\Offer;
 use App\Models\Order;
 use App\Models\Organization;
 use App\Models\PriceListImport;
+use App\Models\ProductCategory;
 use App\Models\Subscription;
 use App\Models\SupplierRequest;
 use App\Models\User;
+use App\Services\CatalogSearchService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
@@ -389,6 +391,87 @@ class SupplierRequestCartTest extends TestCase
             $this->getJson(route('cart.suppliers.'.$format, $supplier))->assertUnauthorized();
         }
         $this->assertDatabaseCount('carts', 0);
+    }
+
+    public function test_hidden_supplier_is_excluded_from_catalog_facets_filters_and_partners(): void
+    {
+        [$user, $supplier, $offer, $visibleOffer] = $this->cartWithTwoSuppliers();
+        $supplier->update(['price_list_hidden' => true, 'city' => 'Скрытый город']);
+        $category = ProductCategory::query()->firstOrFail();
+        $offer->medicine->categories()->sync([$category->id => ['source' => 'test', 'confidence' => 100]]);
+        $visibleOffer->medicine->categories()->sync([$category->id => ['source' => 'test', 'confidence' => 100]]);
+        $catalog = app(CatalogSearchService::class);
+        $this->assertSame(1, $catalog->total([]));
+        $this->assertSame(0, $catalog->total(['suppliers' => [$supplier->id]]));
+        $this->assertSame([$visibleOffer->id], $catalog->search([])->getCollection()->modelKeys());
+        $this->assertSame(1, $catalog->facets([])->first()['count']);
+        $this->assertSame([$visibleOffer->organization_id], $catalog->suppliers([])->pluck('id')->all());
+        $this->assertNotContains('Скрытый город', $catalog->cities([])->pluck('value')->all());
+        $this->actingAs($user)->get(route('catalog'))->assertOk()->assertDontSeeText($supplier->name)->assertDontSeeText('Скрытый город');
+        $this->actingAs($user)->get(route('partners.index'))->assertOk()->assertDontSeeText($supplier->name)->assertDontSeeText('Скрытый город')->assertSeeText($visibleOffer->organization->name);
+        $supplier->update(['price_list_hidden' => false]);
+        $this->assertSame(2, $catalog->total([]));
+    }
+
+    public function test_hidden_supplier_items_are_preserved_but_cannot_be_used_until_restored(): void
+    {
+        config()->set('orders.placement_enabled', true);
+        [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer), ['quantity' => 2]);
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->sole();
+        $supplier->update(['price_list_hidden' => true]);
+
+        $this->actingAs($user)->get(route('cart'))->assertOk()->assertSeeText('Прайс-лист временно скрыт')
+            ->assertDontSee('data-cart-quantity-form', false)->assertDontSee('data-supplier-share ', false);
+        $this->assertDatabaseHas('cart_items', ['id' => $item->id, 'quantity' => 2]);
+        $this->actingAs($user)->patchJson(route('cart.update', $item), ['quantity' => 3])->assertUnprocessable();
+        $this->actingAs($user)->postJson(route('cart.add', $offer))->assertForbidden();
+        $this->actingAs($user)->postJson(route('cart.suppliers.share', $supplier), ['shared_via' => 'clipboard'])->assertNotFound();
+        foreach (['pdf', 'excel'] as $format) {
+            $this->actingAs($user)->get(route('cart.suppliers.'.$format, $supplier))->assertNotFound();
+        }
+        foreach (['checkout', 'archive'] as $action) {
+            $this->actingAs($user)->postJson(route('cart.suppliers.'.$action, $supplier))->assertUnprocessable();
+        }
+        $this->actingAs($user)->postJson(route('cart.checkout'))->assertUnprocessable();
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('supplier_requests', 0);
+        $supplier->update(['price_list_hidden' => false]);
+        $this->actingAs($user)->get(route('cart'))->assertOk()->assertSee('data-cart-quantity-form', false);
+        $this->actingAs($user)->patchJson(route('cart.update', $item), ['quantity' => 3])->assertOk();
+        $supplier->update(['price_list_hidden' => true]);
+        $this->actingAs($user)->delete(route('cart.items.destroy', $item))->assertRedirect();
+        $this->assertDatabaseMissing('cart_items', ['id' => $item->id]);
+    }
+
+    public function test_mixed_cart_totals_sharing_and_bulk_checkout_only_include_visible_suppliers(): void
+    {
+        config()->set('orders.placement_enabled', true);
+        [$user, $supplier, $offer, $visibleOffer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer), ['quantity' => 2]);
+        $this->actingAs($user)->post(route('cart.add', $visibleOffer));
+        $supplier->update(['price_list_hidden' => true]);
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->where('offer_id', $visibleOffer->id)->sole();
+
+        $response = $this->actingAs($user)->patchJson(route('cart.update', $item), ['quantity' => 2])->assertOk()->assertJsonPath('cart.total', '30.00');
+        $this->assertStringNotContainsString('Первый товар', $response->json('cart.share_text'));
+        $this->assertStringContainsString('Второй товар', $response->json('cart.share_text'));
+        $this->actingAs($user)->get(route('cart'))->assertOk()->assertViewHas('supplierGroups', fn ($groups) => $groups->count() === 2);
+        $this->actingAs($user)->post(route('cart.checkout'))->assertRedirect(route('orders.index'));
+        $this->assertSame($visibleOffer->organization_id, Order::query()->sole()->supplier_organization_id);
+        $this->assertSame('30.00', Order::query()->sole()->total);
+        $this->assertDatabaseHas('cart_items', ['offer_id' => $offer->id]);
+        $this->assertDatabaseMissing('cart_items', ['offer_id' => $visibleOffer->id]);
+    }
+
+    public function test_hidden_cart_items_still_become_stale_when_the_import_is_replaced(): void
+    {
+        [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
+        $this->actingAs($user)->post(route('cart.add', $offer));
+        $supplier->update(['price_list_hidden' => true]);
+        $this->activeImport($supplier);
+        $this->actingAs($user)->get(route('cart'))->assertOk()->assertSeeText('Устаревшие позиции удалены');
+        $this->assertDatabaseMissing('cart_items', ['offer_id' => $offer->id]);
     }
 
     /** @return array{User, Organization, Offer, Offer} */

@@ -139,6 +139,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::post('/pharmacies/{organization}/archive', [OrganizationDirectoryController::class, 'archivePharmacy'])->name('admin.pharmacies.archive');
         Route::get('/providers', [OrganizationDirectoryController::class, 'providers'])->name('admin.providers.index');
         Route::get('/providers/{organization}', [OrganizationDirectoryController::class, 'showProvider'])->name('admin.providers.show');
+        Route::patch('/providers/{organization}/price-list-visibility', [OrganizationDirectoryController::class, 'updatePriceListVisibility'])->name('admin.providers.price-list-visibility.update');
         Route::get('/providers/{organization}/edit', [OrganizationDirectoryController::class, 'editProvider'])->name('admin.providers.edit');
         Route::patch('/providers/{organization}', [OrganizationDirectoryController::class, 'updateProvider'])->name('admin.providers.update');
         Route::patch('/providers/{organization}/accounts/{user}', [OrganizationDirectoryController::class, 'updateProviderAccount'])->name('admin.providers.accounts.update');

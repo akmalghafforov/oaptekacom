@@ -20,8 +20,8 @@ class CatalogController extends Controller
 
         return view('catalog.index', [
             'categories' => ProductCategory::query()->where('is_active', true)->orderBy('sort_order')->get(),
-            'cities' => Organization::query()->whereNotNull('city')->where('city', '<>', '')->distinct()->orderBy('city')->pluck('city'),
-            'suppliers' => Organization::query()->whereNotNull('active_price_list_import_id')->orderBy('name')->get(['id', 'name', 'city']),
+            'cities' => Organization::query()->where('price_list_hidden', false)->whereNotNull('city')->where('city', '<>', '')->distinct()->orderBy('city')->pluck('city'),
+            'suppliers' => Organization::query()->where('price_list_hidden', false)->whereNotNull('active_price_list_import_id')->orderBy('name')->get(['id', 'name', 'city']),
             'canBuy' => $canBuy,
             'cartTotal' => $cartTotal,
         ]);

@@ -31,7 +31,7 @@ class CartController extends Controller
     {
         abort_unless($request->user()->canBuy(), 403);
         $cart = $this->cart($request);
-        $removed = $cart->items()->whereDoesntHave('offer', fn ($query) => $query->currentAvailable())->delete();
+        $removed = $cart->items()->whereDoesntHave('offer', fn ($query) => $query->currentImportAvailable())->delete();
 
         $cart->load('items.offer.medicine', 'items.offer.organization');
         $supplierGroups = $cart->items
@@ -105,9 +105,10 @@ class CartController extends Controller
             $cartItems = $item->cart->items()->with('offer.organization')->get();
             $supplierItems = $cartItems->filter(fn (CartItem $cartItem): bool => $cartItem->offer->organization_id === $item->offer->organization_id);
             $supplierTotal = $this->totalFor($supplierItems, $supplierDiscountPrice);
-            $cartTotal = $this->totalFor($cartItems, $supplierDiscountPrice);
+            $sendableItems = $cartItems->filter(fn (CartItem $cartItem): bool => ! $cartItem->offer->organization->price_list_hidden);
+            $cartTotal = $this->totalFor($sendableItems, $supplierDiscountPrice);
             $supplierShareText = "Заявка OAPTEKA\nПоставщик: {$item->offer->organization->name}\n".$supplierItems->map(fn (CartItem $cartItem): string => "{$cartItem->snapshot['medicine']} — {$cartItem->quantity} × {$cartItem->unit_price} TJS")->implode("\n")."\nИтого: {$supplierTotal} TJS";
-            $allShareText = "Заявки OAPTEKA\n".$cartItems->groupBy(fn (CartItem $cartItem): int => $cartItem->offer->organization_id)->map(function ($items) use ($supplierDiscountPrice): string {
+            $allShareText = "Заявки OAPTEKA\n".$sendableItems->groupBy(fn (CartItem $cartItem): int => $cartItem->offer->organization_id)->map(function ($items) use ($supplierDiscountPrice): string {
                 $total = $this->totalFor($items, $supplierDiscountPrice);
 
                 return $items->first()->offer->organization->name."\n".$items->map(fn (CartItem $cartItem): string => "{$cartItem->snapshot['medicine']} — {$cartItem->quantity} × {$cartItem->unit_price} TJS")->implode("\n")."\nИтого: {$total} TJS";
@@ -189,6 +190,7 @@ class CartController extends Controller
     public function shareSupplier(Organization $supplier, Request $request): RedirectResponse|JsonResponse
     {
         abort_unless($request->user()->canBuy(), 403);
+        abort_if($supplier->price_list_hidden, 404);
         $request->validate(['shared_via' => 'required|in:native,clipboard']);
         $cart = $this->cart($request);
         abort_if($this->supplierItems($cart, $supplier)->doesntExist(), 404);
@@ -247,7 +249,8 @@ class CartController extends Controller
             return redirect()->route('cart')->with('warning', 'Оформление заказов временно недоступно. Вы можете поделиться заявкой.');
         }
 
-        $cart = $this->cart($request)->load('items.offer');
+        $cart = $this->cart($request)->load('items.offer.organization');
+        $cart->setRelation('items', $cart->items->filter(fn (CartItem $item): bool => ! $item->offer->organization->price_list_hidden));
         abort_if($cart->items->isEmpty(), 422);
         DB::transaction(function () use ($cart, $request, $supplierDiscountPrice): void {
             $this->validateCurrentItems($cart->items);
@@ -262,7 +265,7 @@ class CartController extends Controller
                     OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'medicine_id' => $cartItem->offer->medicine_id, 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
                 }
             }
-            $cart->items()->delete();
+            CartItem::query()->whereKey($cart->items->modelKeys())->delete();
         });
 
         return redirect()->route('orders.index')->with('success', 'Заказы переданы поставщикам.');

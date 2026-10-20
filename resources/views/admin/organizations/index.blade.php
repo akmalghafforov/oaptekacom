@@ -37,7 +37,7 @@
             <th class="text-right">Действие</th>
         </tr></thead>
         <tbody>@forelse($organizations as $organization)<tr>
-            <td class="font-medium">{{ $organization->name }}</td>
+            <td class="font-medium">{{ $organization->name }}@if($type === \App\Enums\OrganizationType::Wholesaler && $organization->price_list_hidden)<p class="text-sm text-muted">Прайс-лист временно скрыт</p>@endif</td>
             <td>{{ $organization->city ?: '—' }}<span class="mt-1 block text-sm text-muted">{{ $organization->phone ?: '—' }}</span></td>
             <td><x-ui.status-badge :status="$organization->status" /></td>
             @if($isProvider)<td>{{ $organization->supplier_mode === 'both' ? 'Покупатель и поставщик' : 'Поставщик' }}</td>@endif
