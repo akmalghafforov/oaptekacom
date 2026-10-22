@@ -4,6 +4,13 @@ namespace App\Services;
 
 class SupplierDiscountPrice
 {
+    public function selectedPercent(?string $agreedPercent, string $defaultPercent): string
+    {
+        return bccomp($agreedPercent ?? '0', $defaultPercent, 2) >= 0
+            ? bcadd($agreedPercent ?? '0', '0', 2)
+            : bcadd($defaultPercent, '0', 2);
+    }
+
     public function effectivePrice(string $price, ?string $supplierDiscountPercent): string
     {
         if ($supplierDiscountPercent === null || bccomp($supplierDiscountPercent, '0', 2) === 0) {

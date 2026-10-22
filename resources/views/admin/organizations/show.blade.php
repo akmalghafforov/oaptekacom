@@ -25,7 +25,7 @@
             <div><dt class="text-sm text-muted">Создана</dt><dd class="mt-1 font-medium">{{ $organization->created_at->format('d.m.Y H:i') }}</dd></div>
             <div><dt class="text-sm text-muted">Город</dt><dd class="mt-1 font-medium">{{ $organization->city ?: '—' }}</dd></div>
             <div><dt class="text-sm text-muted">Телефон организации</dt><dd class="mt-1 font-medium">{{ $organization->phone ?: '—' }}</dd></div>
-            @if($isProvider)<div><dt class="text-sm text-muted">Минимальный заказ</dt><dd class="mt-1 font-medium">{{ $organization->minimum_order }}</dd></div><div class="sm:col-span-2"><dt class="text-sm text-muted">Условия доставки</dt><dd class="mt-1 whitespace-pre-line font-medium">{{ $organization->delivery_conditions ?: '—' }}</dd></div>@endif
+            @if($isProvider)<div><dt class="text-sm text-muted">Скидка поставщика по умолчанию</dt><dd class="mt-1 font-medium">{{ $organization->default_discount_percent }}%</dd></div><div><dt class="text-sm text-muted">Минимальный заказ</dt><dd class="mt-1 font-medium">{{ $organization->minimum_order }}</dd></div><div class="sm:col-span-2"><dt class="text-sm text-muted">Условия доставки</dt><dd class="mt-1 whitespace-pre-line font-medium">{{ $organization->delivery_conditions ?: '—' }}</dd></div>@endif
         </dl>
     </x-ui.card>
     @if($isProvider)<x-ui.card><h2 class="text-lg font-bold">Импорт прайс-листа</h2><p class="mt-1 text-sm text-muted">Настройте профиль и формат входящих прайс-листов.</p><x-ui.button class="mt-4" variant="secondary" :href="route('admin.supplier-import-profiles.edit', $organization)">Открыть профиль</x-ui.button></x-ui.card>@endif

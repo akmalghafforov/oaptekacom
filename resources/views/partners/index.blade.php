@@ -33,6 +33,7 @@
 @forelse($suppliers as $supplier)
     @php
         $discount = $discounts->get($supplier->id);
+        $effectiveDiscount = app(\App\Services\SupplierDiscountPrice::class)->selectedPercent($discount?->supplier_discount_percent, $supplier->default_discount_percent);
         $activeImport = $supplier->activePriceListImport;
         $activeImportUpdatedAt = $activeImport?->activated_at;
         $email = $supplier->contact_email ?: $supplier->senderAddresses->first()?->email;
@@ -58,8 +59,9 @@
                         <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ $supplier->has_available_catalog ? 'bg-accent-surface text-accent ring-success-border' : 'bg-surface-hover text-secondary ring-border' }}">
                             {{ $supplier->has_available_catalog ? 'Прайс доступен' : 'Прайс недоступен' }}
                         </span>
+                        <span class="text-xs text-muted">Скидка по умолчанию {{ $supplier->default_discount_percent }}% · Применяется {{ $effectiveDiscount }}%</span>
                         @if($discount)
-                            <span class="inline-flex rounded-full bg-warning-surface px-2.5 py-1 text-xs font-semibold text-warning-strong ring-1 ring-inset ring-warning-border">Ваша скидка {{ $discount->supplier_discount_percent }}%</span>
+                            <span class="inline-flex rounded-full bg-warning-surface px-2.5 py-1 text-xs font-semibold text-warning-strong ring-1 ring-inset ring-warning-border">Согласованная скидка {{ $discount->supplier_discount_percent }}%</span>
                         @endif
                     </div>
                 </div>
@@ -131,7 +133,8 @@
                 @csrf <x-mode-version />
                 @method('PATCH')
                 <input type="hidden" name="supplier_id" value="{{ $supplier->id }}">
-                <x-ui.input id="supplier-discount-percent-{{ $supplier->id }}" name="supplier_discount_percent" type="number" min="0" max="100" step="0.01" label="Ваша скидка от поставщика, %" :value="old('supplier_discount_percent', $discount?->supplier_discount_percent)" hint="Оставьте поле пустым, чтобы удалить договорённость." />
+                <p class="text-sm text-muted">Скидка по умолчанию: {{ $supplier->default_discount_percent }}%. Согласованная: {{ $discount?->supplier_discount_percent ?? '—' }}{{ $discount ? '%' : '' }}. Применяется: {{ $effectiveDiscount }}%.</p>
+                <x-ui.input id="supplier-discount-percent-{{ $supplier->id }}" name="supplier_discount_percent" type="number" min="0" max="100" step="0.01" label="Согласованная скидка от поставщика, %" :value="old('supplier_discount_percent', $discount?->supplier_discount_percent)" hint="Применяется большая из двух скидок к текущей цене, включая акционную. Пустое поле удаляет договорённость и возвращает скидку по умолчанию. Скидка 0% не отменяет скидку поставщика." />
                 <x-ui.button>Сохранить скидку</x-ui.button>
             </form>
         </div>

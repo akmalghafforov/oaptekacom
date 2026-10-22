@@ -65,6 +65,9 @@ class CartController extends Controller
                     ->where('supplier_organization_id', $offer->organization_id)
                     ->value('supplier_discount_percent')
                 : null;
+            if ($request->user()->isPharmacyMode()) {
+                $supplierDiscountPercent = $supplierDiscountPrice->selectedPercent($supplierDiscountPercent, (string) $offer->organization->default_discount_percent);
+            }
             $unitPrice = $supplierDiscountPrice->effectivePrice((string) $offer->price, $supplierDiscountPercent);
 
             $cartItem->unit_price = $unitPrice;

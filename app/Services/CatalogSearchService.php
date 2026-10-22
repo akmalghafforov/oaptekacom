@@ -99,12 +99,13 @@ class CatalogSearchService
 
         return Offer::query()
             ->select('offers.*')
+            ->join('organizations as discount_suppliers', 'discount_suppliers.id', '=', 'offers.organization_id')
             ->when($pharmacyOrganizationId !== null, fn (Builder $query): Builder => $query->leftJoin('pharmacy_supplier_discounts', function ($join) use ($pharmacyOrganizationId): void {
                 $join->on('pharmacy_supplier_discounts.supplier_organization_id', '=', 'offers.organization_id')
                     ->where('pharmacy_supplier_discounts.pharmacy_organization_id', '=', $pharmacyOrganizationId);
             }))
             ->selectRaw($effectivePrice.' as effective_price')
-            ->selectRaw($pharmacyOrganizationId !== null ? 'pharmacy_supplier_discounts.supplier_discount_percent as applied_supplier_discount_percent' : 'NULL as applied_supplier_discount_percent')
+            ->selectRaw($pharmacyOrganizationId !== null ? $this->discountPercentExpression().' as applied_supplier_discount_percent' : 'NULL as applied_supplier_discount_percent')
             ->currentCatalog()
             ->when(($filters['q'] ?? '') !== '', function (Builder $query) use ($filters): void {
                 $query->joinSub($this->matchingMedicines($filters), 'matched_medicines', 'matched_medicines.id', '=', 'offers.medicine_id');
@@ -173,12 +174,17 @@ class CatalogSearchService
         return ['instr(medicines.search_text, ?) '.($substring ? '> 0' : '= 1'), [$search]];
     }
 
+    private function discountPercentExpression(): string
+    {
+        return 'CASE WHEN COALESCE(pharmacy_supplier_discounts.supplier_discount_percent, 0.00) > discount_suppliers.default_discount_percent THEN pharmacy_supplier_discounts.supplier_discount_percent ELSE discount_suppliers.default_discount_percent END';
+    }
+
     private function effectivePriceExpression(bool $hasPharmacyContext): string
     {
         if (! $hasPharmacyContext) {
             return 'offers.price';
         }
 
-        return 'CAST(FLOOR(offers.price * (100.00 - COALESCE(pharmacy_supplier_discounts.supplier_discount_percent, 0.00))) / 100.00 AS NUMERIC)';
+        return 'CAST(FLOOR(ROUND(offers.price * 100) * (10000 - ROUND(('.$this->discountPercentExpression().') * 100)) / 10000.00) / 100.00 AS NUMERIC)';
     }
 }

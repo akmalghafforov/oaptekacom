@@ -148,7 +148,7 @@ class PartnersTest extends TestCase
             ->assertOk()
             ->assertSeeTextInOrder([
                 'Я Свежий поставщик',
-                'Ваша скидка 12.50%',
+                'Согласованная скидка 12.50%',
                 'Б Старый поставщик',
                 'Г Созданный поставщик',
                 'Время активации не указано',
@@ -156,14 +156,14 @@ class PartnersTest extends TestCase
             ->assertSeeTextInOrder(['Г Созданный поставщик', 'А Неактивный прайс'])
             ->assertSeeTextInOrder(['Г Созданный поставщик', 'В Без прайса'])
             ->assertSee('value="12.50"', false)
-            ->assertDontSeeText('Ваша скидка 7.25%');
+            ->assertDontSeeText('Согласованная скидка 7.25%');
 
         $this->actingAs($otherUser)->get(route('partners.index'))
             ->assertOk()
-            ->assertSeeTextInOrder(['Я Свежий поставщик', 'Ваша скидка 7.25%', 'Б Старый поставщик', 'Г Созданный поставщик'])
+            ->assertSeeTextInOrder(['Я Свежий поставщик', 'Согласованная скидка 7.25%', 'Б Старый поставщик', 'Г Созданный поставщик'])
             ->assertSee('value="7.25"', false)
             ->assertDontSee('value="12.50"', false)
-            ->assertDontSeeText('Ваша скидка 12.50%');
+            ->assertDontSeeText('Согласованная скидка 12.50%');
     }
 
     public function test_directory_only_creates_links_for_valid_contact_values(): void
@@ -211,10 +211,10 @@ class PartnersTest extends TestCase
 
         $this->assertDatabaseHas('pharmacy_supplier_discounts', ['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => 0]);
         $this->assertDatabaseHas('pharmacy_supplier_discounts', ['pharmacy_organization_id' => $other->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => 40]);
-        $this->actingAs($user)->get(route('partners.index'))->assertSeeText('Ваша скидка от поставщика, %')->assertSeeText('Оставьте поле пустым, чтобы удалить договорённость.');
+        $this->actingAs($user)->get(route('partners.index'))->assertSeeText('Согласованная скидка от поставщика, %')->assertSeeText('Пустое поле удаляет договорённость и возвращает скидку по умолчанию.');
         $this->actingAs($otherUser)->get(route('partners.index'))
             ->assertSee('value="40.00"', false)
-            ->assertSeeText('Ваша скидка 40.00%')
+            ->assertSeeText('Согласованная скидка 40.00%')
             ->assertDontSee('add-partner', false);
     }
 

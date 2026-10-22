@@ -32,6 +32,9 @@ class UpdateAdminOrganizationRequest extends FormRequest
             'city' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'regex:/^\\+992\\d{9}$/', Rule::unique('organizations')->where('type', $organization->type->value)->ignore($organization)],
             'status' => ['required', Rule::in(['pending', 'active', 'blocked'])],
+            'default_discount_percent' => $organization->type === OrganizationType::Wholesaler
+                ? ['sometimes', 'nullable', 'numeric', 'between:0,100', 'decimal:0,2']
+                : ['missing'],
             'minimum_order' => [Rule::requiredIf($organization->type === OrganizationType::Wholesaler), 'nullable', 'numeric', 'min:0'],
             'delivery_conditions' => ['nullable', 'string', 'max:5000'],
             'contact_name' => ['nullable', 'string', 'max:255'],

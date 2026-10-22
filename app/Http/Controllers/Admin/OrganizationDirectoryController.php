@@ -149,8 +149,11 @@ class OrganizationDirectoryController extends Controller
     private function update(UpdateAdminOrganizationRequest $request, Organization $organization, OrganizationType $type, AuditLogger $auditLogger): RedirectResponse
     {
         $organization = $this->organizationOfType($organization, $type);
-        $before = $organization->only(['name', 'city', 'phone', 'status', 'supplier_mode', 'minimum_order', 'delivery_conditions', 'contact_name', 'contact_email', 'whatsapp_phone', 'additional_phones']);
+        $before = $organization->only(['name', 'city', 'phone', 'status', 'supplier_mode', 'default_discount_percent', 'minimum_order', 'delivery_conditions', 'contact_name', 'contact_email', 'whatsapp_phone', 'additional_phones']);
         $data = $request->validated();
+        if (array_key_exists('default_discount_percent', $data)) {
+            $data['default_discount_percent'] ??= '0.00';
+        }
         if ($type === OrganizationType::Wholesaler) {
             $data['additional_phones'] = array_values(array_unique(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $data['additional_phones'] ?? '')))));
         } else {
