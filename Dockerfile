@@ -1,4 +1,4 @@
-FROM php:8.4-fpm-alpine AS development
+FROM php:8.4.27-fpm-alpine AS development
 RUN apk add --no-cache postgresql-dev libzip-dev oniguruma-dev freetype-dev libjpeg-turbo-dev libpng-dev $PHPIZE_DEPS \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install pdo_pgsql zip mbstring bcmath opcache gd
@@ -11,7 +11,7 @@ RUN mkdir -p storage/app/private storage/framework/{cache,sessions,views} bootst
     && chown -R www-data:www-data storage bootstrap/cache
 CMD ["php-fpm"]
 
-FROM php:8.4-fpm-alpine AS production
+FROM php:8.4.27-fpm-alpine AS production
 RUN apk add --no-cache postgresql-dev libzip-dev oniguruma-dev libxml2-dev freetype-dev libjpeg-turbo-dev libpng-dev $PHPIZE_DEPS \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install pdo_pgsql zip mbstring bcmath opcache gd pcntl dom simplexml xml xmlreader xmlwriter
