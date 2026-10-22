@@ -491,7 +491,7 @@ class CatalogSearchTest extends TestCase
         $offer->medicine->categories()->sync([$category->id => ['source' => 'test', 'confidence' => 100]]);
         $oldImport = PriceListImport::factory()->for($supplier, 'supplier')->create(['status' => PriceListImportStatus::Superseded]);
         $this->offer($supplier, $oldImport, 'Old', 'амлозопин', 10, 1);
-        $filters = ['q' => 'амлозипин', 'substring_match' => 1, 'view' => 'list', 'category' => $category->id, 'cities' => ['Душанбе'], 'suppliers' => [$supplier->id], 'min_price' => 5, 'max_price' => 15];
+        $filters = ['q' => 'амлозипин', 'substring_match' => 1, 'view' => 'list', 'category' => $category->id, 'cities' => ['Душанбе'], 'suppliers' => [$supplier->id], 'min_price' => 5, 'min_price' => 0, 'max_price' => 15];
 
         $response = $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', $filters))
             ->assertOk()->assertJsonPath('pagination.total', 1)->assertJsonPath('facets.categories.0.count', 1);
@@ -529,6 +529,58 @@ class CatalogSearchTest extends TestCase
         $cursor = (new Cursor(['effective_price' => 10, 'id' => 1]))->encode();
         $this->actingAs($this->pharmacyUser())->getJson(route('catalog.search', ['q' => 'abcde', 'cursor' => $cursor]))
             ->assertUnprocessable()->assertJsonValidationErrors('cursor');
+    }
+
+    public function test_html_search_renders_results_and_preserves_options_in_form_and_cursor_links(): void
+    {
+        config(['catalog.page_size' => 1]);
+        [$supplier, $import] = $this->activeImport();
+        $first = $this->offer($supplier, $import, 'Первый аспирин', 'аспирин первый', 10, 1);
+        $second = $this->offer($supplier, $import, 'Второй аспирин', 'аспирин второй', 20, 2);
+        $first->medicine->update(['form' => 'Таблетки']);
+        $second->medicine->update(['form' => 'Таблетки']);
+        $filters = ['q' => 'аспирин', 'cities' => ['Душанбе'], 'suppliers' => [$supplier->id], 'form' => 'Таблетки', 'min_price' => 0, 'max_price' => 50, 'substring_match' => 1, 'sort' => 'price_asc', 'view' => 'grid'];
+
+        $response = $this->actingAs($this->pharmacyUser())->get(route('catalog.search', $filters));
+
+        $response->assertOk()->assertViewIs('catalog.index')->assertSee('Первый')->assertDontSee('Второй');
+        $document = new \DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new \DOMXPath($document);
+        $form = $xpath->query('//form[@id="catalog-search-form"]')->item(0);
+        $this->assertSame('GET', $form->getAttribute('method'));
+        $this->assertSame(route('catalog.search'), $form->getAttribute('action'));
+        foreach (['form' => 'Таблетки', 'min_price' => '0', 'max_price' => '50', 'cities[]' => 'Душанбе', 'suppliers[]' => (string) $supplier->id, 'view' => 'grid'] as $name => $value) {
+            $this->assertSame($value, $xpath->query('//form[@id="catalog-search-form"]/input[@name="'.$name.'"]')->item(0)->getAttribute('value'));
+        }
+        $this->assertSame(0, $xpath->query('//input[@type="hidden" and (@name="q" or @name="substring_match" or @name="cursor")]')->length);
+        $link = $xpath->query('//div[@data-catalog-fallback]//a[contains(@href, "cursor=")]')->item(0)->getAttribute('href');
+        parse_str(parse_url($link, PHP_URL_QUERY), $parameters);
+        $this->assertSame('аспирин', $parameters['q']);
+        $this->assertSame('Таблетки', $parameters['form']);
+        $this->assertSame(['Душанбе'], $parameters['cities']);
+        $this->get($link)->assertOk()->assertSee('Второй')->assertDontSee('Первый');
+    }
+
+    public function test_html_empty_query_keeps_filters_and_renders_empty_state(): void
+    {
+        [$supplier, $import] = $this->activeImport();
+        $this->offer($supplier, $import, 'Доступный товар', 'доступный товар', 10, 1);
+        $this->actingAs($this->pharmacyUser());
+
+        $this->get(route('catalog.search', ['q' => '   ', 'suppliers' => [$supplier->id], 'min_price' => 0, 'max_price' => 15]))
+            ->assertOk()->assertSee('Доступный товар');
+        $this->get(route('catalog.search', ['q' => '', 'suppliers' => [$supplier->id], 'min_price' => 15]))
+            ->assertOk()->assertSee('Предложений не найдено')->assertDontSee('Доступный товар');
+    }
+
+    public function test_html_short_query_redirects_with_visible_validation_feedback(): void
+    {
+        $this->actingAs($this->pharmacyUser());
+        $response = $this->from(route('catalog'))->get(route('catalog.search', ['q' => 'аб']));
+
+        $response->assertRedirect(route('catalog'));
+        $this->get(route('catalog'))->assertSee('Введите минимум 3 символа.');
     }
 
     private function pharmacyUser(): User

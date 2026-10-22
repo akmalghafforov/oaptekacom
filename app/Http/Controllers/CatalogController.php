@@ -27,7 +27,7 @@ class CatalogController extends Controller
         ]);
     }
 
-    public function search(CatalogSearchRequest $request, CatalogSearchService $catalogSearch): JsonResponse
+    public function search(CatalogSearchRequest $request, CatalogSearchService $catalogSearch): JsonResponse|View
     {
         $filters = $request->validated();
         $pharmacyOrganizationId = $request->user()->isPharmacyMode() ? $request->user()->activeOrganizationId() : null;
@@ -46,6 +46,15 @@ class CatalogController extends Controller
             ? (int) CartItem::query()->whereHas('cart', fn ($query) => $query->where('user_id', $request->user()->id))->sum('quantity')
             : 0;
         $viewData = ['searchTerm' => $filters['q'] ?? '', 'offers' => $offers->getCollection(), 'cartQuantities' => $cartQuantities, 'cartItemIds' => $cartItemIds, 'canBuy' => $request->user()->canBuy()];
+        if (! $request->expectsJson()) {
+            $offers->appends($request->safe()->except('cursor'));
+
+            return $this->index($request)->with($viewData + [
+                'fallbackOffers' => $offers,
+                'fallbackView' => $view,
+            ]);
+        }
+
         $cards = view('catalog.partials.offer-cards', $viewData + ['layout' => $view])->render();
         $rows = $view === 'list' ? view('catalog.partials.offer-table-rows', $viewData)->render() : null;
         $mobileRows = $view === 'list' ? view('catalog.partials.offer-mobile-rows', $viewData)->render() : null;

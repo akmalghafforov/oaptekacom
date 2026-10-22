@@ -11,8 +11,15 @@
                 <p class="mt-1 max-w-2xl text-sm text-muted ">Сравнивайте цены и сроки годности в актуальных прайс-листах поставщиков.</p>
             </div>
         </div>
-        <form id="catalog-search-form" data-catalog-form class="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
-            <x-ui.search-input name="q" label="Название лекарства" :value="request('q')" placeholder="Название товара/" autocomplete="off" />
+        <form id="catalog-search-form" method="GET" action="{{ route('catalog.search') }}" data-catalog-form class="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2">
+            @foreach(request()->only(['category', 'cities', 'suppliers', 'city', 'supplier', 'sort', 'form', 'min_price', 'max_price', 'view']) as $key => $value)
+                @foreach(is_array($value) ? $value : [$value] as $item)
+                    @if(is_scalar($item))
+                        <input type="hidden" name="{{ $key }}{{ is_array($value) ? '[]' : '' }}" value="{{ $item }}">
+                    @endif
+                @endforeach
+            @endforeach
+            <x-ui.search-input name="q" label="Название лекарства" :value="old('q', request('q'))" placeholder="Название товара/" autocomplete="off" />
             <x-ui.button type="button" variant="secondary" class="min-h-12 gap-2 px-3 sm:px-4" data-filter-open aria-label="Фильтры">
                 <svg class="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
                 <span class="hidden sm:inline">Фильтры</span>
@@ -86,6 +93,28 @@
             <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
         </x-ui.button>
     </template>
+    @isset($fallbackOffers)
+        <div data-catalog-fallback>
+            @if($fallbackOffers->isEmpty())
+                <x-ui.empty-state title="Предложений не найдено" description="Измените запрос или фильтры." />
+            @elseif($fallbackView === 'suppliers')
+                @include('catalog.partials.supplier-cards')
+            @elseif($fallbackView === 'grid')
+                <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">@include('catalog.partials.offer-cards', ['layout' => 'grid'])</div>
+            @else
+                <div class="mobile-catalog-results lg:hidden">@include('catalog.partials.offer-mobile-rows')</div>
+                <div class="table-wrap hidden lg:block"><table class="data-table"><thead><tr><th>Товар</th><th>Производитель</th><th>Срок</th><th>Поставщик</th><th>Цена</th><th>Заказ</th></tr></thead><tbody>@include('catalog.partials.offer-table-rows')</tbody></table></div>
+            @endif
+            <div class="mt-6 flex justify-between gap-3">
+                @if($fallbackOffers->previousPageUrl())
+                    <x-ui.button :href="$fallbackOffers->previousPageUrl()" variant="secondary">Назад</x-ui.button>
+                @endif
+                @if($fallbackOffers->nextPageUrl())
+                    <x-ui.button :href="$fallbackOffers->nextPageUrl()" variant="secondary">Загрузить ещё</x-ui.button>
+                @endif
+            </div>
+        </div>
+    @endisset
     <section aria-busy="false" data-catalog-region><div class="sr-only" aria-live="polite" data-catalog-announcer></div><div class="mb-3 flex items-center justify-between gap-3"><h2 class="text-lg font-bold">Предложения</h2><p data-result-count class="text-sm text-muted"></p></div><div data-catalog-state></div>
         <div data-list-view class="hidden"><div data-catalog-mobile-rows class="mobile-catalog-results lg:hidden"></div><div class="table-wrap hidden lg:block"><table class="data-table"><thead><tr><th>Товар</th><th>Производитель</th><th>Срок</th><th>Поставщик</th><th>Цена</th><th>Заказ</th></tr></thead><tbody data-catalog-table></tbody></table></div><div data-catalog-cards class="hidden"></div></div>
         <div data-grid-view class="hidden"><div data-catalog-grid class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"></div></div>

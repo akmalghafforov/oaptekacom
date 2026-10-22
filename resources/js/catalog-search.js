@@ -1,18 +1,26 @@
-const FILTER_KEYS = ['q', 'substring_match', 'category', 'sort', 'cities', 'suppliers'];
+const FILTER_KEYS = ['q', 'substring_match', 'category', 'sort', 'cities', 'suppliers', 'form', 'min_price', 'max_price'];
 const VALID_VIEWS = ['list', 'grid', 'suppliers'];
+
+const catalogArrayFromUrl = (url, key, alias) => {
+    const values = [...url.searchParams].filter(([name]) => name === `${key}[]` || new RegExp(`^${key}\\[\\d+\\]$`).test(name)).map(([, value]) => value);
+    return values.length ? values : [url.searchParams.get(alias)].filter(Boolean);
+};
 
 export const catalogFiltersFromUrl = (url) => ({
     q: url.searchParams.get('q') ?? '',
     substring_match: url.searchParams.get('substring_match') ?? '',
     category: url.searchParams.get('category') ?? '',
     sort: url.searchParams.get('sort') ?? 'price_asc',
-    cities: url.searchParams.getAll('cities[]'),
-    suppliers: url.searchParams.getAll('suppliers[]'),
+    form: url.searchParams.get('form') ?? '',
+    min_price: url.searchParams.get('min_price') ?? '',
+    max_price: url.searchParams.get('max_price') ?? '',
+    cities: catalogArrayFromUrl(url, 'cities', 'city'),
+    suppliers: catalogArrayFromUrl(url, 'suppliers', 'supplier'),
 });
 
 export const catalogUrl = (url, filters) => {
     const output = new URL(url);
-    [...output.searchParams.keys()].filter((key) => FILTER_KEYS.includes(key.replace('[]', ''))).forEach((key) => output.searchParams.delete(key));
+    [...output.searchParams.keys()].filter((key) => [...FILTER_KEYS, 'cursor', 'city', 'supplier'].includes(key.replace(/\[.*\]$/, ''))).forEach((key) => output.searchParams.delete(key));
     Object.entries(filters).forEach(([key, value]) => {
         if (key === 'sort' && value === 'price_asc') return;
         if (key === 'substring_match' && String(value) !== '1' && value !== true) return;
@@ -171,25 +179,41 @@ export class CatalogSearchController {
         this.abortController = null;
         this.generation = 0;
         this.lastFailedMode = null;
+        this.debounceTimer = null;
     }
 
     restore(filters, view = this.view) {
         this.filters = this.normalizeFilters(filters);
         this.view = VALID_VIEWS.includes(view) ? view : 'list';
         this.resetRequest();
-        this.onFilters(this.filters, false);
-        return this.request(false);
+        this.onFilters(this.filters, false, true);
+        return this.commit(false);
     }
 
     setDraftQuery(value) {
+        this.resetRequest();
         this.filters.q = value.trim();
         if (!this.filters.q) delete this.filters.q;
         this.onFilters(this.filters, false);
     }
 
+    input(query) {
+        this.setDraftQuery(query);
+        this.onData({}, false);
+        if (this.filters.q && [...this.filters.q].length < 3) {
+            this.onState('invalid');
+            return;
+        }
+        this.onState('debouncing');
+        this.debounceTimer = setTimeout(() => {
+            this.debounceTimer = null;
+            this.submit(query);
+        }, 500);
+    }
+
     submit(query = this.filters.q ?? '') {
         this.setDraftQuery(query);
-        if (this.filters.q && this.filters.q.length < 3) {
+        if (this.filters.q && [...this.filters.q].length < 3) {
             this.resetRequest();
             this.onData({}, false);
             this.onState('invalid');
@@ -225,11 +249,16 @@ export class CatalogSearchController {
     setView(view) {
         if (!VALID_VIEWS.includes(view) || view === this.view) return Promise.resolve();
         this.view = view;
-        return this.commit(false);
+        return this.commit();
     }
 
     commit(pushHistory = true) {
         this.resetRequest();
+        if (this.filters.q && [...this.filters.q].length < 3) {
+            this.onData({}, false);
+            this.onState('invalid');
+            return Promise.resolve(false);
+        }
         this.onFilters(this.filters, pushHistory);
         this.onData({}, false);
         return this.request(false);
@@ -270,6 +299,8 @@ export class CatalogSearchController {
     }
 
     resetRequest() {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
         this.abortController?.abort();
         this.abortController = null;
         this.generation++;
@@ -298,6 +329,13 @@ export class CatalogSearchController {
 }
 
 const emptyState = (title, description, retry = false) => `<div class="rounded-panel border border-dashed border-control-border bg-surface px-5 py-10 text-center"><p class="font-semibold text-content">${title}</p><p class="mt-1 text-sm text-muted">${description}</p>${retry ? '<button type="button" data-catalog-retry class="mt-4 min-h-10 rounded-control bg-action px-4 py-2 font-semibold text-white">Повторить</button>' : ''}</div>`;
+
+export function initializeCatalogQuery(form, queryInput, clearButton, controller, toggleClear) {
+    form.addEventListener('submit', (event) => { event.preventDefault(); controller.submit(queryInput.value); });
+    const handleInput = () => { toggleClear(); controller.input(queryInput.value); };
+    queryInput.addEventListener('input', handleInput);
+    clearButton.addEventListener('click', () => { queryInput.value = ''; queryInput.focus(); handleInput(); });
+}
 
 export function initializeCatalogSearch(root) {
     const form = root.querySelector('[data-catalog-form]');
@@ -329,8 +367,10 @@ export function initializeCatalogSearch(root) {
             if (!response.ok) throw new Error(`Search failed: ${response.status}`);
             return response.json();
         },
-        onFilters: (filters, pushHistory) => {
-            queryInput.value = filters.q ?? '';
+        onFilters: (filters, pushHistory, restoreQuery = false) => {
+            if (restoreQuery) queryInput.value = filters.q ?? '';
+            root.querySelectorAll('[data-view]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.view === controller.view)));
+            if (controller.view !== 'suppliers') lastProductView = controller.view;
             substringCheckbox.checked = filters.substring_match === '1';
             toggleClear();
             renderCatalogFilterChips(root, catalogFilterChips(filters, chipLabels));
@@ -384,13 +424,11 @@ export function initializeCatalogSearch(root) {
         updateCategoryScrollButtons();
     };
     const toggleClear = () => { clearButton.hidden = !queryInput.value; clearButton.classList.toggle('hidden', !queryInput.value); clearButton.classList.toggle('grid', Boolean(queryInput.value)); };
-    const updateHistory = (filters, method) => window.history[method](null, '', catalogUrl(window.location.href, filters));
+    const updateHistory = (filters, method) => { const url = catalogUrl(window.location.href, filters); url.searchParams.set('view', controller.view); window.history[method](null, '', url); };
     const filtersFromUrl = () => catalogFiltersFromUrl(new URL(window.location.href));
 
     substringCheckbox.addEventListener('change', () => controller.setSubstringMatch(substringCheckbox.checked, queryInput.value));
-    form.addEventListener('submit', (event) => { event.preventDefault(); controller.submit(queryInput.value); });
-    queryInput.addEventListener('input', toggleClear);
-    clearButton.addEventListener('click', () => { queryInput.value = ''; queryInput.focus(); toggleClear(); });
+    initializeCatalogQuery(form, queryInput, clearButton, controller, toggleClear);
     loadMore.addEventListener('click', () => controller.loadMore());
     root.addEventListener('click', (event) => {
         const chip = event.target.closest('[data-filter-remove]'); if (chip) controller.removeFilter(chip.dataset.filterKey, chip.dataset.filterValue);
@@ -453,7 +491,11 @@ export function initializeCatalogSearch(root) {
     });
 
     if ('IntersectionObserver' in window) new IntersectionObserver((entries) => { const panel = root.querySelector('[data-search-panel]'); panel.classList.toggle('is-compact', window.matchMedia('(min-width: 768px)').matches && !entries[0].isIntersecting); }, { rootMargin: '-72px 0px 0px' }).observe(root.querySelector('[data-search-sentinel]'));
-    window.addEventListener('popstate', () => controller.restore(filtersFromUrl(), controller.view));
-    const storedView = localStorage.getItem('oapteka.catalog.view.v1'); controller.view = VALID_VIEWS.includes(storedView) ? storedView : 'list'; root.querySelectorAll('[data-view]').forEach((button) => button.setAttribute('aria-pressed', button.dataset.view === controller.view ? 'true' : 'false')); updateHistory(filtersFromUrl(), 'replaceState'); controller.restore(filtersFromUrl(), controller.view);
+    window.addEventListener('popstate', () => controller.restore(filtersFromUrl(), new URL(window.location.href).searchParams.get('view') ?? controller.view));
+    form.classList.add('catalog-search-enhanced');
+    root.querySelector('[data-search-submit]').hidden = true;
+    root.querySelectorAll('[data-catalog-fallback]').forEach((element) => { element.hidden = true; });
+    const storedView = new URL(window.location.href).searchParams.get('view') ?? localStorage.getItem('oapteka.catalog.view.v1'); controller.view = VALID_VIEWS.includes(storedView) ? storedView : 'list'; root.querySelectorAll('[data-view]').forEach((button) => button.setAttribute('aria-pressed', button.dataset.view === controller.view ? 'true' : 'false')); updateHistory(filtersFromUrl(), 'replaceState'); controller.restore(filtersFromUrl(), controller.view);
+    queryInput.value = new URL(window.location.href).searchParams.get('q') ?? '';
     return controller;
 }

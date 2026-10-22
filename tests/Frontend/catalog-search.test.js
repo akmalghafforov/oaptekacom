@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { catalogFiltersFromUrl, catalogUrl, initializeCategoryPicker, activeCategoryLabel, catalogFilterChips, renderCatalogFilterChips, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
+import { initializeCatalogQuery, catalogFiltersFromUrl, catalogUrl, initializeCategoryPicker, activeCategoryLabel, catalogFilterChips, renderCatalogFilterChips, CatalogSearchController, catalogFragment, updateCartBadges, updateCatalogCategories, updateCatalogOfferCartState } from '../../resources/js/catalog-search.js';
 
 const deferred = () => { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; };
 const harness = (fetcher = async () => ({ fragments: { cards: '<article />' }, pagination: { next_cursor: null, has_more: false } })) => {
@@ -470,4 +470,132 @@ test('URL reload and history restoration synchronize matching mode and omit disa
     await controller.restore(catalogFiltersFromUrl(new URL('https://catalog.test/catalog?substring_match=0')));
     assert.equal('substring_match' in controller.filters, false);
     assert.equal(catalogUrl(initial, { substring_match: false }).searchParams.has('substring_match'), false);
+});
+
+for (const query of ['  аспирин  ', 'вставленный текст', '', '   ', '💊💊💊']) {
+    test(`input debounces trimmed Unicode query ${JSON.stringify(query)} at 500ms`, async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        const requests = [];
+        const { controller } = harness(async (filters) => { requests.push(filters); return { fragments: {}, pagination: {} }; });
+        controller.input(query);
+        t.mock.timers.tick(499);
+        assert.equal(requests.length, 0);
+        t.mock.timers.tick(1);
+        assert.equal(requests.length, 1);
+        assert.equal(requests[0].q ?? '', query.trim());
+    });
+}
+
+test('every edit resets the timer and invalidates responses before the next request', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const pending = deferred(); const requests = [];
+    const { controller, data } = harness((filters, signal) => { requests.push(filters); return pending.promise; });
+    const old = controller.submit('старый');
+    controller.cursor = 'obsolete'; controller.hasMore = true;
+    controller.input('новый');
+    assert.equal(controller.cursor, null);
+    pending.resolve({ fragments: { cards: 'stale' }, pagination: { next_cursor: 'stale', has_more: true } });
+    await old;
+    assert.equal(data.some(([value]) => value.fragments?.cards === 'stale'), false);
+    t.mock.timers.tick(499);
+    controller.input('новейший');
+    t.mock.timers.tick(499);
+    assert.equal(requests.length, 1);
+    t.mock.timers.tick(1);
+    assert.equal(requests.at(-1).q, 'новейший');
+});
+
+test('short queries immediately show the hint and Enter cancels delayed submission', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const requests = [];
+    const { controller, states } = harness(async (filters) => { requests.push(filters); return { fragments: {}, pagination: {} }; });
+    controller.input('💊💊');
+    assert.equal(states.at(-1), 'invalid');
+    t.mock.timers.tick(500);
+    assert.equal(requests.length, 0);
+    controller.input('аспирин');
+    await controller.submit('аспирин');
+    t.mock.timers.tick(500);
+    assert.equal(requests.length, 1);
+});
+
+for (const action of ['filter', 'restore', 'view']) {
+    test(`${action} cancels pending typing and preserves supported options`, async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        const requests = [];
+        const { controller } = harness(async (filters) => { requests.push(filters); return { fragments: {}, pagination: {} }; });
+        const filters = { q: 'аспирин', form: 'таблетки', min_price: '0', max_price: '50', cities: ['Душанбе'], suppliers: ['4'], category: '12', substring_match: '1', sort: 'updated_desc' };
+        await controller.restore(filters, 'grid');
+        controller.input('новый');
+        if (action === 'filter') await controller.setFilter('category', '13');
+        if (action === 'restore') await controller.restore(filters, 'grid');
+        if (action === 'view') await controller.setView('suppliers');
+        t.mock.timers.tick(500);
+        assert.equal(requests.length, 2);
+        assert.equal(requests.at(-1).form, 'таблетки');
+        assert.equal(requests.at(-1).min_price, '0');
+        assert.equal('cursor' in requests.at(-1), false);
+    });
+}
+
+test('URLs restore dosage and prices and discard obsolete cursors and legacy aliases', () => {
+    const url = new URL('https://catalog.test/catalog?city=Душанбе&supplier=4&form=таблетки&min_price=0&max_price=50&cursor=old');
+    const filters = catalogFiltersFromUrl(url);
+    assert.deepEqual(filters.cities, ['Душанбе']);
+    assert.deepEqual(filters.suppliers, ['4']);
+    const output = catalogUrl(url, filters);
+    assert.equal(output.searchParams.get('form'), 'таблетки');
+    assert.equal(output.searchParams.get('min_price'), '0');
+    assert.equal(output.searchParams.has('cursor'), false);
+    assert.equal(output.searchParams.has('city'), false);
+    assert.equal(output.searchParams.has('supplier'), false);
+});
+
+const queryHarness = (controller) => {
+    const ownerDocument = { activeElement: null };
+    const element = () => ({ listeners: {}, ownerDocument, addEventListener(name, callback) { this.listeners[name] = callback; }, focus() { ownerDocument.activeElement = this; } });
+    const form = element(); const input = element(); const clear = element();
+    input.value = ''; input.selectionStart = 0; input.selectionEnd = 0;
+    initializeCatalogQuery(form, input, clear, controller, () => { clear.hidden = !input.value; });
+    return { form, input, clear, ownerDocument };
+};
+
+for (const method of ['keyboard', 'button']) {
+    test(`clearing by ${method} debounces and retains filters`, async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout'] });
+        const requests = [];
+        const { controller } = harness(async (filters) => { requests.push(filters); return { fragments: {}, pagination: {} }; });
+        controller.filters = { category: '12', sort: 'updated_desc' }; controller.view = 'grid';
+        const { input, clear, ownerDocument } = queryHarness(controller);
+        input.value = 'аспирин';
+        if (method === 'button') clear.listeners.click();
+        else { input.value = ''; input.listeners.input(); }
+        assert.equal(requests.length, 0);
+        assert.equal(clear.hidden, true);
+        if (method === 'button') assert.equal(ownerDocument.activeElement, input);
+        t.mock.timers.tick(500);
+        assert.deepEqual(requests, [{ category: '12', sort: 'updated_desc', view: 'grid' }]);
+    });
+}
+
+test('middle edits preserve raw value and selection and late responses leave focus elsewhere', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const pending = deferred();
+    const { controller } = harness(() => pending.promise);
+    const { input, ownerDocument } = queryHarness(controller);
+    input.focus(); input.value = '  амоксициллин  '; input.selectionStart = 5; input.selectionEnd = 8;
+    input.listeners.input(); t.mock.timers.tick(500);
+    assert.equal(input.value, '  амоксициллин  ');
+    assert.equal(input.selectionStart, 5); assert.equal(input.selectionEnd, 8);
+    const other = {}; ownerDocument.activeElement = other;
+    pending.resolve({ fragments: { cards: 'result' }, pagination: {} });
+    await pending.promise; await Promise.resolve();
+    assert.equal(ownerDocument.activeElement, other);
+    assert.equal(input.value, '  амоксициллин  ');
+});
+
+test('server generated indexed pagination arrays restore without dropping selections', () => {
+    const filters = catalogFiltersFromUrl(new URL('https://catalog.test/catalog?cities%5B0%5D=Душанбе&cities%5B1%5D=Худжанд&suppliers%5B0%5D=4&cursor=old'));
+    assert.deepEqual(filters.cities, ['Душанбе', 'Худжанд']);
+    assert.deepEqual(filters.suppliers, ['4']);
 });
