@@ -1,4 +1,6 @@
 FROM php:8.4.27-fpm-alpine AS development
+RUN php -r 'if (PHP_VERSION !== "8.4.27") { fwrite(STDERR, "Require PHP 8.4.27; got ".PHP_VERSION.PHP_EOL); exit(1); }'
+COPY docker/security.ini /usr/local/etc/php/conf.d/zz-security.ini
 RUN apk add --no-cache postgresql-dev libzip-dev oniguruma-dev freetype-dev libjpeg-turbo-dev libpng-dev $PHPIZE_DEPS \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install pdo_pgsql zip mbstring bcmath opcache gd
@@ -12,6 +14,8 @@ RUN mkdir -p storage/app/private storage/framework/{cache,sessions,views} bootst
 CMD ["php-fpm"]
 
 FROM php:8.4.27-fpm-alpine AS production
+RUN php -r 'if (PHP_VERSION !== "8.4.27") { fwrite(STDERR, "Require PHP 8.4.27; got ".PHP_VERSION.PHP_EOL); exit(1); }'
+COPY docker/security.ini /usr/local/etc/php/conf.d/zz-security.ini
 RUN apk add --no-cache postgresql-dev libzip-dev oniguruma-dev libxml2-dev freetype-dev libjpeg-turbo-dev libpng-dev $PHPIZE_DEPS \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install pdo_pgsql zip mbstring bcmath opcache gd pcntl dom simplexml xml xmlreader xmlwriter
