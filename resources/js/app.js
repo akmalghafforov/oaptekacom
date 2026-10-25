@@ -1,3 +1,4 @@
+import { createCartSaveCoordinator } from './cart-save-coordinator.js';
 import { initializeGmailActions, initializeGmailProgress } from './gmail.js';
 import { initializeAccountMode } from './account-mode';
 import { createSupplierFileRenderer } from './supplier-file-renderer.js';
@@ -276,14 +277,29 @@ document.querySelectorAll('[data-quantity-stepper]').forEach((stepper) => {
 const formatCartAmount = (value) => `${Number(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} TJS`;
 const supplierFileShares = new Map();
 const cartQuantityGroups = new Map();
-let cartQuantitySaveQueue = Promise.resolve();
+let cartModeStale = false;
+const cartSaves = createCartSaveCoordinator(cartQuantityGroups, () => cartModeStale);
+const updateCartSharing = () => {
+    const pending = [...cartQuantityGroups.values()].some((group) => group.saving || group.desired !== group.confirmed || group.error);
+    document.querySelectorAll('[data-supplier-share], [data-cart-share]').forEach((button) => {
+        button.disabled = cartModeStale || pending || button.dataset.shareUnavailable === 'true';
+    });
+};
+document.querySelectorAll('[data-cart-share]').forEach((button) => { button.dataset.shareUnavailable = String(button.disabled); });
+document.addEventListener('account-mode-stale', () => {
+    cartModeStale = true;
+    supplierFileShares.forEach((sharing) => sharing.invalidate());
+    updateCartSharing();
+});
 
 document.querySelectorAll('[data-cart-quantity-form]').forEach((form) => {
     const itemId = form.dataset.cartItemId;
     const input = form.querySelector('[data-quantity-input]');
     const group = cartQuantityGroups.get(itemId) ?? { forms: [], confirmed: Number(input.value), desired: Number(input.value), saving: false, timer: null };
 
-    group.forms.push({ form, input, status: form.querySelector('[data-cart-quantity-status]') });
+    const status = form.querySelector('[data-cart-quantity-status]');
+    input.setAttribute('aria-describedby', status.id);
+    group.forms.push({ form, input, status });
     cartQuantityGroups.set(itemId, group);
 });
 
@@ -292,6 +308,7 @@ cartQuantityGroups.forEach((group) => {
     const setStatus = (message, isError = false) => group.forms.forEach(({ status }) => {
         status.textContent = message;
         status.classList.toggle('text-danger', isError);
+        group.forms.forEach(({ input }) => input.setAttribute('aria-invalid', String(isError)));
     });
 
     const save = async () => {
@@ -302,6 +319,7 @@ cartQuantityGroups.forEach((group) => {
         const quantity = group.desired;
         const form = group.forms[0].form;
         group.saving = true;
+        updateCartSharing();
         setStatus('Сохраняем…');
 
         try {
@@ -317,6 +335,7 @@ cartQuantityGroups.forEach((group) => {
             if (response.status === 409) document.dispatchEvent(new CustomEvent('account-mode-stale'));
             const data = await response.json().catch(() => ({}));
 
+            if (cartModeStale) throw new Error('Сессия устарела. Обновите страницу.');
             if (!response.ok || !data.item) {
                 throw new Error(data.errors?.quantity?.[0] ?? 'Не удалось обновить количество.');
             }
@@ -331,7 +350,6 @@ cartQuantityGroups.forEach((group) => {
             const supplierShare = document.querySelector(`[data-supplier-share][data-supplier-id="${data.supplier.id}"]`);
             if (supplierShare) {
                 supplierShare.dataset.shareText = data.supplier.share_text;
-                supplierShare.disabled = false;
                 supplierShare.textContent = 'Поделиться';
             }
 
@@ -352,6 +370,7 @@ cartQuantityGroups.forEach((group) => {
             setStatus(error.message || 'Не удалось обновить количество.', true);
         } finally {
             group.saving = false;
+            updateCartSharing();
 
             if (group.desired !== group.confirmed) {
                 queueSave();
@@ -361,12 +380,11 @@ cartQuantityGroups.forEach((group) => {
 
     group.flush = () => {
         clearTimeout(group.timer);
-        group.error = false;
         queueSave();
     };
 
     const queueSave = () => {
-        cartQuantitySaveQueue = cartQuantitySaveQueue.then(save, save);
+        cartSaves.enqueue(save);
     };
 
     const schedule = (input) => {
@@ -374,7 +392,9 @@ cartQuantityGroups.forEach((group) => {
         const maximum = Number(input.max || 999999);
 
         if (!Number.isInteger(quantity) || quantity < 1 || quantity > maximum) {
+            group.error = true;
             group.desired = group.confirmed;
+            updateCartSharing();
             setInputs(group.confirmed);
             setStatus(`Укажите количество от 1 до ${maximum}.`, true);
 
@@ -384,6 +404,7 @@ cartQuantityGroups.forEach((group) => {
         supplierFileShares.forEach((sharing) => sharing.invalidate());
         group.error = false;
         group.desired = quantity;
+        updateCartSharing();
         setInputs(quantity);
         setStatus('');
         clearTimeout(group.timer);
@@ -401,6 +422,7 @@ cartQuantityGroups.forEach((group) => {
 });
 
 document.querySelectorAll('[data-supplier-share]').forEach((button) => button.addEventListener('click', async () => {
+    if (button.disabled || cartModeStale) return;
     const text = button.dataset.shareText;
     let sharedVia = null;
 
@@ -440,12 +462,13 @@ document.querySelectorAll('[data-supplier-share]').forEach((button) => button.ad
 
         button.textContent = sharedVia === 'clipboard' ? 'Скопировано' : 'Отправлено';
     } catch (error) {
-        button.disabled = false;
+        updateCartSharing();
         window.alert('Не удалось подтвердить отправку. Позиции остались в корзине.');
     }
 }));
 
 document.querySelectorAll('[data-cart-share]').forEach((button) => button.addEventListener('click', async () => {
+    if (button.disabled || cartModeStale) return;
     try {
         if (navigator.share) {
             await navigator.share({ title: 'Заявки OAPTEKA', text: button.dataset.shareText });
@@ -462,14 +485,34 @@ document.querySelectorAll('[data-cart-share]').forEach((button) => button.addEve
     }
 }));
 
-async function flushCartQuantities() {
-    do {
-        cartQuantityGroups.forEach((group) => group.flush());
-        const pending = cartQuantitySaveQueue;
-        await pending;
-    } while ([...cartQuantityGroups.values()].some((group) => group.saving || group.desired !== group.confirmed));
-    if ([...cartQuantityGroups.values()].some((group) => group.error)) throw new Error('Quantity save failed');
-}
+const flushCartQuantities = () => cartSaves.flush();
+
+document.querySelectorAll('[data-cart-save-before-submit]').forEach((form) => {
+    let submitting = false;
+    form.addEventListener('submit', async (event) => {
+        if (submitting && !cartModeStale) return;
+        event.preventDefault();
+        const feedback = document.querySelector('[data-cart-action-error]');
+        try {
+            await flushCartQuantities();
+            feedback.hidden = true;
+            submitting = true;
+            form.requestSubmit(event.submitter);
+            submitting = false;
+        } catch {
+            feedback.hidden = false;
+            let localFeedback = form.querySelector('[data-cart-submit-error]');
+            if (!localFeedback) {
+                localFeedback = document.createElement('p');
+                localFeedback.dataset.cartSubmitError = '';
+                localFeedback.className = 'w-full text-sm text-danger';
+                localFeedback.setAttribute('role', 'alert');
+                form.append(localFeedback);
+            }
+            localFeedback.textContent = feedback.textContent;
+        }
+    });
+});
 
 document.querySelectorAll('[data-supplier-file-export]').forEach((panel) => {
     const prepareButtons = panel.querySelectorAll('[data-file-prepare]');
@@ -477,10 +520,18 @@ document.querySelectorAll('[data-supplier-file-export]').forEach((panel) => {
     const renderer = createSupplierFileRenderer(panel, URL);
     const sharing = createSupplierFileShare({
         flush: flushCartQuantities,
-        fetchFile: (url) => fetch(url, { headers: { Accept: 'application/octet-stream' }, cache: 'no-store' }),
+        fetchFile: async (url) => {
+            if (cartModeStale) throw new Error();
+            const response = await fetch(url, { headers: { Accept: 'application/octet-stream', 'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '' }, cache: 'no-store' });
+            if (response.status === 409) document.dispatchEvent(new CustomEvent('account-mode-stale'));
+            return response;
+        },
         navigator,
         makeFile: (blob, name, type) => new File([blob], name, { type }),
-        onState: renderer.render,
+        onState: (state) => {
+            renderer.render(state);
+            if (cartModeStale) panel.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+        },
     });
     supplierFileShares.set(panel.dataset.supplierFileExport, sharing);
     prepareButtons.forEach((button) => button.addEventListener('click', () => sharing.prepare(button.dataset.fileUrl, button.dataset.filePrepare)));

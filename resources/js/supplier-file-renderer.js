@@ -30,6 +30,7 @@ export function createSupplierFileRenderer(panel, urls) {
                     objectUrl = urls.createObjectURL(state.file);
                     download.href = objectUrl;
                     download.download = state.file.name;
+                    download.click();
                 }
                 status.textContent = '';
             }

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createSupplierFileRenderer } from '../../resources/js/supplier-file-renderer.js';
 
 function element() {
-    return { hidden: true, disabled: false, textContent: '', setAttribute(key, value) { this[key] = value; }, removeAttribute(key) { delete this[key]; } };
+    return { clicks: 0, click() { this.clicks++; }, hidden: true, disabled: false, textContent: '', setAttribute(key, value) { this[key] = value; }, removeAttribute(key) { delete this[key]; } };
 }
 
 for (const [format, label] of [['pdf', 'PDF'], ['excel', 'Excel']]) {
-    test(`${label} popup shows progress, actions and cleans up replaced URLs`, () => {
+    test(`${label} section downloads automatically, shows progress, actions and cleans up replaced URLs`, () => {
         const buttons = [element(), element()];
         const nodes = Object.fromEntries(['share', 'download', 'status', 'spinner'].map((key) => [`[data-file-${key}]`, element()]));
         const panel = { ...element(), querySelectorAll: () => buttons, querySelector: (key) => nodes[key] };
@@ -24,6 +24,7 @@ for (const [format, label] of [['pdf', 'PDF'], ['excel', 'Excel']]) {
         assert.equal(download.hidden, true);
         renderer.render({ ready: true, format, supported: true, file: { name: 'export' } });
         renderer.render({ busy: false });
+        assert.equal(download.clicks, 1);
         assert.equal(download.textContent, `Скачать ${label}`);
         assert.equal(share.textContent, `Поделиться ${label} через WhatsApp`);
         assert.equal(download.hidden, false);

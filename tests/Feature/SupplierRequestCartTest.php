@@ -66,15 +66,18 @@ class SupplierRequestCartTest extends TestCase
         $this->actingAs($user)->post(route('cart.add', $firstOffer), ['quantity' => 2]);
         $this->actingAs($user)->post(route('cart.add', $secondOffer), ['quantity' => 1]);
 
+        $item = Cart::query()->where('user_id', $user->id)->sole()->items()->where('offer_id', $firstOffer->id)->sole();
+        $this->patchJson(route('cart.update', $item), ['quantity' => 3])->assertOk();
         $this->actingAs($user)->post(route('cart.suppliers.archive', $firstSupplier))->assertRedirect(route('cart'));
 
         $supplierRequest = SupplierRequest::query()->sole();
         $this->assertSame($user->id, $supplierRequest->user_id);
         $this->assertSame($firstSupplier->name, $supplierRequest->supplier_name);
-        $this->assertSame('20.00', $supplierRequest->total);
+        $this->assertSame('30.00', $supplierRequest->total);
+        $this->assertSame(3, $supplierRequest->items()->sole()->quantity);
         $this->assertSame('archive', $supplierRequest->shared_via);
         $this->assertSame('Первый товар', $supplierRequest->items()->sole()->product_name);
-        $this->assertSame('20.00', $supplierRequest->items()->sole()->line_total);
+        $this->assertSame('30.00', $supplierRequest->items()->sole()->line_total);
 
         $cart = Cart::query()->where('user_id', $user->id)->sole();
         $this->assertSame([$secondOffer->id], $cart->items()->pluck('offer_id')->all());
@@ -122,12 +125,26 @@ class SupplierRequestCartTest extends TestCase
         [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
         $this->actingAs($user)->post(route('cart.add', $offer));
 
-        $this->actingAs($user)->get(route('cart'))
+        $response = $this->actingAs($user)->get(route('cart'))
             ->assertSee('Оформление заказов временно недоступно.')
             ->assertSee('Поделиться')
             ->assertSee('В архив')
+            ->assertSee('Скачать PDF')
+            ->assertSee('Скачать Excel')
+            ->assertDontSee('supplier-review-', false)
+            ->assertDontSee('supplier-share-', false)
+            ->assertDontSee('cart-share-all', false)
             ->assertDontSee('Оформить заказ')
             ->assertDontSee('Оформить все');
+
+        $document = new \DOMDocument;
+        @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
+        $xpath = new \DOMXPath($document);
+        $this->assertSame(1, $xpath->query('//table[not(ancestor::dialog)]')->length);
+        $this->assertSame(4, $xpath->query('//table/thead/tr/th')->length);
+        $this->assertSame(1, $xpath->query('//form[@data-cart-quantity-form and not(ancestor::dialog)]')->length);
+        $this->assertSame(2, $xpath->query('//button[@data-file-prepare and not(ancestor::dialog)]')->length);
+        $this->assertSame(1, $xpath->query('//button[@data-supplier-share and not(ancestor::dialog)]')->length);
 
         $this->actingAs($user)->post(route('cart.suppliers.share', $supplier), ['shared_via' => 'clipboard'])
             ->assertRedirect(route('cart'));
@@ -341,7 +358,8 @@ class SupplierRequestCartTest extends TestCase
         $this->post(route('cart.add', $otherOffer));
         $cart = Cart::where('user_id', $user->id)->sole();
         $item = $cart->items()->where('offer_id', $offer->id)->sole();
-        $item->update(['quantity' => 3, 'unit_price' => '1.23', 'snapshot' => ['medicine' => '=Лекарство']]);
+        $item->update(['unit_price' => '1.23', 'snapshot' => ['medicine' => '=Лекарство']]);
+        $this->patchJson(route('cart.update', $item), ['quantity' => 3])->assertOk();
         $offer->update(['price' => '99.00']);
         $before = $cart->items()->get()->toArray();
 
