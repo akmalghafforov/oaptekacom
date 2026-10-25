@@ -115,3 +115,33 @@ test('throwing sharing detection preserves download and format switching replace
     sharing.invalidate();
     assert.equal(states.at(-1).ready, false);
 });
+
+test('quantity changes before preparation are silent and only invalidate the affected supplier', async () => {
+    const first = fixture();
+    const second = fixture();
+    first.sharing.invalidate();
+    assert.deepEqual(first.states, []);
+    await first.sharing.prepare('/pdf', 'pdf');
+    await second.sharing.prepare('/pdf', 'pdf');
+    const secondCount = second.states.length;
+    first.sharing.invalidate();
+    assert.match(first.states.at(-1).message, /Количество изменилось/);
+    assert.equal(second.states.length, secondCount);
+    await second.sharing.share();
+    assert.equal(second.calls.at(-1).files[0].name, 'oapteka.pdf');
+});
+
+test('prepared formats download again from cache without another request', async () => {
+    const { sharing, states, calls } = fixture({
+        fetchFile: async (url) => {
+            calls.push(url);
+            return { ok: true, headers: new Headers({ 'Content-Type': url === '/pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), blob: async () => new Blob(['file']) };
+        },
+    });
+    await sharing.prepare('/pdf', 'pdf');
+    const pdf = states.find((state) => state.ready).file;
+    await sharing.prepare('/excel', 'excel');
+    await sharing.prepare('/pdf', 'pdf');
+    assert.equal(states.findLast((state) => state.ready).file, pdf);
+    assert.deepEqual(calls, ['flush', '/pdf', 'flush', '/excel', 'flush']);
+});

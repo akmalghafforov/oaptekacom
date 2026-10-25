@@ -9,15 +9,18 @@ function element() {
 for (const [format, label] of [['pdf', 'PDF'], ['excel', 'Excel']]) {
     test(`${label} section downloads automatically, shows progress, actions and cleans up replaced URLs`, () => {
         const buttons = [element(), element()];
-        const nodes = Object.fromEntries(['share', 'download', 'status', 'spinner'].map((key) => [`[data-file-${key}]`, element()]));
+        const nodes = Object.fromEntries(['share', 'download', 'status', 'spinner', 'feedback'].map((key) => [`[data-file-${key}]`, element()]));
         const panel = { ...element(), querySelectorAll: () => buttons, querySelector: (key) => nodes[key] };
         const revoked = [];
         let count = 0;
         const renderer = createSupplierFileRenderer(panel, { createObjectURL: () => `blob:${++count}`, revokeObjectURL: (url) => revoked.push(url) });
         const download = nodes['[data-file-download]'];
         const share = nodes['[data-file-share]'];
+        renderer.render({});
+        assert.equal(nodes['[data-file-feedback]'].hidden, true);
         renderer.render({ busy: true, ready: false, message: `Готовим ${label}…` });
         assert.equal(panel['aria-busy'], 'true');
+        assert.equal(nodes['[data-file-feedback]'].hidden, false);
         assert.ok(buttons.every((button) => button.disabled));
         assert.equal(nodes['[data-file-spinner]'].hidden, false);
         assert.equal(nodes['[data-file-status]'].textContent, `Готовим ${label}…`);
@@ -26,8 +29,8 @@ for (const [format, label] of [['pdf', 'PDF'], ['excel', 'Excel']]) {
         renderer.render({ busy: false });
         assert.equal(download.clicks, 1);
         assert.equal(download.textContent, `Скачать ${label}`);
-        assert.equal(share.textContent, `Поделиться ${label} через WhatsApp`);
-        assert.equal(download.hidden, false);
+        assert.equal(share.textContent, `Поделиться ${label}`);
+        assert.equal(download.hidden, true);
         assert.equal(share.hidden, false);
         assert.equal(panel['aria-busy'], 'false');
         assert.ok(buttons.every((button) => !button.disabled));
@@ -38,7 +41,7 @@ for (const [format, label] of [['pdf', 'PDF'], ['excel', 'Excel']]) {
         assert.equal(share.hidden, true);
         renderer.render({ ready: true, format, supported: false, file: { name: 'export' } });
         assert.equal(share.hidden, true);
-        assert.equal(download.hidden, false);
+        assert.equal(download.hidden, true);
         renderer.cleanup();
         renderer.cleanup();
         assert.deepEqual(revoked, ['blob:1', 'blob:2']);

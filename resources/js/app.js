@@ -1,9 +1,12 @@
+import { initializeDropdown } from './ui-dropdown.js';
 import { createCartSaveCoordinator } from './cart-save-coordinator.js';
 import { initializeGmailActions, initializeGmailProgress } from './gmail.js';
 import { initializeAccountMode } from './account-mode';
 import { createSupplierFileRenderer } from './supplier-file-renderer.js';
 import { createSupplierFileShare } from './supplier-file-share.js';
 import { initializeCatalogSearch, updateCartBadges } from './catalog-search.js';
+
+document.querySelectorAll('[data-ui-dropdown]').forEach(initializeDropdown);
 
 const formatPhone = (value, showCountryCode = false) => {
     let digits = value.replace(/\D/g, '');
@@ -401,7 +404,9 @@ cartQuantityGroups.forEach((group) => {
             return;
         }
 
-        supplierFileShares.forEach((sharing) => sharing.invalidate());
+        if (quantity !== group.desired) {
+            supplierFileShares.get(group.forms[0].form.dataset.cartSupplierId)?.invalidate();
+        }
         group.error = false;
         group.desired = quantity;
         updateCartSharing();
@@ -534,8 +539,8 @@ document.querySelectorAll('[data-supplier-file-export]').forEach((panel) => {
         },
     });
     supplierFileShares.set(panel.dataset.supplierFileExport, sharing);
-    prepareButtons.forEach((button) => button.addEventListener('click', () => sharing.prepare(button.dataset.fileUrl, button.dataset.filePrepare)));
-    shareButton.addEventListener('click', () => sharing.share());
+    prepareButtons.forEach((button) => button.addEventListener('click', () => { if (!cartModeStale) sharing.prepare(button.dataset.fileUrl, button.dataset.filePrepare); }));
+    shareButton.addEventListener('click', () => { if (!cartModeStale) sharing.share(); });
     window.addEventListener('pagehide', renderer.cleanup);
 });
 

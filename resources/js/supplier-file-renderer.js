@@ -3,6 +3,7 @@ export function createSupplierFileRenderer(panel, urls) {
     const share = panel.querySelector('[data-file-share]');
     const download = panel.querySelector('[data-file-download]');
     const status = panel.querySelector('[data-file-status]');
+    const feedback = panel.querySelector('[data-file-feedback]');
     const spinner = panel.querySelector('[data-file-spinner]');
     let objectUrl = null;
     const cleanup = () => {
@@ -21,11 +22,11 @@ export function createSupplierFileRenderer(panel, urls) {
             }
             if ('ready' in state) {
                 share.hidden = !state.ready || !state.supported;
-                download.hidden = !state.ready;
+                download.hidden = true;
                 cleanup();
                 if (state.ready && state.file) {
                     const label = state.format === 'pdf' ? 'PDF' : 'Excel';
-                    share.textContent = `Поделиться ${label} через WhatsApp`;
+                    share.textContent = `Поделиться ${label}`;
                     download.textContent = `Скачать ${label}`;
                     objectUrl = urls.createObjectURL(state.file);
                     download.href = objectUrl;
@@ -35,6 +36,7 @@ export function createSupplierFileRenderer(panel, urls) {
                 status.textContent = '';
             }
             if ('message' in state) status.textContent = state.message;
+            feedback.hidden = !status.textContent && share.hidden && spinner.hidden;
         },
     };
 }
