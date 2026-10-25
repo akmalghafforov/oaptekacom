@@ -127,6 +127,84 @@ class LegalPagesTest extends TestCase
         }
     }
 
+    public function test_footer_shows_configured_contacts_with_normalized_destinations(): void
+    {
+        config([
+            'contact.email' => '  support@example.test  ',
+            'contact.phone' => ' +992 (900) 12-34-56 ',
+            'contact.whatsapp_phone' => '992 (901) 23-45-67',
+        ]);
+
+        $this->get(route('login'))
+            ->assertSeeText('Контакты')
+            ->assertSeeText('support@example.test')
+            ->assertSeeText('Телефон: +992 (900) 12-34-56')
+            ->assertSeeText('WhatsApp: 992 (901) 23-45-67')
+            ->assertSeeHtml('href="mailto:support@example.test"')
+            ->assertSeeHtml('href="tel:+992900123456"')
+            ->assertSeeHtml('href="https://wa.me/992901234567"');
+    }
+
+    public static function partialContacts(): array
+    {
+        return [
+            'email only' => ['email', 'support@example.test', 'mailto:support@example.test'],
+            'phone only' => ['phone', '900 12-34-56', 'tel:900123456'],
+            'WhatsApp only' => ['whatsapp_phone', '+992 901 23-45-67', 'https://wa.me/992901234567'],
+        ];
+    }
+
+    #[DataProvider('partialContacts')]
+    public function test_footer_shows_individually_configured_contacts(string $key, string $value, string $href): void
+    {
+        config(['contact' => ['email' => null, 'phone' => null, 'whatsapp_phone' => null]]);
+        config(['contact.'.$key => $value]);
+
+        $this->get(route('login'))
+            ->assertSeeHtml('aria-label="Контакты"')
+            ->assertSeeHtml('href="'.$href.'"');
+    }
+
+    public static function invalidContacts(): array
+    {
+        return [
+            'missing' => [null, null, null],
+            'blank' => ['  ', '  ', '  '],
+            'unsafe schemes' => ['javascript:alert(1)', 'javascript:123456789', 'https://wa.me/992900123456'],
+            'invalid formatting' => ['invalid-email', '+992900123456 ext 12', '++992900123456'],
+            'invalid lengths' => ['support@example', '123', '1234567890123456'],
+            'zero prefix' => ['@example.test', '000000000', '0123456789'],
+            'markup' => ['<script>alert(1)</script>', '"><script>123456789</script>', '123456789?text=hello'],
+        ];
+    }
+
+    #[DataProvider('invalidContacts')]
+    public function test_footer_hides_contacts_group_for_missing_or_invalid_values(?string $email, ?string $phone, ?string $whatsapp): void
+    {
+        config(['contact.email' => $email, 'contact.phone' => $phone, 'contact.whatsapp_phone' => $whatsapp]);
+
+        $this->get(route('login'))
+            ->assertDontSeeHtml('aria-label="Контакты"')
+            ->assertDontSeeHtml('href="mailto:')
+            ->assertDontSeeHtml('href="tel:')
+            ->assertDontSeeHtml('href="https://wa.me/')
+            ->assertSeeHtml('href="'.route('legal.privacy').'"')
+            ->assertSeeHtml('href="'.route('legal.terms').'"');
+    }
+
+    public function test_authenticated_pharmacy_footer_keeps_legal_contacts_and_navigation_clearance(): void
+    {
+        config(['contact.email' => str_repeat('a', 60).'@example.test', 'contact.phone' => 'invalid', 'contact.whatsapp_phone' => null]);
+        $user = User::factory()->pharmacy()->create();
+
+        $this->actingAs($user)->get(route('legal.privacy'))
+            ->assertSeeHtml('href="'.route('legal.privacy').'"')
+            ->assertSeeHtml('href="'.route('legal.terms').'"')
+            ->assertSeeHtml('href="mailto:'.str_repeat('a', 60).'@example.test"')
+            ->assertDontSeeHtml('href="tel:')
+            ->assertSeeHtml('pb-24 md:pb-5');
+    }
+
     public function test_legal_pages_follow_authenticated_theme_preferences(): void
     {
         $user = User::factory()->pharmacy()->create(['theme' => 'dark']);

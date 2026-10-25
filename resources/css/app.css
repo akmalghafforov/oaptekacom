@@ -139,12 +139,12 @@
     .cart-page-summary { @apply border-accent-border bg-surface; }
     .cart-page-summary > div { @apply grid grid-cols-3 gap-3; }
     .cart-page-summary > div > div { @apply border-r border-border-subtle last:border-0; }
-    .cart-request-list { @apply pb-32; }
+    .cart-request-list { @apply pb-4; }
     .cart-request-row { @apply flex min-h-24 w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-accent-surface; }
     .cart-request-avatar { @apply grid size-12 shrink-0 place-items-center rounded-xl bg-accent-surface font-bold text-accent; }
     .cart-request-meta { @apply flex shrink-0 items-center gap-4; }
     .cart-dialog-footer { @apply flex flex-wrap items-center gap-2 border-t border-border bg-surface px-5 py-4; }
-    .cart-action-bar { @apply fixed inset-x-0 bottom-0 z-20 mx-auto flex max-w-7xl items-center justify-between gap-4 rounded-b-none border-b-0 bg-surface/95 backdrop-blur; }
+    .cart-action-bar { @apply sticky bottom-0 z-20 mt-4 flex items-center justify-between gap-4 rounded-b-none border-b-0 bg-surface/95 backdrop-blur; }
     .cart-request-dialog { width: min(56rem, calc(100% - 2rem)) !important; }
     .cart-request-dialog > div { @apply max-h-[calc(100dvh-2rem)] overflow-hidden; }
     .cart-request-dialog header { @apply shrink-0 items-center gap-3 px-4 py-3; }
@@ -176,7 +176,6 @@
         .cart-page-summary .text-2xl { @apply text-base; }
         .cart-request-meta { @apply flex-col items-end gap-1 text-sm; }
         .cart-request-meta > :last-child { @apply hidden; }
-        .cart-request-list { @apply pb-4; }
         .cart-action-bar { @apply relative inset-auto z-0 mt-4 flex-col items-stretch rounded-panel border p-3; }
         .cart-action-bar > div:last-child { @apply grid grid-cols-2; }
         .cart-action-bar > div:last-child > :first-child { @apply col-span-2; }
