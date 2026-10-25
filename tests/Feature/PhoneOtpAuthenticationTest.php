@@ -81,8 +81,8 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->post(route('register'), ['phone' => '901234567'])->assertRedirect(route('register.details.form'));
         $this->assertDatabaseCount('users', 0);
 
-        $this->post(route('register.details.store'), ['pharmacy_name' => 'Аптека Тест'])->assertRedirect(route('register.otp.form'));
-        $this->assertDatabaseHas('organizations', ['name' => 'Аптека Тест', 'phone' => '+992901234567', 'status' => 'pending']);
+        $this->post(route('register.details.store'), ['pharmacy_name' => 'Аптека Тест', 'city' => 'Душанбе'])->assertRedirect(route('register.otp.form'));
+        $this->assertDatabaseHas('organizations', ['name' => 'Аптека Тест', 'city' => 'Душанбе', 'phone' => '+992901234567', 'status' => 'pending']);
         $this->assertDatabaseHas('users', ['phone' => '+992901234567', 'role' => 'pharmacy', 'password' => null, 'phone_verified_at' => null]);
         $otp = OneTimePassword::firstOrFail();
         $otp->update(['code_hash' => Hash::make('123456')]);
@@ -106,7 +106,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         ]);
 
         $this->post(route('register'), ['phone' => '901234567'])->assertRedirect(route('register.details.form'));
-        $this->post(route('register.details.store'), ['pharmacy_name' => 'Аптека Тест'])->assertSessionHasErrors('phone');
+        $this->post(route('register.details.store'), ['pharmacy_name' => 'Аптека Тест', 'city' => 'Душанбе'])->assertSessionHasErrors('phone');
 
         $this->assertDatabaseCount('organizations', 1);
         $this->assertDatabaseCount('users', 1);

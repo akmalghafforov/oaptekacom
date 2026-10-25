@@ -7,20 +7,25 @@ use App\Enums\OrganizationType;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use App\Http\Requests\SendPhoneOtpRequest;
+use App\Http\Requests\StorePharmacyRegistrationRequest;
 use App\Http\Requests\VerifyPhoneOtpRequest;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\PhoneOtpService;
 use App\Support\UserAgentFormatter;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -318,13 +323,14 @@ class AuthController extends Controller
             'phone' => session($this->registrationSessionKey($role).'.phone'),
             'title' => $role === UserRole::Pharmacy ? 'Название аптеки' : 'Название поставщика',
             'description' => $role === UserRole::Pharmacy ? 'Укажите название для новой заявки.' : 'Укажите название компании для новой заявки.',
+            'cities' => config('registration.cities'),
             'field' => $role === UserRole::Pharmacy ? 'pharmacy_name' : 'supplier_name',
             'label' => $role === UserRole::Pharmacy ? 'Название аптеки' : 'Название компании',
             'route' => $role === UserRole::Pharmacy ? 'register.details.store' : 'provider.register.details.store',
         ]);
     }
 
-    public function storeRegistrationDetails(Request $request, PhoneOtpService $otpService): RedirectResponse
+    public function storeRegistrationDetails(StorePharmacyRegistrationRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
         return $this->storeRegistrationDetailsForRole($request, $otpService, UserRole::Pharmacy);
     }
@@ -340,18 +346,33 @@ class AuthController extends Controller
         abort_unless(is_array($registration) && isset($registration['phone']), 404);
 
         $nameField = $role === UserRole::Pharmacy ? 'pharmacy_name' : 'supplier_name';
-        $data = $request->validate([$nameField => ['required', 'string', 'max:255']]);
+        $data = $request instanceof StorePharmacyRegistrationRequest ? $request->validated() : $request->validate([$nameField => ['required', 'string', 'max:255']]);
         $phone = $registration['phone'];
 
+        $lock = $role === UserRole::Pharmacy
+            ? Cache::lock('pharmacy-registration:'.hash('sha256', json_encode([Str::lower($data[$nameField]), Str::lower($data['city'])])), 60)
+            : null;
         try {
+            $lock?->block(5);
             $user = DB::transaction(function () use ($phone, $data, $nameField, $role): User {
                 $existingUser = $this->phoneLoginUser($phone, true, $role);
+                if ($role === UserRole::Pharmacy) {
+                    $duplicate = Organization::where('type', OrganizationType::Pharmacy)
+                        ->when($existingUser?->organization_id, fn ($query, $id) => $query->whereKeyNot($id))
+                        ->select(['id', 'name', 'city'])->cursor()
+                        ->contains(fn (Organization $organization): bool => Str::lower(Str::trim($organization->name)) === Str::lower($data[$nameField])
+                            && Str::lower(Str::trim($organization->city ?? '')) === Str::lower($data['city']));
+                    if ($duplicate) {
+                        throw ValidationException::withMessages(['pharmacy_name' => 'Аптека с таким названием уже зарегистрирована в выбранном городе.']);
+                    }
+                }
                 if ($existingUser) {
                     return $existingUser;
                 }
 
                 $organization = Organization::create([
                     'name' => $data[$nameField],
+                    'city' => $data['city'] ?? null,
                     'phone' => $phone,
                     'type' => $role === UserRole::Pharmacy ? OrganizationType::Pharmacy : OrganizationType::Wholesaler,
                     'supplier_mode' => $role === UserRole::Wholesaler ? TradeMode::Supplier->value : 'both',
@@ -366,11 +387,15 @@ class AuthController extends Controller
 
                 return $user;
             });
+        } catch (LockTimeoutException $exception) {
+            throw ValidationException::withMessages(['pharmacy_name' => 'Не удалось отправить заявку. Попробуйте ещё раз.']);
         } catch (QueryException $exception) {
             $user = $this->phoneLoginUser($phone, true, $role);
             if (! $user) {
                 throw $exception;
             }
+        } finally {
+            $lock?->release();
         }
 
         if ($user->organization?->status !== 'pending' || $user->phone_verified_at) {
