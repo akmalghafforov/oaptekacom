@@ -12,6 +12,21 @@ class AdminOrganizationDirectoryTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
+    public function test_admin_can_edit_an_active_pharmacy_with_incomplete_setup_and_a_blocked_supplier(): void
+    {
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $pharmacy = Organization::factory()->pharmacy()->create(['setup_required' => true, 'city' => null, 'phone' => null]);
+        $supplier = Organization::factory()->wholesaler()->blocked()->create(['linked_pharmacy_organization_id' => $pharmacy->id]);
+
+        $this->actingAs($admin)->get(route('admin.pharmacies.edit', $pharmacy))->assertSee($pharmacy->name);
+        $this->patch(route('admin.pharmacies.update', $pharmacy), ['name' => 'Обновлённая аптека', 'status' => 'active', 'phone' => null, 'city' => null])
+            ->assertRedirect(route('admin.pharmacies.show', $pharmacy))->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('organizations', ['id' => $pharmacy->id, 'name' => 'Обновлённая аптека', 'status' => 'active', 'phone' => null, 'city' => null]);
+        $this->assertSame('blocked', $supplier->fresh()->status);
+        $this->assertDatabaseHas('audit_events', ['event' => 'organization.updated_by_admin', 'subject_id' => $pharmacy->id]);
+    }
+
     public function test_admin_manages_supplier_default_discount_with_audit_and_omission_preservation(): void
     {
         $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);

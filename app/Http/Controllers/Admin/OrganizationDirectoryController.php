@@ -159,9 +159,11 @@ class OrganizationDirectoryController extends Controller
         } else {
             unset($data['contact_name'], $data['contact_email'], $data['whatsapp_phone'], $data['additional_phones']);
         }
-        abort_if($organization->setup_required && $data['status'] === 'active', 422);
-        $sourceSupplier = Organization::query()->where('linked_pharmacy_organization_id', $organization->id)->first();
-        abort_if($data['status'] === 'active' && $sourceSupplier && $sourceSupplier->status !== 'active', 422);
+        if ($type !== OrganizationType::Pharmacy) {
+            abort_if($organization->setup_required && $data['status'] === 'active', 422);
+            $sourceSupplier = Organization::query()->where('linked_pharmacy_organization_id', $organization->id)->first();
+            abort_if($data['status'] === 'active' && $sourceSupplier && $sourceSupplier->status !== 'active', 422);
+        }
         $organization->update($data);
         $auditLogger->log('organization.updated_by_admin', $organization, $before, $organization->fresh()->only(array_keys($before)));
 

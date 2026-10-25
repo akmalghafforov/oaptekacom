@@ -37,25 +37,26 @@ class AdminController extends Controller
             if ($pendingOrganization->status !== 'pending') {
                 throw ValidationException::withMessages(['organization' => 'Организация больше не ожидает одобрения. Обновите страницу.']);
             }
-            if ($pendingOrganization->setup_required) {
+            $isPharmacy = $pendingOrganization->type === OrganizationType::Pharmacy;
+            if (! $isPharmacy && $pendingOrganization->setup_required) {
                 throw ValidationException::withMessages(['organization' => 'Владелец должен сохранить данные организации в профиле рабочего режима.']);
             }
 
             $organizationUser = $pendingOrganization->assignedUsers()
-                ->where(fn ($query) => $query->whereNotNull('phone_verified_at')->orWhere('users.role', UserRole::Admin))
+                ->when(! $isPharmacy, fn ($query) => $query->where(fn ($query) => $query->whereNotNull('phone_verified_at')->orWhere('users.role', UserRole::Admin)))
                 ->lockForUpdate()
                 ->first();
             $sourceSupplier = $pendingOrganization->sourceSupplierOrganization()->lockForUpdate()->first();
-            if (! $organizationUser) {
+            if (! $isPharmacy && ! $organizationUser) {
                 throw ValidationException::withMessages(['organization' => 'Для одобрения организации необходимо подтверждение телефона по SMS.']);
             }
-            if ($sourceSupplier && $sourceSupplier->status !== 'active') {
+            if (! $isPharmacy && $sourceSupplier && $sourceSupplier->status !== 'active') {
                 throw ValidationException::withMessages(['organization' => 'Сначала одобрите связанного поставщика: '.$sourceSupplier->name.'.']);
             }
 
             $before = $pendingOrganization->only('status');
-            $pendingOrganization->update(['status' => 'active']);
-            $organizationUser->forceFill(array_filter([
+            $pendingOrganization->update($isPharmacy ? ['status' => 'active', 'setup_required' => false] : ['status' => 'active']);
+            $organizationUser?->forceFill(array_filter([
                 'approved_at' => now(),
                 'subscription_plan' => $organizationUser->isCustomer() ? SubscriptionPlan::Free : null,
             ], fn (mixed $value): bool => $value !== null))->save();
