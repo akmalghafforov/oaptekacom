@@ -16,4 +16,5 @@
 </div></header>
 <main class="page-container {{ request()->routeIs('login', 'login.otp.form', 'login.session.confirmation', 'admin.login', 'provider.*', 'register', 'register.*') ? 'max-w-lg py-10 sm:py-16' : 'py-6 sm:py-8' }} {{ auth()->user()?->isPharmacyMode() ? 'customer-page' : '' }}"><div class="mb-5 space-y-3" aria-live="polite">@if(session('success'))<x-ui.alert type="success">{{ session('success') }}</x-ui.alert>@endif @if(session('warning'))<x-ui.alert type="warning">{{ session('warning') }}</x-ui.alert>@endif @if($errors->any())<x-ui.alert type="danger">{{ $errors->first() }}</x-ui.alert>@endif</div><div data-mode-stale hidden><x-ui.alert type="warning">Режим изменился в другой вкладке. <a href="{{ request()->fullUrl() }}">Обновить страницу</a></x-ui.alert></div>@yield('content')</main>
 <x-legal-footer />
+<x-floating-whatsapp />
 </body></html>

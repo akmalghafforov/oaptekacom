@@ -478,3 +478,20 @@
 
 [data-catalog-search] [data-catalog-form].catalog-search-enhanced { grid-template-columns: minmax(0, 1fr) auto !important; }
 [data-catalog-search] [data-search-submit][hidden] { display: none; }
+
+.floating-whatsapp {
+    position: fixed;
+    z-index: 30;
+    right: calc(1rem + env(safe-area-inset-right, 0px));
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (max-width: 767px) {
+    body:has([data-customer-mobile-nav]) .floating-whatsapp {
+        bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media print {
+    .floating-whatsapp { display: none; }
+}
