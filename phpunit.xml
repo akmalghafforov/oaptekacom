@@ -18,6 +18,7 @@
         </include>
     </source>
     <php>
+        <env name="AUTH_PROVIDER_ACCESS_SUSPENDED" value="false" force="true"/>
         <env name="ACCOUNT_MODES_ENABLED" value="false" force="true"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>

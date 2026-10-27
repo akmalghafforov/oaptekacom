@@ -116,6 +116,8 @@ return [
 
     'development_otp_code' => env('DEVELOPMENT_OTP_CODE'),
 
+    'provider_access_suspended' => env('AUTH_PROVIDER_ACCESS_SUSPENDED', true),
+
     'admin_two_factor_enabled' => env('AUTH_ADMIN_2FA_ENABLED', false),
 
 ];
