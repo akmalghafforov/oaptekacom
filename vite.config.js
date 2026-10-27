@@ -28,6 +28,7 @@ export default defineConfig(({ mode }) => {
             ...(tls ? {
                 https: tls,
                 origin: `https://${new URL(env.APP_URL).hostname}:5173`,
+                cors: { origin: new URL(env.APP_URL).origin },
                 hmr: { host: new URL(env.APP_URL).hostname, protocol: 'wss' },
             } : {}),
             watch: {
