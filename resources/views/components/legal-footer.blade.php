@@ -37,5 +37,13 @@
                 </div>
             </nav>
         @endif
+        <div class="md:col-span-2">
+            <x-ui.button variant="secondary" :href="asset('downloads/OAPTEKA_1.0.3.apk')" download="OAPTEKA_1.0.3.apk" class="gap-2">
+                <svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+                    <path d="M5 3v18l16-9L5 3Z" />
+                </svg>
+                Скачать для Android
+            </x-ui.button>
+        </div>
     </div>
 </footer>
