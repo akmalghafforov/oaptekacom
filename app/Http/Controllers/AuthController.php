@@ -172,10 +172,10 @@ class AuthController extends Controller
 
     private function verifyLoginOtpForRole(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService, UserRole $role): RedirectResponse
     {
-        $phone = $request->validated('phone');
+        $phone = $request->session()->get($this->loginSessionKey($role));
         $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
 
-        if ($phone !== $request->session()->get($this->loginSessionKey($role)) || (! $usesDevelopmentCode && ! $otpService->consume('login', $phone, $role, $request->validated('code')))) {
+        if (! is_string($phone) || $phone === '' || (! $usesDevelopmentCode && ! $otpService->consume('login', $phone, $role, $request->validated('code')))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
         $user = $this->phoneLoginUser($phone, false, $role);
@@ -437,13 +437,16 @@ class AuthController extends Controller
     private function verifyRegistrationOtpForRole(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService, UserRole $role): RedirectResponse
     {
         $registration = $request->session()->get($this->registrationSessionKey($role));
-        $phone = $request->validated('phone');
+        $phone = is_array($registration) ? $registration['phone'] ?? null : null;
+        if (! is_string($phone) || $phone === '') {
+            return back()->withErrors(['code' => 'Код недействителен или истёк.']);
+        }
         $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
         $userId = is_array($registration) ? $registration['user_id'] ?? null : null;
         $user = is_numeric($userId)
             ? User::whereKey($userId)->where('phone', $phone)->where('role', $role)->whereNull('phone_verified_at')->whereHas('organization', fn ($query) => $query->where('status', 'pending'))->first()
             : null;
-        if (! $registration || $phone !== $registration['phone'] || ! $user || (! $usesDevelopmentCode && ! $otpService->consume('registration', $phone, $role, $request->validated('code')))) {
+        if (! $user || (! $usesDevelopmentCode && ! $otpService->consume('registration', $phone, $role, $request->validated('code')))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
 

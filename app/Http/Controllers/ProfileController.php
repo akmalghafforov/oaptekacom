@@ -72,8 +72,8 @@ class ProfileController extends Controller
     public function confirmPhoneChange(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
     {
         abort_unless(! $request->user()->isAdmin(), 403);
-        $phone = $request->validated('phone');
-        if ($phone !== $request->session()->get('phone_otp.change_phone') || ! $otpService->consume('phone_change', $phone, $request->user()->role, $request->validated('code'))) {
+        $phone = $request->session()->get('phone_otp.change_phone');
+        if (! is_string($phone) || $phone === '' || ! $otpService->consume('phone_change', $phone, $request->user()->role, $request->validated('code'))) {
             return back()->withErrors(['code' => 'Код недействителен или истёк.']);
         }
         if (User::where('phone', $phone)->where('role', $request->user()->role)->whereKeyNot($request->user()->id)->exists()) {

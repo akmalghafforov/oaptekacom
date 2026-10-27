@@ -8,6 +8,7 @@ use App\Enums\UserRole;
 use App\Models\OneTimePassword;
 use App\Models\Organization;
 use App\Models\User;
+use App\Services\PhoneOtpService;
 use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
@@ -52,11 +53,12 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->get(route('provider.login'))->assertViewIs('auth.provider-login');
     }
 
-    public function test_phone_login_verification_uses_phone_and_sms_code_masks(): void
+    public function test_phone_login_verification_displays_destination_and_masks_only_the_code(): void
     {
         $this->withSession(['phone_otp.login' => '+992901234567'])
             ->get(route('login.otp.form'))
-            ->assertSee('data-phone-mask', false)
+            ->assertSee('Код отправлен на номер +992901234567.')
+            ->assertDontSee('name="phone"', false)
             ->assertSee('data-sms-code-mask', false)
             ->assertSee('page-container max-w-lg', false);
     }
@@ -91,7 +93,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $otp = OneTimePassword::firstOrFail();
         $otp->update(['code_hash' => Hash::make('123456')]);
 
-        $this->post(route('register.otp.verify'), ['phone' => '+992901234567', 'code' => '123456'])->assertRedirect(route('subscription.create'));
+        $this->post(route('register.otp.verify'), ['code' => '123456'])->assertRedirect(route('subscription.create'));
 
         $user = User::where('phone', '+992901234567')->firstOrFail();
         $this->assertNotNull($user->phone_verified_at);
@@ -128,7 +130,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         OneTimePassword::factory()->create(['purpose' => 'registration', 'phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
 
         $this->withSession(['phone_otp.registration' => ['phone' => $user->phone, 'user_id' => $user->id]])
-            ->post(route('register.otp.verify'), ['phone' => $user->phone, 'code' => '111111'])
+            ->post(route('register.otp.verify'), ['code' => '111111'])
             ->assertSessionHasErrors('code');
 
         $this->assertNull($user->fresh()->phone_verified_at);
@@ -144,7 +146,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567']);
 
         $this->post(route('register'), ['phone' => $user->phone])->assertRedirect(route('register.otp.form'));
-        $this->post(route('register.otp.verify'), ['phone' => $user->phone, 'code' => '000000'])
+        $this->post(route('register.otp.verify'), ['code' => '000000'])
             ->assertRedirect(route('subscription.create'));
 
         $this->assertNotNull($user->fresh()->phone_verified_at);
@@ -163,7 +165,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->post(route('login.otp.send'), ['phone' => $pharmacy->phone])
             ->assertRedirect(route('login.otp.form'));
         $this->withSession(['phone_otp.login' => $pharmacy->phone])
-            ->post(route('login.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '654321'])
+            ->post(route('login.otp.verify'), ['code' => '654321'])
             ->assertRedirect(route('catalog'));
 
         $this->assertAuthenticatedAs($pharmacy);
@@ -199,7 +201,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         }
 
         $this->withSession(['phone_otp.login' => $pharmacy->phone])
-            ->post(route('login.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '654321'])
+            ->post(route('login.otp.verify'), ['code' => '654321'])
             ->assertRedirect(route('catalog'));
 
         $this->assertAuthenticatedAs($pharmacy);
@@ -214,7 +216,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $otp = OneTimePassword::factory()->create(['phone' => $pharmacy->phone, 'code_hash' => Hash::make('123456')]);
 
         $this->withSession(['phone_otp.login' => $pharmacy->phone])
-            ->post(route('login.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '123456'])
+            ->post(route('login.otp.verify'), ['code' => '123456'])
             ->assertSessionHasErrors('code');
 
         $this->assertGuest();
@@ -264,7 +266,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => null, 'email' => null]);
         OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
 
-        $this->withSession(['phone_otp.login' => $user->phone])->post(route('login.otp.verify'), ['phone' => $user->phone, 'code' => '123456'])->assertRedirect(route('catalog'));
+        $this->withSession(['phone_otp.login' => $user->phone])->post(route('login.otp.verify'), ['code' => '123456'])->assertRedirect(route('catalog'));
 
         $this->assertAuthenticatedAs($user);
         $this->assertNotNull(OneTimePassword::first()->consumed_at);
@@ -278,7 +280,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $response = $this->withSession([
             'phone_otp.login' => $user->phone,
             'url.intended' => route('orders.index'),
-        ])->post(route('login.otp.verify'), ['phone' => $user->phone, 'code' => '123456']);
+        ])->post(route('login.otp.verify'), ['code' => '123456']);
 
         $response->assertRedirect(route('orders.index'));
     }
@@ -294,7 +296,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->createActiveSession($user, 'other-device-session', $rawUserAgent, '203.0.113.10', now()->subMinutes(10)->timestamp);
 
         $response = $this->withSession(['phone_otp.login' => $user->phone])
-            ->post(route('login.otp.verify'), ['phone' => $user->phone, 'code' => '123456']);
+            ->post(route('login.otp.verify'), ['code' => '123456']);
 
         $response->assertRedirectToRoute('login.session.confirmation');
         $this->assertGuest();
@@ -337,7 +339,7 @@ class PhoneOtpAuthenticationTest extends TestCase
             'phone_otp.login' => $user->phone,
             'url.intended' => route('orders.index'),
         ])
-            ->post(route('login.otp.verify'), ['phone' => $user->phone, 'code' => '123456']);
+            ->post(route('login.otp.verify'), ['code' => '123456']);
         $otpResponse->assertRedirectToRoute('login.session.confirmation');
         $sessionId = $otpResponse->getCookie(config('session.cookie'), false)->getValue();
 
@@ -367,7 +369,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->createActiveSession($supplier, 'supplier-device-session', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0', '198.51.100.20', now()->subMinutes(5)->timestamp);
 
         $otpResponse = $this->withSession(['phone_otp.supplier_login' => $supplier->phone])
-            ->post(route('provider.otp.verify'), ['phone' => $supplier->phone, 'code' => '123456']);
+            ->post(route('provider.otp.verify'), ['code' => '123456']);
 
         $otpResponse->assertRedirectToRoute('provider.session.confirmation');
         $sessionId = $otpResponse->getCookie(config('session.cookie'), false)->getValue();
@@ -402,7 +404,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $otpResponse = $this->withSession([
             'phone_otp.supplier_login' => $supplier->phone,
             'url.intended' => route('orders.index'),
-        ])->post(route('provider.otp.verify'), ['phone' => $supplier->phone, 'code' => '123456']);
+        ])->post(route('provider.otp.verify'), ['code' => '123456']);
         $sessionId = $otpResponse->getCookie(config('session.cookie'), false)->getValue();
 
         $this->withUnencryptedCookie(config('session.cookie'), $sessionId)
@@ -417,10 +419,10 @@ class PhoneOtpAuthenticationTest extends TestCase
     {
         $otp = OneTimePassword::factory()->create(['phone' => '+992901234567', 'code_hash' => Hash::make('123456')]);
         for ($attempt = 0; $attempt < 5; $attempt++) {
-            $this->withSession(['phone_otp.login' => $otp->phone])->post(route('login.otp.verify'), ['phone' => $otp->phone, 'code' => '111111'])->assertSessionHasErrors('code');
+            $this->withSession(['phone_otp.login' => $otp->phone])->post(route('login.otp.verify'), ['code' => '111111'])->assertSessionHasErrors('code');
         }
         $this->assertSame(5, $otp->fresh()->attempts);
-        $this->withSession(['phone_otp.login' => $otp->phone])->post(route('login.otp.verify'), ['phone' => $otp->phone, 'code' => '123456'])->assertSessionHasErrors('code');
+        $this->withSession(['phone_otp.login' => $otp->phone])->post(route('login.otp.verify'), ['code' => '123456'])->assertSessionHasErrors('code');
     }
 
     public function test_supplier_phone_login_authenticates_only_supplier_accounts(): void
@@ -432,12 +434,12 @@ class PhoneOtpAuthenticationTest extends TestCase
         OneTimePassword::factory()->create(['account_type' => UserRole::Wholesaler, 'phone' => $provider->phone, 'code_hash' => Hash::make('123456')]);
 
         $this->withSession(['phone_otp.supplier_login' => $provider->phone])
-            ->post(route('provider.otp.verify'), ['phone' => $provider->phone, 'code' => '123456'])
+            ->post(route('provider.otp.verify'), ['code' => '123456'])
             ->assertRedirect(route('dashboard'));
         $this->assertNotNull($provider->fresh()->phone_verified_at);
         auth()->logout();
         $this->withSession(['phone_otp.supplier_login' => $pharmacy->phone])
-            ->post(route('provider.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '123456'])
+            ->post(route('provider.otp.verify'), ['code' => '123456'])
             ->assertSessionHasErrors('code');
         $this->post(route('admin.login.authenticate'), ['email' => $admin->email, 'password' => 'password'])->assertRedirect(route('two-factor.enroll'));
     }
@@ -463,7 +465,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         OneTimePassword::factory()->create(['account_type' => UserRole::Wholesaler, 'phone' => $provider->phone, 'code_hash' => Hash::make('123456')]);
 
         $response = $this->withSession(['phone_otp.supplier_login' => $provider->phone])
-            ->post(route('provider.otp.verify'), ['phone' => $provider->phone, 'code' => '123456']);
+            ->post(route('provider.otp.verify'), ['code' => '123456']);
 
         $response->assertRedirect(route('catalog'));
         $this->assertAuthenticatedAs($provider);
@@ -521,7 +523,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         config()->set('auth.development_otp_code', '000000');
         $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
 
-        $this->withSession(['phone_otp.login' => $pharmacy->phone])->post(route('login.otp.verify'), ['phone' => $pharmacy->phone, 'code' => '000000'])->assertRedirect(route('catalog'));
+        $this->withSession(['phone_otp.login' => $pharmacy->phone])->post(route('login.otp.verify'), ['code' => '000000'])->assertRedirect(route('catalog'));
 
         $this->assertAuthenticatedAs($pharmacy);
     }
@@ -532,10 +534,100 @@ class PhoneOtpAuthenticationTest extends TestCase
         $provider = User::factory()->wholesaler()->create(['phone' => '+992901234567']);
 
         $this->withSession(['phone_otp.login' => $provider->phone])
-            ->post(route('login.otp.verify'), ['phone' => $provider->phone, 'code' => '000000'])
+            ->post(route('login.otp.verify'), ['code' => '000000'])
             ->assertSessionHasErrors('code');
 
         $this->assertGuest();
+    }
+
+    #[TestWith(['pharmacy', 'login'])]
+    #[TestWith(['wholesaler', 'login'])]
+    #[TestWith(['pharmacy', 'registration'])]
+    #[TestWith(['wholesaler', 'registration'])]
+    #[TestWith(['pharmacy', 'phone_change'])]
+    #[TestWith(['wholesaler', 'phone_change'])]
+    #[TestWith(['pharmacy', 'login', true])]
+    #[TestWith(['pharmacy', 'registration', true])]
+    #[TestWith(['pharmacy', 'phone_change', true])]
+    #[TestWith(['wholesaler', 'login', true])]
+    #[TestWith(['wholesaler', 'registration', true])]
+    #[TestWith(['wholesaler', 'phone_change', true])]
+    public function test_verification_uses_only_the_session_destination(string $role, string $purpose, bool $submitAlternatePhone = false): void
+    {
+        $accountType = UserRole::from($role);
+        $organization = Organization::factory()->{$role}()->pending()->create();
+        $user = User::factory()->{$role}($organization)->create(['phone' => '+992900000001', 'phone_verified_at' => $purpose === 'registration' ? null : now()]);
+        $phone = $purpose === 'phone_change' ? '+992901234567' : $user->phone;
+        $supplier = $accountType === UserRole::Wholesaler;
+        $prefix = $supplier ? 'provider' : 'login';
+        $sessionKey = $purpose === 'phone_change' ? 'phone_otp.change_phone' : 'phone_otp.'.($supplier ? 'supplier_' : '').$purpose;
+        $verifyRoute = match ($purpose) {
+            'login' => $prefix.'.otp.verify',
+            'registration' => ($supplier ? 'provider.' : '').'register.otp.verify',
+            default => 'profile.phone.confirm',
+        };
+        $formRoute = match ($purpose) {
+            'login' => $prefix.'.otp.form',
+            'registration' => ($supplier ? 'provider.' : '').'register.otp.form',
+            default => 'profile.phone.verify',
+        };
+        if ($purpose === 'phone_change') {
+            $this->actingAs($user);
+        }
+        $otp = OneTimePassword::factory()->create(['purpose' => $purpose, 'account_type' => $accountType, 'phone' => $phone]);
+        $alternateOtp = OneTimePassword::factory()->create(['purpose' => $purpose, 'account_type' => $accountType, 'phone' => '+992909999999']);
+
+        $this->post(route($verifyRoute), ['phone' => $phone, 'code' => '123456'])
+            ->assertSessionHasErrors(['code' => 'Код недействителен или истёк.']);
+        $this->assertNull($otp->fresh()->consumed_at);
+        $this->assertSame(0, $otp->fresh()->attempts);
+
+        $state = $purpose === 'registration' ? ['phone' => $phone, 'user_id' => $user->id] : $phone;
+        $this->withSession([$sessionKey => $state]);
+        foreach ([[], ['code' => '12345'], ['code' => 'abcdef'], ['code' => '111111']] as $payload) {
+            $this->from(route($formRoute))->post(route($verifyRoute), $payload)->assertSessionHasErrors('code');
+        }
+        $otp->update(['expires_at' => now()->subMinute()]);
+        $this->post(route($verifyRoute), ['code' => '123456'])->assertSessionHasErrors('code');
+        $otp->update(['expires_at' => now()->addMinutes(5), 'consumed_at' => now()]);
+        $this->post(route($verifyRoute), ['code' => '123456'])->assertSessionHasErrors('code');
+        $otp->update(['consumed_at' => null]);
+        if ($purpose === 'registration') {
+            $this->withSession([$sessionKey => ['phone' => $phone]])
+                ->post(route($verifyRoute), ['code' => '123456'])->assertSessionHasErrors('code');
+            $this->withSession([$sessionKey => $state]);
+        }
+        $response = $this->get(route($formRoute))->assertOk()->assertSee('Код отправлен на номер '.$phone.'.');
+        $document = new \DOMDocument;
+        @$document->loadHTML($response->getContent());
+        $xpath = new \DOMXPath($document);
+        $this->assertSame(0, $xpath->query('//form[@action="'.route($verifyRoute).'"]//input[@name="phone"]')->length);
+
+        $resendRoute = match ($purpose) {
+            'login' => $prefix.'.otp.resend',
+            'registration' => ($supplier ? 'provider.' : '').'register.otp.resend',
+            default => 'profile.phone.send',
+        };
+        $this->mock(PhoneOtpService::class, function (MockInterface $mock) use ($purpose, $phone, $accountType): void {
+            $mock->makePartial();
+            $mock->shouldReceive('send')->once()->with($purpose, $phone, $accountType)->andReturn(true);
+        });
+        $this->post(route($resendRoute), ['phone' => $purpose === 'phone_change' ? $phone : '+992909999999'])
+            ->assertSessionHasNoErrors();
+
+        $payload = ['code' => '123456'];
+        if ($submitAlternatePhone) {
+            $payload['phone'] = '+992909999999';
+        }
+        $this->post(route($verifyRoute), $payload)
+            ->assertSessionHasNoErrors()->assertSessionMissing($sessionKey);
+        $this->assertNotNull($otp->fresh()->consumed_at);
+        $this->assertNull($alternateOtp->fresh()->consumed_at);
+        if ($purpose === 'phone_change') {
+            $this->assertSame($phone, $user->fresh()->phone);
+        } else {
+            $this->assertAuthenticatedAs($user);
+        }
     }
 
     private function useDatabaseSessions(): void
