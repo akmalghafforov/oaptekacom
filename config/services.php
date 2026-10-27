@@ -43,6 +43,7 @@ return [
 
     'oson_sms' => [
         'driver' => env('OSON_SMS_DRIVER', 'oson'),
+        'server' => env('OSON_SMS_SERVER', 'https://api.osonsms.com/sendsms_v1.php'),
         'dummy_code' => env('OSON_SMS_DUMMY_CODE'),
         'login' => env('OSON_SMS_LOGIN'),
         'token' => env('OSON_SMS_TOKEN'),

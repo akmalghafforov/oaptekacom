@@ -8,7 +8,8 @@ use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Http;
+use Mockery\MockInterface;
+use OsonSMS\OsonSMSService\OsonSmsService;
 use Tests\TestCase;
 
 class SharedPhoneAccountTest extends TestCase
@@ -17,7 +18,9 @@ class SharedPhoneAccountTest extends TestCase
 
     public function test_supplier_registration_accepts_a_phone_owned_by_a_pharmacy(): void
     {
-        Http::fake(['https://api.osonsms.com/sendsms_v1.php*' => Http::response(['status' => 'success', 'transaction_id' => 'supplier-1'])]);
+        $this->mock(OsonSmsService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('sendSMS')->once()->andReturn(123);
+        });
         $phone = '+992901234567';
         $pharmacyOrganization = Organization::factory()->pharmacy()->create(['phone' => $phone]);
         $pharmacy = User::factory()->pharmacy($pharmacyOrganization)->create(['phone' => $phone]);
