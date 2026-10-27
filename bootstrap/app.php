@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnforceLoginSessionLifetime;
 use App\Http\Middleware\EnsureAccountIsActive;
 use App\Http\Middleware\EnsureRole;
 use App\Http\Middleware\EnsureTwoFactorConfirmed;
@@ -10,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Session\Middleware\StartSession;
 use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -23,7 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
             headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_PROTO | Request::HEADER_X_FORWARDED_PORT,
         );
         $middleware->prependToPriorityList(AuthenticatesRequests::class, ProtectGmailResponse::class);
-        $middleware->web(append: [ResolveAccountMode::class]);
+        $middleware->appendToPriorityList(StartSession::class, EnforceLoginSessionLifetime::class);
+        $middleware->web(append: [EnforceLoginSessionLifetime::class, ResolveAccountMode::class]);
         $middleware->alias(['active' => EnsureAccountIsActive::class, 'role' => EnsureRole::class, 'two-factor-confirmed' => EnsureTwoFactorConfirmed::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

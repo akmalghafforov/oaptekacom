@@ -643,7 +643,7 @@ class PhoneOtpAuthenticationTest extends TestCase
             'user_id' => $user->id,
             'ip_address' => $ipAddress,
             'user_agent' => $userAgent,
-            'payload' => base64_encode(serialize([auth()->guard()->getName() => $user->getAuthIdentifier()])),
+            'payload' => base64_encode(json_encode([auth()->guard()->getName() => $user->getAuthIdentifier()])),
             'last_activity' => $lastActivity,
         ]);
     }

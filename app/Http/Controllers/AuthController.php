@@ -11,6 +11,7 @@ use App\Http\Requests\StorePharmacyRegistrationRequest;
 use App\Http\Requests\VerifyPhoneOtpRequest;
 use App\Models\Organization;
 use App\Models\User;
+use App\Services\LoginSessionLifetime;
 use App\Services\PhoneOtpService;
 use App\Support\UserAgentFormatter;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -31,7 +32,7 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class AuthController extends Controller
 {
-    public function __construct(private readonly UserAgentFormatter $userAgentFormatter) {}
+    public function __construct(private readonly UserAgentFormatter $userAgentFormatter, private readonly LoginSessionLifetime $sessionLifetime) {}
 
     public function loginForm(): View
     {
@@ -66,12 +67,13 @@ class AuthController extends Controller
             return back()->withErrors(['email' => 'Слишком много попыток.']);
         }
         $user = User::where('email', $data['email'])->where('role', $role)->first();
-        if (! $user || ! Auth::attempt(['email' => $data['email'], 'password' => $data['password'], 'role' => $role], $request->boolean('remember'))) {
+        if (! $user || ! Auth::attempt(['email' => $data['email'], 'password' => $data['password'], 'role' => $role])) {
             RateLimiter::hit($key, 60);
 
             return back()->withErrors(['email' => 'Неверные данные.']);
         }
         $request->session()->regenerate();
+        $this->sessionLifetime->initialize($request->session());
         $request->session()->forget('account_mode');
         RateLimiter::clear($key);
 
@@ -193,6 +195,7 @@ class AuthController extends Controller
         }
         Auth::login($user);
         $request->session()->regenerate();
+        $this->sessionLifetime->initialize($request->session());
         $request->session()->forget('account_mode');
         $request->session()->forget($this->loginSessionKey($role));
 
@@ -242,6 +245,7 @@ class AuthController extends Controller
         $this->sessionQuery()->where('user_id', $user->id)->delete();
         Auth::login($user);
         $request->session()->regenerate();
+        $this->sessionLifetime->initialize($request->session());
         $request->session()->forget('account_mode');
         $request->session()->forget([$this->loginSessionKey($role), $this->pendingLoginSessionKey($role)]);
 
@@ -464,6 +468,7 @@ class AuthController extends Controller
         $request->session()->forget($this->registrationSessionKey($role));
         Auth::login($user);
         $request->session()->regenerate();
+        $this->sessionLifetime->initialize($request->session());
         $request->session()->forget('account_mode');
 
         return redirect()->route('subscription.create')->with('success', 'Телефон подтверждён. Заявка ожидает проверки администратора.');
@@ -597,7 +602,8 @@ class AuthController extends Controller
             ->where('user_id', $user->id)
             ->where('last_activity', '>=', now()->subMinutes(config('session.lifetime'))->getTimestamp())
             ->orderByDesc('last_activity')
-            ->get();
+            ->get()
+            ->filter(fn (object $session): bool => $this->sessionLifetime->storedSessionIsActive($session->id));
     }
 
     private function sessionQuery(): Builder
