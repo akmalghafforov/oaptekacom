@@ -11,6 +11,8 @@ use App\Http\Requests\UpdatePriceListVisibilityRequest;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\OrganizationApprovalService;
+use App\Services\TelegramSupplierReviews;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -149,23 +151,38 @@ class OrganizationDirectoryController extends Controller
     private function update(UpdateAdminOrganizationRequest $request, Organization $organization, OrganizationType $type, AuditLogger $auditLogger): RedirectResponse
     {
         $organization = $this->organizationOfType($organization, $type);
-        $before = $organization->only(['name', 'city', 'phone', 'status', 'supplier_mode', 'default_discount_percent', 'minimum_order', 'delivery_conditions', 'contact_name', 'contact_email', 'whatsapp_phone', 'additional_phones']);
-        $data = $request->validated();
-        if (array_key_exists('default_discount_percent', $data)) {
-            $data['default_discount_percent'] ??= '0.00';
-        }
-        if ($type === OrganizationType::Wholesaler) {
-            $data['additional_phones'] = array_values(array_unique(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $data['additional_phones'] ?? '')))));
-        } else {
-            unset($data['contact_name'], $data['contact_email'], $data['whatsapp_phone'], $data['additional_phones']);
-        }
-        if ($type !== OrganizationType::Pharmacy) {
-            abort_if($organization->setup_required && $data['status'] === 'active', 422);
-            $sourceSupplier = Organization::query()->where('linked_pharmacy_organization_id', $organization->id)->first();
-            abort_if($data['status'] === 'active' && $sourceSupplier && $sourceSupplier->status !== 'active', 422);
-        }
-        $organization->update($data);
-        $auditLogger->log('organization.updated_by_admin', $organization, $before, $organization->fresh()->only(array_keys($before)));
+        DB::transaction(function () use ($request, $organization, $type, $auditLogger): void {
+            $organization = Organization::query()->lockForUpdate()->findOrFail($organization->id);
+            $before = $organization->only(['name', 'city', 'phone', 'status', 'supplier_mode', 'default_discount_percent', 'minimum_order', 'delivery_conditions', 'contact_name', 'contact_email', 'whatsapp_phone', 'additional_phones']);
+            $data = $request->validated();
+            if (array_key_exists('default_discount_percent', $data)) {
+                $data['default_discount_percent'] ??= '0.00';
+            }
+            if ($type === OrganizationType::Wholesaler) {
+                $data['additional_phones'] = array_values(array_unique(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $data['additional_phones'] ?? '')))));
+            } else {
+                unset($data['contact_name'], $data['contact_email'], $data['whatsapp_phone'], $data['additional_phones']);
+            }
+            if ($type !== OrganizationType::Pharmacy) {
+                abort_if($organization->setup_required && $data['status'] === 'active', 422);
+                $sourceSupplier = Organization::query()->where('linked_pharmacy_organization_id', $organization->id)->first();
+                abort_if($data['status'] === 'active' && $sourceSupplier && $sourceSupplier->status !== 'active', 422);
+            }
+            $previousStatus = $organization->status;
+            $approvingPendingSupplier = $type === OrganizationType::Wholesaler && $previousStatus === 'pending' && $data['status'] === 'active';
+            if ($approvingPendingSupplier) {
+                $profileData = $data;
+                unset($profileData['status']);
+                $organization->update($profileData);
+                app(OrganizationApprovalService::class)->approve($organization, $request->user());
+            } else {
+                $organization->update($data);
+            }
+            if ($previousStatus !== $data['status'] && ! $approvingPendingSupplier) {
+                app(TelegramSupplierReviews::class)->complete($organization, 'overridden', $request->user());
+            }
+            $auditLogger->log('organization.updated_by_admin', $organization, $before, $organization->fresh()->only(array_keys($before)));
+        });
 
         return redirect()->route($this->routePrefix($type).'.show', $organization)->with('success', 'Данные организации сохранены.');
     }
@@ -192,6 +209,7 @@ class OrganizationDirectoryController extends Controller
             $users = $lockedOrganization->users()->where('role', '!=', UserRole::Admin)->lockForUpdate()->get();
             $before = $lockedOrganization->only('status');
             $lockedOrganization->update(['status' => 'blocked']);
+            app(TelegramSupplierReviews::class)->complete($lockedOrganization, 'overridden', request()->user());
             $auditLogger->log('organization.archived', $lockedOrganization, $before, $lockedOrganization->only('status'));
 
             foreach ($users as $user) {

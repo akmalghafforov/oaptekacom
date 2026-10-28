@@ -3,15 +3,16 @@
 namespace App\Services;
 
 use App\Models\AuditEvent;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 
 class AuditLogger
 {
     /** @param array<string, mixed> $before @param array<string, mixed> $after */
-    public function log(string $event, Model $subject, array $before = [], array $after = []): void
+    public function log(string $event, Model $subject, array $before = [], array $after = [], ?User $actor = null): void
     {
         AuditEvent::create([
-            'user_id' => auth()->id(),
+            'user_id' => $actor?->id ?? auth()->id(),
             'event' => $event,
             'subject_type' => $subject::class,
             'subject_id' => $subject->getKey(),

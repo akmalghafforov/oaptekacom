@@ -13,6 +13,7 @@ use App\Models\Organization;
 use App\Models\User;
 use App\Services\LoginSessionLifetime;
 use App\Services\PhoneOtpService;
+use App\Services\TelegramSupplierReviews;
 use App\Support\UserAgentFormatter;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Query\Builder;
@@ -513,6 +514,7 @@ class AuthController extends Controller
         }
 
         $user = DB::transaction(function () use ($user): User {
+            Organization::query()->whereKey($user->organization_id)->lockForUpdate()->firstOrFail();
             $pendingUser = User::query()
                 ->lockForUpdate()
                 ->whereKey($user->id)
@@ -520,6 +522,9 @@ class AuthController extends Controller
                 ->whereHas('organization', fn ($query) => $query->where('status', 'pending'))
                 ->firstOrFail();
             $pendingUser->forceFill(['phone_verified_at' => now()])->save();
+            if ($pendingUser->isWholesaler()) {
+                app(TelegramSupplierReviews::class)->create($pendingUser->organization);
+            }
 
             return $pendingUser;
         });

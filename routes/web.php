@@ -21,6 +21,7 @@ use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SubscriptionRequestController;
 use App\Http\Controllers\SupplierCartExportController;
 use App\Http\Controllers\SupplierRequestController;
+use App\Http\Controllers\TelegramWebhookController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Middleware\ProtectGmailResponse;
 use App\Services\PhoneOtpService;
@@ -166,3 +167,5 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::post('/medicines/{medicine}/categories/unlock', [CategoryReviewController::class, 'unlock'])->name('admin.medicines.categories.unlock');
     });
 });
+
+Route::post('/telegram/webhook', TelegramWebhookController::class)->name('telegram.webhook');
