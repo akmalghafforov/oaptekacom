@@ -36,7 +36,7 @@ class LoginSessionLifetimeTest extends TestCase
     public function test_authentication_starts_a_persistent_thirty_day_session(string $role, string $flow): void
     {
         $this->freezeTime();
-        $user = User::factory()->{$role}()->create(['phone' => '+992901234567', 'password' => 'password']);
+        $user = User::factory()->{$role}()->create(['phone' => '+992901234567', 'password' => $role === 'pharmacy' ? '000000' : 'password']);
         if ($role === 'admin') {
             $response = $this->post(route('admin.login.authenticate'), ['email' => $user->email, 'password' => 'password', 'remember' => true]);
         } else {
@@ -56,7 +56,7 @@ class LoginSessionLifetimeTest extends TestCase
                 $state = $user->phone;
                 $route = ($supplier ? 'provider' : 'login').'.otp.verify';
             }
-            $response = $this->withSession([$key => $state])->post(route($route), ['code' => '000000']);
+            $response = $this->withSession([$key => $state, 'phone_otp.pending_password_hash' => $user->password])->post(route($route), ['code' => '000000']);
         }
         $response->assertSessionHas(LoginSessionLifetime::EXPIRES_AT, now()->addDays(30)->timestamp);
         $this->assertAuthenticatedAs($user);
@@ -119,7 +119,7 @@ class LoginSessionLifetimeTest extends TestCase
         $this->freezeTime();
         config(['session.encrypt' => $encrypted]);
         app('session')->forgetDrivers();
-        $user = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
+        $user = User::factory()->pharmacy()->create(['phone' => '+992901234567', 'password' => '000000']);
         $payload = json_encode([auth()->guard()->getName() => $user->id, LoginSessionLifetime::EXPIRES_AT => $expired ? now()->timestamp : now()->addDays(30)->timestamp]);
         DB::table('sessions')->insert([
             'id' => str_repeat('a', 40), 'user_id' => $user->id,

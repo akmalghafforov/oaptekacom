@@ -4,10 +4,12 @@ namespace App\Services;
 
 use App\Enums\UserRole;
 use App\Models\OneTimePassword;
+use App\Models\User;
 use App\Support\PhoneNormalizer;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -15,7 +17,7 @@ class PhoneOtpService
 {
     public function __construct(private OsonSmsGateway $smsGateway) {}
 
-    public function send(string $purpose, string $phone, UserRole $accountType): bool
+    public function send(string $purpose, string $phone, UserRole $accountType, bool $initialOnly = false): bool
     {
         $phone = $this->normalize($phone);
         $lock = Cache::lock('otp:lock:'.hash('sha256', $phone), 60);
@@ -24,6 +26,10 @@ class PhoneOtpService
         }
 
         try {
+            if ($initialOnly && (User::where('phone', $phone)->where('role', UserRole::Pharmacy)->whereNotNull('password')->exists()
+                || OneTimePassword::where('phone', $phone)->where('account_type', UserRole::Pharmacy)->whereIn('purpose', ['login', 'registration'])->exists())) {
+                return true;
+            }
             $state = $this->state($phone);
             if ($state['send_count'] >= 3) {
                 throw ValidationException::withMessages(['phone' => 'Лимит отправки кодов исчерпан. Свяжитесь с нами в WhatsApp или попробуйте позже.']);
@@ -59,19 +65,27 @@ class PhoneOtpService
 
     private function deliver(string $purpose, string $phone, UserRole $accountType, int $sendCount): bool
     {
-        $dummyCode = config('services.oson_sms.dummy_code');
-        $code = config('services.oson_sms.driver') === 'dummy' && filled($dummyCode)
+        $isPassword = $accountType === UserRole::Pharmacy && in_array($purpose, ['login', 'registration'], true);
+        $usesDevelopmentCode = $isPassword && app()->environment(['local', 'testing']) && filled(config('auth.development_otp_code'));
+        $dummyCode = $usesDevelopmentCode ? config('auth.development_otp_code') : config('services.oson_sms.dummy_code');
+        $code = ($usesDevelopmentCode || config('services.oson_sms.driver') === 'dummy') && filled($dummyCode)
             ? (string) $dummyCode
             : (string) random_int(100000, 999999);
         $otp = OneTimePassword::create(['purpose' => $purpose, 'account_type' => $accountType, 'phone' => $phone, 'code_hash' => Hash::make($code), 'transaction_id' => (string) Str::uuid(), 'status' => 'pending', 'expires_at' => now()->addMinutes(5), 'attempts' => 0]);
 
         try {
             $accountLabel = $accountType === UserRole::Pharmacy ? 'аптеки' : 'поставщика';
+            $message = $isPassword
+                ? "Ваш пароль для входа в OAPTEKA: {$code}. Сохраните его для будущих входов. Не сообщайте его никому."
+                : "Код подтверждения OAPTEKA для {$accountLabel}: {$code}. Не сообщайте его никому.";
             $provider = app()->environment(['local', 'testing']) && filled(config('auth.development_otp_code'))
                 ? ['transaction_id' => $otp->transaction_id, 'message_id' => null]
-                : $this->smsGateway->send($phone, "Код подтверждения OAPTEKA для {$accountLabel}: {$code}. Не сообщайте его никому.", $otp->transaction_id);
+                : $this->smsGateway->send($phone, $message, $otp->transaction_id);
             $sentAt = now();
-            DB::transaction(function () use ($otp, $purpose, $phone, $accountType, $provider, $sentAt): void {
+            DB::transaction(function () use ($otp, $purpose, $phone, $accountType, $provider, $sentAt, $isPassword): void {
+                if ($isPassword) {
+                    User::where('phone', $phone)->where('role', UserRole::Pharmacy)->update(['password' => $otp->code_hash]);
+                }
                 OneTimePassword::where('purpose', $purpose)->where('account_type', $accountType)->where('phone', $phone)->whereKeyNot($otp->id)->whereNull('consumed_at')->update(['status' => 'invalidated', 'consumed_at' => $sentAt]);
                 $otp->update(['status' => 'sent', 'sent_at' => $sentAt, 'expires_at' => $sentAt->copy()->addMinutes(5), 'provider_transaction_id' => $provider['transaction_id'], 'provider_message_id' => $provider['message_id']]);
             });
@@ -88,6 +102,30 @@ class PhoneOtpService
 
             return false;
         }
+    }
+
+    public function verifyPassword(string $phone, string $password, string $ip): ?User
+    {
+        $phone = $this->normalize($phone);
+        $key = 'pharmacy-login:'.hash('sha256', $phone.'|'.$ip);
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            throw ValidationException::withMessages(['password' => 'Слишком много попыток. Попробуйте через минуту.', 'code' => 'Слишком много попыток. Попробуйте через минуту.']);
+        }
+        $user = User::where('phone', $phone)->where('role', UserRole::Pharmacy)->where('is_blocked', false)->first();
+        $dummyCode = config('services.oson_sms.dummy_code');
+        $usesDummyCode = config('services.oson_sms.driver') === 'dummy' && filled($dummyCode)
+            && hash_equals((string) $dummyCode, $password);
+        $developmentCode = config('auth.development_otp_code');
+        $usesDevelopmentCode = app()->environment(['local', 'testing']) && filled($developmentCode)
+            && hash_equals((string) $developmentCode, $password);
+        if (! $user || (! $usesDummyCode && ! $usesDevelopmentCode && (! $user->password || ! Hash::check($password, $user->password)))) {
+            RateLimiter::hit($key, 60);
+
+            return null;
+        }
+        RateLimiter::clear($key);
+
+        return $user;
     }
 
     public function consume(string $purpose, string $phone, UserRole $accountType, string $code): bool

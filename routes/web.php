@@ -32,6 +32,9 @@ Route::get('/privacy-policy/{locale?}', [LegalController::class, 'privacy'])->wh
 Route::get('/terms-of-service/{locale?}', [LegalController::class, 'terms'])->where('locale', 'ru|tg')->name('legal.terms');
 Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'loginForm'])->name('login');
+    Route::post('/login', [AuthController::class, 'authenticate'])->name('login.authenticate');
+    Route::get('/login/password', [AuthController::class, 'passwordRequestForm'])->name('login.password.request');
+    Route::post('/login/password', [AuthController::class, 'requestPassword'])->name('login.password.send');
     Route::post('/login/phone', [AuthController::class, 'sendLoginOtp'])->name('login.otp.send');
     Route::get('/login/phone/verify', [AuthController::class, 'loginOtpForm'])->name('login.otp.form');
     Route::post('/login/phone/verify', [AuthController::class, 'verifyLoginOtp'])->name('login.otp.verify');

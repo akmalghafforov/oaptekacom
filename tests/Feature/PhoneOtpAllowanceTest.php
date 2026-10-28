@@ -89,19 +89,23 @@ class PhoneOtpAllowanceTest extends TestCase
             $key = 'phone_otp.'.($supplier ? 'supplier_' : '').$purpose;
             $value = $purpose === 'login' ? $phone : ['phone' => $phone];
         }
+        if (! $supplier && $purpose !== 'phone_change') {
+            User::factory()->pharmacy()->create(['phone' => $phone]);
+        }
         app(PhoneOtpService::class)->send($purpose, $phone, $role);
         $this->withSession([$key => $value]);
-        $this->get(route($formRoute))->assertSee('Отправить код повторно через 01:00');
-        $this->get(route($formRoute))->assertSee('Отправить код повторно через 01:00');
+        $label = ! $supplier && $purpose !== 'phone_change' ? 'Запросить новый пароль через ' : 'Отправить код повторно через ';
+        $this->get(route($formRoute))->assertSee($label.'01:00');
+        $this->get(route($formRoute))->assertSee($label.'01:00');
         $payload = $purpose === 'phone_change' ? ['phone' => $phone] : [];
         $this->followingRedirects()->from(route($formRoute))->post(route($resendRoute), $payload)->assertSee('Попробуйте отправить код позже.');
         $this->followRedirects = false;
         $this->travel(59)->seconds();
         $this->post(route($resendRoute), $payload)->assertSessionHasErrors('phone');
-        $this->get(route($formRoute))->assertSee('Отправить код повторно через 00:01');
+        $this->get(route($formRoute))->assertSee($label.'00:01');
         $this->travel(1)->seconds();
         $this->post(route($resendRoute), $payload)->assertSessionHasNoErrors();
-        $this->get(route($formRoute))->assertSee('Отправить код повторно через 01:00');
+        $this->get(route($formRoute))->assertSee($label.'01:00');
         $this->assertSame(2, app(PhoneOtpService::class)->state($phone)['send_count']);
     }
 
@@ -169,7 +173,7 @@ class PhoneOtpAllowanceTest extends TestCase
         }
         $this->withSession(['phone_otp.login' => '+992901234567']);
         $response = $this->get(route('login.otp.form'))
-            ->assertSee('Не получили код? Свяжитесь с нами в WhatsApp.')
+            ->assertSee('Не получили пароль? Свяжитесь с нами в WhatsApp.')
             ->assertSee('Подтвердить');
         $valid ? $response->assertSee('https://wa.me/992989999292') : $response->assertDontSee('https://wa.me/');
         $document = new \DOMDocument;

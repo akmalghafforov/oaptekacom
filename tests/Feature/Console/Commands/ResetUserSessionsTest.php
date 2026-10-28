@@ -100,7 +100,7 @@ class ResetUserSessionsTest extends TestCase
     #[TestWith(['wholesaler'])]
     public function test_old_cookie_is_rejected_and_fresh_login_succeeds(string $role): void
     {
-        $user = User::factory()->{$role}()->create(['phone' => '+992901234567']);
+        $user = User::factory()->{$role}()->create(['phone' => '+992901234567', 'password' => $role === 'pharmacy' ? '000000' : 'password']);
         $sessionId = $this->storeSession($user);
         $this->newBrowserRequest($sessionId);
         $this->get(route('profile.edit'))->assertOk();

@@ -39,6 +39,33 @@ class AuthController extends Controller
         return view('auth.login');
     }
 
+    public function authenticate(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
+    {
+        $data = $request->validate(['password' => ['required', 'string', 'digits:6']]);
+        $user = $otpService->verifyPassword($request->validated('phone'), $data['password'], (string) $request->ip());
+        if (! $user) {
+            return back()->withErrors(['password' => 'Неверный телефон или пароль.']);
+        }
+
+        return $this->completePhoneLogin($request, $user, UserRole::Pharmacy);
+    }
+
+    public function passwordRequestForm(): View
+    {
+        return view('auth.password-request');
+    }
+
+    public function requestPassword(SendPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
+    {
+        $phone = $request->validated('phone');
+        $user = $this->phoneLoginUser($phone, false);
+        if ($user && ! $otpService->send('login', $phone, UserRole::Pharmacy)) {
+            return back()->withErrors(['phone' => 'Не удалось отправить пароль. Попробуйте позже.']);
+        }
+
+        return redirect()->route('login')->with('success', 'Если номер доступен для входа, новый пароль отправлен по SMS. Сохраните его для будущих входов.');
+    }
+
     public function adminLoginForm(): View
     {
         return view('auth.admin-login');
@@ -134,14 +161,14 @@ class AuthController extends Controller
     private function sendLoginOtpForPhone(Request $request, PhoneOtpService $otpService, string $phone, UserRole $role = UserRole::Pharmacy): RedirectResponse
     {
         $user = $this->phoneLoginUser($phone, true, $role);
-        if ($user && ! $user->is_blocked) {
+        if ($role !== UserRole::Pharmacy && $user && ! $user->is_blocked) {
             if (! $otpService->send('login', $phone, $role)) {
                 return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
             }
         }
         $request->session()->put($this->loginSessionKey($role), $phone);
 
-        return redirect()->route($this->loginOtpFormRoute($role))->with('success', 'Если номер доступен для входа, код отправлен.');
+        return redirect()->route($this->loginOtpFormRoute($role))->with('success', $role === UserRole::Pharmacy ? 'Введите сохранённый пароль.' : 'Если номер доступен для входа, код отправлен.');
     }
 
     public function loginOtpForm(): View
@@ -158,7 +185,7 @@ class AuthController extends Controller
     {
         abort_unless(session()->has($this->loginSessionKey($role)), 404);
 
-        return view('auth.phone-otp', ['otpState' => app(PhoneOtpService::class)->state(session($this->loginSessionKey($role))), 'title' => 'Вход поставщика по телефону', 'route' => $this->loginOtpVerifyRoute($role), 'resend_route' => $this->loginOtpResendRoute($role), 'phone' => session($this->loginSessionKey($role))]);
+        return view('auth.phone-otp', ['persistentPassword' => $role === UserRole::Pharmacy, 'otpState' => app(PhoneOtpService::class)->state(session($this->loginSessionKey($role))), 'title' => $role === UserRole::Pharmacy ? 'Вход для аптек' : 'Вход поставщика по телефону', 'route' => $this->loginOtpVerifyRoute($role), 'resend_route' => $this->loginOtpResendRoute($role), 'phone' => session($this->loginSessionKey($role))]);
     }
 
     public function verifyLoginOtp(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -174,20 +201,39 @@ class AuthController extends Controller
     private function verifyLoginOtpForRole(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService, UserRole $role): RedirectResponse
     {
         $phone = $request->session()->get($this->loginSessionKey($role));
-        $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
-
-        if (! is_string($phone) || $phone === '' || (! $usesDevelopmentCode && ! $otpService->consume('login', $phone, $role, $request->validated('code')))) {
-            return back()->withErrors(['code' => 'Код недействителен или истёк.']);
+        if ($role === UserRole::Pharmacy) {
+            $user = is_string($phone) ? $otpService->verifyPassword($phone, $request->validated('code'), (string) $request->ip()) : null;
+        } else {
+            $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
+            $user = is_string($phone) && ($usesDevelopmentCode || $otpService->consume('login', $phone, $role, $request->validated('code')))
+                ? $this->phoneLoginUser($phone, false, $role) : null;
         }
-        $user = $this->phoneLoginUser($phone, false, $role);
         if (! $user) {
-            return back()->withErrors(['code' => 'Код недействителен или истёк.']);
+            return back()->withErrors(['code' => $role === UserRole::Pharmacy ? 'Неверный телефон или пароль.' : 'Код недействителен или истёк.']);
+        }
+
+        return $this->completePhoneLogin($request, $user, $role);
+    }
+
+    private function completePhoneLogin(Request $request, User $user, UserRole $role): RedirectResponse
+    {
+        if ($role === UserRole::Pharmacy && ! $user->phone_verified_at && $user->organization?->status === 'pending') {
+            $user->forceFill(['phone_verified_at' => now()])->save();
+            Auth::login($user);
+            $request->session()->regenerate();
+            $this->sessionLifetime->initialize($request->session());
+            $request->session()->forget(['account_mode', $this->registrationSessionKey($role), $this->loginSessionKey($role)]);
+
+            return redirect()->route('subscription.create');
         }
         if ($role === UserRole::Wholesaler && ! $user->phone_verified_at) {
             $user->forceFill(['phone_verified_at' => now()])->save();
         }
         if ($this->activeSessionsFor($user)->isNotEmpty()) {
             $request->session()->put($this->pendingLoginSessionKey($role), $user->id);
+            if ($role === UserRole::Pharmacy) {
+                $request->session()->put('phone_otp.pending_password_hash', (string) $user->password);
+            }
             $request->session()->forget($this->loginSessionKey($role));
 
             return redirect()->route($this->sessionConfirmationRoute($role));
@@ -247,6 +293,9 @@ class AuthController extends Controller
         $this->sessionLifetime->initialize($request->session());
         $request->session()->forget('account_mode');
         $request->session()->forget([$this->loginSessionKey($role), $this->pendingLoginSessionKey($role)]);
+        if ($role === UserRole::Pharmacy) {
+            $request->session()->forget('phone_otp.pending_password_hash');
+        }
 
         if ($role === UserRole::Pharmacy) {
             return redirect()->route('catalog');
@@ -269,6 +318,9 @@ class AuthController extends Controller
     {
         $this->pendingPhoneUser($request, $role);
         $request->session()->forget([$this->loginSessionKey($role), $this->pendingLoginSessionKey($role)]);
+        if ($role === UserRole::Pharmacy) {
+            $request->session()->forget('phone_otp.pending_password_hash');
+        }
 
         return redirect()->route($role === UserRole::Pharmacy ? 'login' : 'provider.login')->with('warning', 'Вход отменён. Активный сеанс на другом устройстве сохранён.');
     }
@@ -302,7 +354,9 @@ class AuthController extends Controller
         if ($user->organization?->status === 'pending' && ! $user->phone_verified_at) {
             $request->session()->put($this->registrationSessionKey($role), ['phone' => $phone, 'user_id' => $user->id]);
 
-            return $this->sendRegistrationOtp($request, $otpService, $phone, $role);
+            return $role === UserRole::Pharmacy
+                ? redirect()->route('register.otp.form')
+                : $this->sendRegistrationOtp($request, $otpService, $phone, $role);
         }
 
         return $this->sendLoginOtpForPhone($request, $otpService, $phone, $role);
@@ -406,6 +460,9 @@ class AuthController extends Controller
         }
 
         $request->session()->put($this->registrationSessionKey($role), ['phone' => $phone, 'user_id' => $user->id]);
+        if ($role === UserRole::Pharmacy && ! $user->wasRecentlyCreated) {
+            return redirect()->route('register.otp.form');
+        }
 
         return $this->sendRegistrationOtp($request, $otpService, $phone, $role);
     }
@@ -424,7 +481,7 @@ class AuthController extends Controller
     {
         abort_unless(session()->has($this->registrationSessionKey($role)), 404);
 
-        return view('auth.phone-otp', ['otpState' => app(PhoneOtpService::class)->state(session($this->registrationSessionKey($role).'.phone')), 'title' => 'Подтвердите телефон', 'route' => $role === UserRole::Pharmacy ? 'register.otp.verify' : 'provider.register.otp.verify', 'resend_route' => $role === UserRole::Pharmacy ? 'register.otp.resend' : 'provider.register.otp.resend', 'phone' => session($this->registrationSessionKey($role).'.phone')]);
+        return view('auth.phone-otp', ['persistentPassword' => $role === UserRole::Pharmacy, 'otpState' => app(PhoneOtpService::class)->state(session($this->registrationSessionKey($role).'.phone')), 'title' => 'Подтвердите телефон', 'route' => $role === UserRole::Pharmacy ? 'register.otp.verify' : 'provider.register.otp.verify', 'resend_route' => $role === UserRole::Pharmacy ? 'register.otp.resend' : 'provider.register.otp.resend', 'phone' => session($this->registrationSessionKey($role).'.phone')]);
     }
 
     public function verifyRegistrationOtp(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -442,15 +499,17 @@ class AuthController extends Controller
         $registration = $request->session()->get($this->registrationSessionKey($role));
         $phone = is_array($registration) ? $registration['phone'] ?? null : null;
         if (! is_string($phone) || $phone === '') {
-            return back()->withErrors(['code' => 'Код недействителен или истёк.']);
+            return back()->withErrors(['code' => $role === UserRole::Pharmacy ? 'Неверный пароль.' : 'Код недействителен или истёк.']);
         }
         $usesDevelopmentCode = $this->usesDevelopmentOtp() && hash_equals((string) config('auth.development_otp_code'), $request->validated('code'));
         $userId = is_array($registration) ? $registration['user_id'] ?? null : null;
         $user = is_numeric($userId)
             ? User::whereKey($userId)->where('phone', $phone)->where('role', $role)->whereNull('phone_verified_at')->whereHas('organization', fn ($query) => $query->where('status', 'pending'))->first()
             : null;
-        if (! $user || (! $usesDevelopmentCode && ! $otpService->consume('registration', $phone, $role, $request->validated('code')))) {
-            return back()->withErrors(['code' => 'Код недействителен или истёк.']);
+        if (! $user || $user->is_blocked || ($role === UserRole::Pharmacy
+            ? ! $otpService->verifyPassword($phone, $request->validated('code'), (string) $request->ip())
+            : (! $usesDevelopmentCode && ! $otpService->consume('registration', $phone, $role, $request->validated('code'))))) {
+            return back()->withErrors(['code' => $role === UserRole::Pharmacy ? 'Неверный пароль.' : 'Код недействителен или истёк.']);
         }
 
         $user = DB::transaction(function () use ($user): User {
@@ -477,11 +536,11 @@ class AuthController extends Controller
     {
         $state = $request->session()->get("phone_otp.{$purpose}");
         $phone = is_array($state) ? $state['phone'] : $state;
-        if (! $phone || ! $otpService->send($purpose === 'login' ? 'login' : 'registration', $phone, UserRole::Pharmacy)) {
-            return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
+        if (! $phone || ! $this->phoneLoginUser($phone, false) || ! $otpService->send($purpose === 'login' ? 'login' : 'registration', $phone, UserRole::Pharmacy)) {
+            return back()->withErrors(['phone' => 'Не удалось отправить пароль. Попробуйте позже.']);
         }
 
-        return back()->with('success', 'Новый код отправлен.');
+        return back()->with('success', 'Новый пароль отправлен. Сохраните его для будущих входов.');
     }
 
     public function resendSupplier(Request $request, PhoneOtpService $otpService, string $purpose): RedirectResponse
@@ -498,8 +557,8 @@ class AuthController extends Controller
 
     private function sendRegistrationOtp(Request $request, PhoneOtpService $otpService, string $phone, UserRole $role = UserRole::Pharmacy): RedirectResponse
     {
-        if (! $otpService->send('registration', $phone, $role)) {
-            return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
+        if (! $otpService->send('registration', $phone, $role, $role === UserRole::Pharmacy)) {
+            return back()->withErrors(['phone' => $role === UserRole::Pharmacy ? 'Не удалось отправить пароль. Запросите новый пароль по SMS.' : 'Не удалось отправить код. Попробуйте позже.']);
         }
 
         return redirect()->route($role === UserRole::Pharmacy ? 'register.otp.form' : 'provider.register.otp.form');
@@ -528,7 +587,11 @@ class AuthController extends Controller
             ? User::whereKey($userId)->where('role', $role)->first()
             : null;
 
-        abort_unless($user, 404);
+        abort_unless($user && ! $user->is_blocked, 404);
+        if ($role === UserRole::Pharmacy) {
+            $validatedHash = $request->session()->get('phone_otp.pending_password_hash');
+            abort_unless(is_string($validatedHash) && hash_equals((string) $user->password, $validatedHash), 404);
+        }
 
         return $user;
     }

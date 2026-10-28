@@ -44,3 +44,10 @@ for (const event of ['interval', 'visibilitychange', 'pageshow']) {
         assert.equal(fallback.hidden, true);
     });
 }
+
+test('persistent password countdown keeps password request labels after updates', () => {
+    const passwordState = { ...state, persistent_password: true };
+    assert.equal(resendPresentation(passwordState, 1000000).label, 'Запросить новый пароль через 01:00');
+    assert.equal(resendPresentation(passwordState, 1060000).label, 'Запросить новый пароль по SMS');
+    assert.equal(resendPresentation({ ...passwordState, send_count: 3 }, 1060000).disabled, true);
+});

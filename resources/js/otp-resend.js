@@ -3,10 +3,13 @@ export function resendPresentation(state, time) {
     const seconds = state.allowance_resets_at !== null && state.allowance_resets_at <= time
         ? 0 : Math.max(0, Math.ceil(((state.resend_available_at ?? time) - time) / 1000));
     const remaining = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    const label = state.persistent_password
+        ? (!exhausted && seconds > 0 ? `Запросить новый пароль через ${remaining}` : 'Запросить новый пароль по SMS')
+        : (!exhausted && seconds > 0 ? `Отправить код повторно через ${remaining}` : 'Отправить код повторно');
     return {
         exhausted,
         disabled: exhausted || seconds > 0,
-        label: !exhausted && seconds > 0 ? `Отправить код повторно через ${remaining}` : 'Отправить код повторно',
+        label,
     };
 }
 

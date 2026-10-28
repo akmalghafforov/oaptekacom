@@ -32,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias(['active' => EnsureAccountIsActive::class, 'role' => EnsureRole::class, 'two-factor-confirmed' => EnsureTwoFactorConfirmed::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->dontFlash(['code', 'password']);
         $exceptions->respond(function (Response $response): Response {
             if (request()->is('admin/gmail', 'admin/gmail/*') || request()->has('gmail_draft')) {
                 $response->headers->set('Cache-Control', 'no-store, private');

@@ -99,7 +99,7 @@ class ProviderAccessSuspensionTest extends TestCase
     public function test_separate_accounts_sharing_provider_phone_can_still_sign_in(string $role): void
     {
         $provider = User::factory()->wholesaler()->create(['phone' => '+992901234567']);
-        $user = User::factory()->{$role}()->create(['phone' => $provider->phone, 'password' => 'password']);
+        $user = User::factory()->{$role}()->create(['phone' => $provider->phone, 'password' => $role === 'pharmacy' ? '000000' : 'password']);
         if ($role === 'admin') {
             $this->get(route('admin.login'))->assertOk();
             $this->post(route('admin.login.authenticate'), ['email' => $user->email, 'password' => 'password'])->assertRedirect();

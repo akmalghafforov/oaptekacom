@@ -57,7 +57,7 @@ class PhoneOtpAuthenticationTest extends TestCase
     {
         $this->withSession(['phone_otp.login' => '+992901234567'])
             ->get(route('login.otp.form'))
-            ->assertSee('Код отправлен на номер +992901234567.')
+            ->assertSee('Телефон: +992901234567.')
             ->assertDontSee('name="phone"', false)
             ->assertSee('data-sms-code-mask', false)
             ->assertSee('page-container max-w-lg', false);
@@ -89,9 +89,10 @@ class PhoneOtpAuthenticationTest extends TestCase
 
         $this->post(route('register.details.store'), ['pharmacy_name' => 'Аптека Тест', 'city' => 'Душанбе'])->assertRedirect(route('register.otp.form'));
         $this->assertDatabaseHas('organizations', ['name' => 'Аптека Тест', 'city' => 'Душанбе', 'phone' => '+992901234567', 'status' => 'pending']);
-        $this->assertDatabaseHas('users', ['phone' => '+992901234567', 'role' => 'pharmacy', 'password' => null, 'phone_verified_at' => null]);
+        $this->assertDatabaseHas('users', ['phone' => '+992901234567', 'role' => 'pharmacy', 'phone_verified_at' => null]);
         $otp = OneTimePassword::firstOrFail();
         $otp->update(['code_hash' => Hash::make('123456')]);
+        User::where('phone', $otp->phone)->where('role', UserRole::Pharmacy)->update(['password' => Hash::make('123456')]);
 
         $this->post(route('register.otp.verify'), ['code' => '123456'])->assertRedirect(route('subscription.create'));
 
@@ -120,6 +121,8 @@ class PhoneOtpAuthenticationTest extends TestCase
 
         $this->assertDatabaseCount('organizations', 1);
         $this->assertDatabaseCount('users', 1);
+        $this->assertDatabaseCount('one_time_passwords', 1);
+        $this->post(route('register.otp.resend'))->assertSessionHasNoErrors();
         $this->assertDatabaseHas('one_time_passwords', ['purpose' => 'registration', 'status' => 'sent']);
     }
 
@@ -146,6 +149,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567']);
 
         $this->post(route('register'), ['phone' => $user->phone])->assertRedirect(route('register.otp.form'));
+        $this->post(route('register.otp.resend'))->assertSessionHasNoErrors();
         $this->post(route('register.otp.verify'), ['code' => '000000'])
             ->assertRedirect(route('subscription.create'));
 
@@ -161,8 +165,8 @@ class PhoneOtpAuthenticationTest extends TestCase
         Http::preventStrayRequests();
         $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
 
-        $this->post(route('login.otp.send'), ['phone' => $pharmacy->phone])
-            ->assertRedirect(route('login.otp.form'));
+        $this->post(route('login.password.send'), ['phone' => $pharmacy->phone])
+            ->assertRedirect(route('login'));
         $this->withSession(['phone_otp.login' => $pharmacy->phone])
             ->post(route('login.otp.verify'), ['code' => '654321'])
             ->assertRedirect(route('catalog'));
@@ -172,7 +176,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->assertDatabaseHas('one_time_passwords', [
             'purpose' => 'login',
             'phone' => $pharmacy->phone,
-            'status' => 'consumed',
+            'status' => 'sent',
         ]);
     }
 
@@ -180,12 +184,12 @@ class PhoneOtpAuthenticationTest extends TestCase
     #[TestWith(['exhausted'])]
     #[TestWith(['consumed'])]
     #[TestWith(['missing'])]
-    public function test_dummy_code_logs_in_regardless_of_stored_otp_validity(string $state): void
+    public function test_saved_password_logs_in_regardless_of_stored_otp_validity(string $state): void
     {
         $this->freezeTime();
         config()->set('services.oson_sms.driver', 'dummy');
         config()->set('services.oson_sms.dummy_code', '654321');
-        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
+        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567', 'password' => '654321']);
 
         if ($state !== 'missing') {
             OneTimePassword::factory()->create([
@@ -205,7 +209,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->assertAuthenticatedAs($pharmacy);
     }
 
-    public function test_dummy_mode_rejects_a_stored_code_that_does_not_match_the_configured_code(): void
+    public function test_dummy_mode_cannot_authenticate_with_a_code_without_a_saved_password(): void
     {
         config()->set('services.oson_sms.driver', 'dummy');
         config()->set('services.oson_sms.dummy_code', '654321');
@@ -223,7 +227,7 @@ class PhoneOtpAuthenticationTest extends TestCase
     public function test_registration_routes_existing_pending_unverified_accounts_to_registration_otp(): void
     {
         $this->mock(OsonSmsGateway::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('send')->once()->andReturn(['transaction_id' => 'test', 'message_id' => '123']);
+            $mock->shouldNotReceive('send');
         });
         $organization = Organization::factory()->pending()->create(['phone' => '+992901234567']);
         $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567']);
@@ -232,13 +236,13 @@ class PhoneOtpAuthenticationTest extends TestCase
 
         $this->assertDatabaseCount('organizations', 1);
         $this->assertDatabaseCount('users', 1);
-        $this->assertDatabaseHas('one_time_passwords', ['purpose' => 'registration', 'phone' => $user->phone, 'status' => 'sent']);
+        $this->assertDatabaseCount('one_time_passwords', 0);
     }
 
     public function test_registration_routes_pending_verified_active_and_blocked_accounts_to_normal_login_without_changing_their_plan(): void
     {
         $this->mock(OsonSmsGateway::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('send')->twice()->andReturn(['transaction_id' => 'test', 'message_id' => '123']);
+            $mock->shouldNotReceive('send');
         });
         $pendingOrganization = Organization::factory()->pending()->create(['phone' => '+992901234567']);
         $pendingUser = User::factory()->pharmacy($pendingOrganization)->create(['phone' => '+992901234567', 'phone_verified_at' => now(), 'subscription_plan' => SubscriptionPlan::Base]);
@@ -257,21 +261,21 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->assertDatabaseCount('organizations', 3);
     }
 
-    public function test_pharmacy_can_log_in_with_a_valid_single_use_code(): void
+    public function test_pharmacy_can_log_in_without_consuming_the_password(): void
     {
         $organization = Organization::factory()->pharmacy()->create();
-        $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => null, 'email' => null]);
+        $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => '123456', 'email' => null]);
         OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
 
         $this->withSession(['phone_otp.login' => $user->phone])->post(route('login.otp.verify'), ['code' => '123456'])->assertRedirect(route('catalog'));
 
         $this->assertAuthenticatedAs($user);
-        $this->assertNotNull(OneTimePassword::first()->consumed_at);
+        $this->assertNull(OneTimePassword::first()->consumed_at);
     }
 
     public function test_phone_login_preserves_an_intended_destination_for_a_pharmacy(): void
     {
-        $user = User::factory()->pharmacy()->create(['phone' => '+992901234567', 'password' => null, 'email' => null]);
+        $user = User::factory()->pharmacy()->create(['phone' => '+992901234567', 'password' => '123456', 'email' => null]);
         OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
 
         $response = $this->withSession([
@@ -287,7 +291,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->useDatabaseSessions();
         $this->travelTo('2026-09-11 09:00:00');
         $organization = Organization::factory()->pharmacy()->create();
-        $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => null, 'email' => null]);
+        $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => '123456', 'email' => null]);
         OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
         $rawUserAgent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:143.0) Gecko/20100101 Firefox/143.0';
         $this->createActiveSession($user, 'other-device-session', $rawUserAgent, '203.0.113.10', now()->subMinutes(10)->timestamp);
@@ -328,7 +332,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->useDatabaseSessions();
         $this->travelTo('2026-09-11 09:00:00');
         $organization = Organization::factory()->pharmacy()->create();
-        $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => null, 'email' => null]);
+        $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567', 'password' => '123456', 'email' => null]);
         OneTimePassword::factory()->create(['phone' => $user->phone, 'code_hash' => Hash::make('123456')]);
         $this->createActiveSession($user, 'other-device-session', 'Firefox 143 / Ubuntu 24.04', '203.0.113.10', now()->subMinutes(10)->timestamp);
 
@@ -418,7 +422,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $this->withSession(['phone_otp.login' => $otp->phone])->post(route('login.otp.verify'), ['code' => '111111'])->assertSessionHasErrors('code');
         }
-        $this->assertSame(5, $otp->fresh()->attempts);
+        $this->assertSame(0, $otp->fresh()->attempts);
         $this->withSession(['phone_otp.login' => $otp->phone])->post(route('login.otp.verify'), ['code' => '123456'])->assertSessionHasErrors('code');
     }
 
@@ -515,10 +519,10 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->actingAs($admin)->get(route('dashboard'))->assertSee('Панель администратора');
     }
 
-    public function test_development_code_logs_in_a_pharmacy_by_phone_without_sending_an_sms(): void
+    public function test_previously_issued_development_password_logs_in_without_sending_an_sms(): void
     {
         config()->set('auth.development_otp_code', '000000');
-        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
+        $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567', 'password' => '000000']);
 
         $this->withSession(['phone_otp.login' => $pharmacy->phone])->post(route('login.otp.verify'), ['code' => '000000'])->assertRedirect(route('catalog'));
 
@@ -554,6 +558,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $accountType = UserRole::from($role);
         $organization = Organization::factory()->{$role}()->pending()->create();
         $user = User::factory()->{$role}($organization)->create(['phone' => '+992900000001', 'phone_verified_at' => $purpose === 'registration' ? null : now()]);
+        $originalPasswordHash = $user->password;
         $phone = $purpose === 'phone_change' ? '+992901234567' : $user->phone;
         $supplier = $accountType === UserRole::Wholesaler;
         $prefix = $supplier ? 'provider' : 'login';
@@ -575,7 +580,7 @@ class PhoneOtpAuthenticationTest extends TestCase
         $alternateOtp = OneTimePassword::factory()->create(['purpose' => $purpose, 'account_type' => $accountType, 'phone' => '+992909999999']);
 
         $this->post(route($verifyRoute), ['phone' => $phone, 'code' => '123456'])
-            ->assertSessionHasErrors(['code' => 'Код недействителен или истёк.']);
+            ->assertSessionHasErrors('code');
         $this->assertNull($otp->fresh()->consumed_at);
         $this->assertSame(0, $otp->fresh()->attempts);
 
@@ -594,7 +599,7 @@ class PhoneOtpAuthenticationTest extends TestCase
                 ->post(route($verifyRoute), ['code' => '123456'])->assertSessionHasErrors('code');
             $this->withSession([$sessionKey => $state]);
         }
-        $response = $this->get(route($formRoute))->assertOk()->assertSee('Код отправлен на номер '.$phone.'.');
+        $response = $this->get(route($formRoute))->assertOk()->assertSee(($role === 'pharmacy' && $purpose !== 'phone_change' ? 'Телефон: ' : 'Код отправлен на номер ').$phone.'.');
         $document = new \DOMDocument;
         @$document->loadHTML($response->getContent());
         $xpath = new \DOMXPath($document);
@@ -612,16 +617,24 @@ class PhoneOtpAuthenticationTest extends TestCase
         $this->post(route($resendRoute), ['phone' => $purpose === 'phone_change' ? $phone : '+992909999999'])
             ->assertSessionHasNoErrors();
 
+        if ($role === 'pharmacy' && $purpose !== 'phone_change') {
+            $user->update(['password' => '123456']);
+        }
         $payload = ['code' => '123456'];
         if ($submitAlternatePhone) {
             $payload['phone'] = '+992909999999';
         }
         $this->post(route($verifyRoute), $payload)
             ->assertSessionHasNoErrors()->assertSessionMissing($sessionKey);
-        $this->assertNotNull($otp->fresh()->consumed_at);
+        if ($role === 'pharmacy' && $purpose !== 'phone_change') {
+            $this->assertNull($otp->fresh()->consumed_at);
+        } else {
+            $this->assertNotNull($otp->fresh()->consumed_at);
+        }
         $this->assertNull($alternateOtp->fresh()->consumed_at);
         if ($purpose === 'phone_change') {
             $this->assertSame($phone, $user->fresh()->phone);
+            $this->assertSame($originalPasswordHash, $user->fresh()->password);
         } else {
             $this->assertAuthenticatedAs($user);
         }
