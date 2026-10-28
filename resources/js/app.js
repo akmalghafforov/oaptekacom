@@ -1,3 +1,4 @@
+import { initializeOtpResend } from './otp-resend.js';
 import { initializeDropdown } from './ui-dropdown.js';
 import { createCartSaveCoordinator } from './cart-save-coordinator.js';
 import { initializeGmailActions, initializeGmailProgress } from './gmail.js';
@@ -549,3 +550,5 @@ initializeAccountMode(document, window);
 initializeGmailActions(document, window);
 
 initializeGmailProgress(document, window);
+
+document.querySelectorAll('[data-otp-resend]').forEach((root) => initializeOtpResend(root, document, window));

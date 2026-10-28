@@ -8,6 +8,7 @@ use App\Enums\UserRole;
 use App\Models\OneTimePassword;
 use App\Models\Organization;
 use App\Models\User;
+use App\Services\OsonSmsGateway;
 use App\Services\PhoneOtpService;
 use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -17,7 +18,6 @@ use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Mockery\MockInterface;
-use OsonSMS\OsonSMSService\OsonSmsService;
 use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
@@ -80,8 +80,8 @@ class PhoneOtpAuthenticationTest extends TestCase
     public function test_unknown_phone_collects_a_name_then_creates_a_pending_pharmacy_before_sending_sms(): void
     {
         Http::preventStrayRequests();
-        $this->mock(OsonSmsService::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('sendSMS')->once()->andReturn(123);
+        $this->mock(OsonSmsGateway::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('send')->once()->andReturn(['transaction_id' => 'test', 'message_id' => '123']);
         });
 
         $this->post(route('register'), ['phone' => '901234567'])->assertRedirect(route('register.details.form'));
@@ -104,9 +104,9 @@ class PhoneOtpAuthenticationTest extends TestCase
     public function test_failed_registration_sms_delivery_preserves_pending_application_and_retry_does_not_duplicate_it(): void
     {
         Http::preventStrayRequests();
-        $this->mock(OsonSmsService::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('sendSMS')->once()->ordered()->andThrow(new \RuntimeException('SMS unavailable.'));
-            $mock->shouldReceive('sendSMS')->once()->ordered()->andReturn(123);
+        $this->mock(OsonSmsGateway::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('send')->once()->ordered()->andThrow(new \RuntimeException('SMS unavailable.'));
+            $mock->shouldReceive('send')->once()->ordered()->andReturn(['transaction_id' => 'test', 'message_id' => '123']);
         });
 
         $this->post(route('register'), ['phone' => '901234567'])->assertRedirect(route('register.details.form'));
@@ -151,12 +151,11 @@ class PhoneOtpAuthenticationTest extends TestCase
 
         $this->assertNotNull($user->fresh()->phone_verified_at);
         $this->assertAuthenticatedAs($user);
-        $this->assertDatabaseCount('one_time_passwords', 0);
+        $this->assertDatabaseCount('one_time_passwords', 1);
     }
 
     public function test_dummy_sms_driver_sends_the_configured_code_without_calling_the_provider(): void
     {
-        $this->mock(OsonSmsService::class)->shouldNotReceive('sendSMS');
         config()->set('services.oson_sms.driver', 'dummy');
         config()->set('services.oson_sms.dummy_code', '654321');
         Http::preventStrayRequests();
@@ -184,7 +183,6 @@ class PhoneOtpAuthenticationTest extends TestCase
     public function test_dummy_code_logs_in_regardless_of_stored_otp_validity(string $state): void
     {
         $this->freezeTime();
-        $this->mock(OsonSmsService::class)->shouldNotReceive('sendSMS');
         config()->set('services.oson_sms.driver', 'dummy');
         config()->set('services.oson_sms.dummy_code', '654321');
         $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
@@ -209,7 +207,6 @@ class PhoneOtpAuthenticationTest extends TestCase
 
     public function test_dummy_mode_rejects_a_stored_code_that_does_not_match_the_configured_code(): void
     {
-        $this->mock(OsonSmsService::class)->shouldNotReceive('sendSMS');
         config()->set('services.oson_sms.driver', 'dummy');
         config()->set('services.oson_sms.dummy_code', '654321');
         $pharmacy = User::factory()->pharmacy()->create(['phone' => '+992901234567']);
@@ -225,8 +222,8 @@ class PhoneOtpAuthenticationTest extends TestCase
 
     public function test_registration_routes_existing_pending_unverified_accounts_to_registration_otp(): void
     {
-        $this->mock(OsonSmsService::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('sendSMS')->once()->andReturn(123);
+        $this->mock(OsonSmsGateway::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('send')->once()->andReturn(['transaction_id' => 'test', 'message_id' => '123']);
         });
         $organization = Organization::factory()->pending()->create(['phone' => '+992901234567']);
         $user = User::factory()->pharmacy($organization)->create(['phone' => '+992901234567']);
@@ -240,8 +237,8 @@ class PhoneOtpAuthenticationTest extends TestCase
 
     public function test_registration_routes_pending_verified_active_and_blocked_accounts_to_normal_login_without_changing_their_plan(): void
     {
-        $this->mock(OsonSmsService::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('sendSMS')->twice()->andReturn(123);
+        $this->mock(OsonSmsGateway::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('send')->twice()->andReturn(['transaction_id' => 'test', 'message_id' => '123']);
         });
         $pendingOrganization = Organization::factory()->pending()->create(['phone' => '+992901234567']);
         $pendingUser = User::factory()->pharmacy($pendingOrganization)->create(['phone' => '+992901234567', 'phone_verified_at' => now(), 'subscription_plan' => SubscriptionPlan::Base]);
@@ -474,8 +471,8 @@ class PhoneOtpAuthenticationTest extends TestCase
     public function test_unknown_supplier_phone_creates_a_pending_supplier_after_company_name_is_provided(): void
     {
         Http::preventStrayRequests();
-        $this->mock(OsonSmsService::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('sendSMS')->once()->andReturn(123);
+        $this->mock(OsonSmsGateway::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('send')->once()->andReturn(['transaction_id' => 'test', 'message_id' => '123']);
         });
 
         $this->post(route('provider.register.phone'), ['phone' => '901234567'])

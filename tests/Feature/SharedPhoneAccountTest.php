@@ -6,10 +6,10 @@ use App\Enums\UserRole;
 use App\Models\OneTimePassword;
 use App\Models\Organization;
 use App\Models\User;
+use App\Services\OsonSmsGateway;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Mockery\MockInterface;
-use OsonSMS\OsonSMSService\OsonSmsService;
 use Tests\TestCase;
 
 class SharedPhoneAccountTest extends TestCase
@@ -18,8 +18,9 @@ class SharedPhoneAccountTest extends TestCase
 
     public function test_supplier_registration_accepts_a_phone_owned_by_a_pharmacy(): void
     {
-        $this->mock(OsonSmsService::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('sendSMS')->once()->andReturn(123);
+        config(['auth.development_otp_code' => null]);
+        $this->mock(OsonSmsGateway::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('send')->once()->andReturn(['transaction_id' => 'test', 'message_id' => '123']);
         });
         $phone = '+992901234567';
         $pharmacyOrganization = Organization::factory()->pharmacy()->create(['phone' => $phone]);

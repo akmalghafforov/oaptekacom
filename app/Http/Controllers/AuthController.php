@@ -133,12 +133,11 @@ class AuthController extends Controller
 
     private function sendLoginOtpForPhone(Request $request, PhoneOtpService $otpService, string $phone, UserRole $role = UserRole::Pharmacy): RedirectResponse
     {
-        if (! $this->canSend($phone)) {
-            return back()->withErrors(['phone' => 'Попробуйте отправить код позже.']);
-        }
         $user = $this->phoneLoginUser($phone, true, $role);
-        if ($user && ! $user->is_blocked && ! $this->usesDevelopmentOtp()) {
-            $otpService->send('login', $phone, $role);
+        if ($user && ! $user->is_blocked) {
+            if (! $otpService->send('login', $phone, $role)) {
+                return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
+            }
         }
         $request->session()->put($this->loginSessionKey($role), $phone);
 
@@ -159,7 +158,7 @@ class AuthController extends Controller
     {
         abort_unless(session()->has($this->loginSessionKey($role)), 404);
 
-        return view('auth.phone-otp', ['title' => 'Вход поставщика по телефону', 'route' => $this->loginOtpVerifyRoute($role), 'resend_route' => $this->loginOtpResendRoute($role), 'phone' => session($this->loginSessionKey($role))]);
+        return view('auth.phone-otp', ['otpState' => app(PhoneOtpService::class)->state(session($this->loginSessionKey($role))), 'title' => 'Вход поставщика по телефону', 'route' => $this->loginOtpVerifyRoute($role), 'resend_route' => $this->loginOtpResendRoute($role), 'phone' => session($this->loginSessionKey($role))]);
     }
 
     public function verifyLoginOtp(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -425,7 +424,7 @@ class AuthController extends Controller
     {
         abort_unless(session()->has($this->registrationSessionKey($role)), 404);
 
-        return view('auth.phone-otp', ['title' => 'Подтвердите телефон', 'route' => $role === UserRole::Pharmacy ? 'register.otp.verify' : 'provider.register.otp.verify', 'resend_route' => $role === UserRole::Pharmacy ? 'register.otp.resend' : 'provider.register.otp.resend', 'phone' => session($this->registrationSessionKey($role).'.phone')]);
+        return view('auth.phone-otp', ['otpState' => app(PhoneOtpService::class)->state(session($this->registrationSessionKey($role).'.phone')), 'title' => 'Подтвердите телефон', 'route' => $role === UserRole::Pharmacy ? 'register.otp.verify' : 'provider.register.otp.verify', 'resend_route' => $role === UserRole::Pharmacy ? 'register.otp.resend' : 'provider.register.otp.resend', 'phone' => session($this->registrationSessionKey($role).'.phone')]);
     }
 
     public function verifyRegistrationOtp(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse
@@ -478,7 +477,7 @@ class AuthController extends Controller
     {
         $state = $request->session()->get("phone_otp.{$purpose}");
         $phone = is_array($state) ? $state['phone'] : $state;
-        if (! $phone || ! $this->canSend($phone) || ! $otpService->send($purpose === 'login' ? 'login' : 'registration', $phone, UserRole::Pharmacy)) {
+        if (! $phone || ! $otpService->send($purpose === 'login' ? 'login' : 'registration', $phone, UserRole::Pharmacy)) {
             return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
         }
 
@@ -490,7 +489,7 @@ class AuthController extends Controller
         $key = $purpose === 'login' ? $this->loginSessionKey(UserRole::Wholesaler) : $this->registrationSessionKey(UserRole::Wholesaler);
         $state = $request->session()->get($key);
         $phone = is_array($state) ? $state['phone'] : $state;
-        if (! $phone || ! $this->canSend($phone) || ! $otpService->send($purpose === 'login' ? 'login' : 'registration', $phone, UserRole::Wholesaler)) {
+        if (! $phone || ! $otpService->send($purpose === 'login' ? 'login' : 'registration', $phone, UserRole::Wholesaler)) {
             return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
         }
 
@@ -499,20 +498,11 @@ class AuthController extends Controller
 
     private function sendRegistrationOtp(Request $request, PhoneOtpService $otpService, string $phone, UserRole $role = UserRole::Pharmacy): RedirectResponse
     {
-        if (! $this->canSend($phone) || (! $this->usesDevelopmentOtp() && ! $otpService->send('registration', $phone, $role))) {
+        if (! $otpService->send('registration', $phone, $role)) {
             return back()->withErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
         }
 
         return redirect()->route($role === UserRole::Pharmacy ? 'register.otp.form' : 'provider.register.otp.form');
-    }
-
-    private function canSend(string $phone): bool
-    {
-        if (app()->environment(['local', 'testing'])) {
-            return true;
-        }
-
-        return Cache::add('otp-send:phone:'.hash('sha256', $phone), true, 60);
     }
 
     private function usesDevelopmentOtp(): bool

@@ -3,14 +3,8 @@
 namespace Tests\Feature;
 
 use App\Services\OsonSmsGateway;
-use GuzzleHttp\Client;
-use GuzzleHttp\Handler\MockHandler;
-use GuzzleHttp\HandlerStack;
-use GuzzleHttp\Middleware;
-use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
-use OsonSMS\OsonSMSService\OsonSmsService;
-use ReflectionProperty;
+use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -18,7 +12,7 @@ class OsonSmsGatewayTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_sms_is_sent_through_the_sdk_to_the_configured_server(): void
+    public function test_sms_is_sent_to_the_configured_server_with_bounded_timeouts(): void
     {
         config()->set([
             'services.oson_sms.driver' => 'oson',
@@ -27,30 +21,26 @@ class OsonSmsGatewayTest extends TestCase
             'osonsmsservice.login' => 'test-login',
             'osonsmsservice.bearer_token' => 'test-token',
         ]);
-        $history = [];
-        $handler = HandlerStack::create(new MockHandler([
-            new Response(200, [], '{"msg_id":123}'),
-        ]));
-        $handler->push(Middleware::history($history));
-        $service = new OsonSmsService;
-        (new ReflectionProperty(OsonSmsService::class, 'httpClient'))->setValue($service, new Client(['handler' => $handler]));
-        $this->app->instance(OsonSmsService::class, $service);
+        Http::preventStrayRequests();
+        Http::fake(function ($request, array $options) {
+            $this->assertSame(10, $options['timeout']);
+            $this->assertSame(3, $options['connect_timeout']);
+            $this->assertFalse($options['allow_redirects']);
+
+            return Http::response(['msg_id' => 123]);
+        });
 
         $result = app(OsonSmsGateway::class)->send('+992901234567', 'Test message', 'transaction-1');
 
         $this->assertSame(['transaction_id' => 'transaction-1', 'message_id' => '123'], $result);
-        $this->assertCount(1, $history);
-        $request = $history[0]['request'];
-        $this->assertSame('https://sms.example.test/custom/sendsms_v1.php', (string) $request->getUri()->withQuery(''));
-        $this->assertSame('Bearer test-token', $request->getHeaderLine('Authorization'));
-        parse_str($request->getUri()->getQuery(), $query);
-        $this->assertSame([
-            'from' => 'OAPTEKA',
-            'phone_number' => '992901234567',
-            'msg' => 'Test message',
-            'txn_id' => 'transaction-1',
-            'login' => 'test-login',
-        ], $query);
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://sms.example.test/custom/sendsms_v1.php?')
+            && $request->hasHeader('Authorization', 'Bearer test-token')
+            && $request['from'] === 'OAPTEKA'
+            && $request['phone_number'] === '992901234567'
+            && $request['msg'] === 'Test message'
+            && $request['txn_id'] === 'transaction-1'
+            && $request['login'] === 'test-login');
         $this->assertDatabaseHas('osonsms_log', ['msgid' => '123', 'phonenumber' => '992901234567', 'is_sent' => 1]);
     }
 
@@ -62,12 +52,8 @@ class OsonSmsGatewayTest extends TestCase
             'osonsmsservice.login' => 'test-login',
             'osonsmsservice.bearer_token' => 'test-token',
         ]);
-        $service = new OsonSmsService;
-        $handler = new MockHandler([
-            new Response(422, [], '{"error":{"msg":"Invalid credentials"}}'),
-        ]);
-        (new ReflectionProperty(OsonSmsService::class, 'httpClient'))->setValue($service, new Client(['handler' => HandlerStack::create($handler)]));
-        $this->app->instance(OsonSmsService::class, $service);
+        Http::preventStrayRequests();
+        Http::fake(['sms.example.test/*' => Http::response(['error' => ['msg' => 'Invalid credentials']], 422)]);
 
         try {
             app(OsonSmsGateway::class)->send('+992901234567', 'Test message', 'transaction-1');

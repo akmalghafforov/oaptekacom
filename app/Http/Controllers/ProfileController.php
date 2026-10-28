@@ -62,11 +62,11 @@ class ProfileController extends Controller
         return redirect()->route('profile.phone.verify');
     }
 
-    public function phoneChangeForm(Request $request): View
+    public function phoneChangeForm(Request $request, PhoneOtpService $otpService): View
     {
         abort_unless(! $request->user()->isAdmin() && $request->session()->has('phone_otp.change_phone'), 404);
 
-        return view('auth.phone-otp', ['title' => 'Подтвердите новый телефон', 'route' => 'profile.phone.confirm', 'phone' => $request->session()->get('phone_otp.change_phone'), 'resend_route' => 'profile.phone.send']);
+        return view('auth.phone-otp', ['otpState' => $otpService->state($request->session()->get('phone_otp.change_phone')), 'title' => 'Подтвердите новый телефон', 'route' => 'profile.phone.confirm', 'phone' => $request->session()->get('phone_otp.change_phone'), 'resend_route' => 'profile.phone.send']);
     }
 
     public function confirmPhoneChange(VerifyPhoneOtpRequest $request, PhoneOtpService $otpService): RedirectResponse

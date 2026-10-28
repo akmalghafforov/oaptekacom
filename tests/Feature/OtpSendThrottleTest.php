@@ -78,20 +78,21 @@ class OtpSendThrottleTest extends TestCase
         $this->assertDatabaseCount('one_time_passwords', 1);
     }
 
-    public function test_phone_has_no_quarter_hour_daily_or_ip_limit(): void
+    public function test_phone_has_three_sends_per_allowance(): void
     {
-        $this->expectSmsCount(12);
+        $this->expectSmsCount(3);
         $phone = '+992901234567';
         User::factory()->pharmacy()->create(['phone' => $phone]);
         RateLimiter::increment('otp-send:day:phone:pharmacy:'.$phone, 86400, 10);
         RateLimiter::increment('otp-send:day:ip:pharmacy:127.0.0.1', 86400, 500);
 
-        foreach (range(1, 12) as $attempt) {
+        foreach (range(1, 3) as $attempt) {
             $this->post(route('login.otp.send'), ['phone' => $phone])->assertRedirect(route('login.otp.form'));
             $this->travel(60)->seconds();
         }
 
-        $this->assertDatabaseCount('one_time_passwords', 12);
+        $this->post(route('login.otp.send'), ['phone' => $phone])->assertSessionHasErrors('phone');
+        $this->assertDatabaseCount('one_time_passwords', 3);
     }
 
     /** @return array<string, array{string, string}> */
@@ -114,7 +115,7 @@ class OtpSendThrottleTest extends TestCase
         $this->post(route('login.otp.send'), ['phone' => $phone])->assertRedirect(route('login.otp.form'));
 
         $this->withSession([$sessionKey => ['phone' => $phone]])->post(route($route))
-            ->assertSessionHasErrors(['phone' => 'Не удалось отправить код. Попробуйте позже.']);
+            ->assertSessionHasErrors(['phone' => 'Попробуйте отправить код позже.']);
 
         $this->assertDatabaseCount('one_time_passwords', 1);
     }
