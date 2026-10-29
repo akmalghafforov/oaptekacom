@@ -45,6 +45,45 @@ class AccountModeTest extends TestCase
         return $this->patch(route('mode.update'), ['mode' => $mode, '_mode_version' => $this->version()]);
     }
 
+    public function test_google_analytics_follows_the_selected_mode_on_the_next_page_load(): void
+    {
+        $user = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+
+        $this->actingAs($user)->get(route('profile.edit'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
+        $this->switchMode('supplier')->assertRedirect(route('dashboard'));
+        $this->get(route('profile.edit'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
+        $this->switchMode('pharmacy')->assertRedirect(route('catalog'));
+        $response = $this->get(route('profile.edit'))->assertOk();
+        $response->assertSeeInOrder(['<head>', 'https://www.googletagmanager.com/gtag/js?id=G-NGFW8V5GLR', "gtag('config', 'G-NGFW8V5GLR');", '</head>'], false);
+        $this->assertSame(1, substr_count($response->getContent(), 'https://www.googletagmanager.com/gtag/js?id=G-NGFW8V5GLR'));
+        $this->assertSame(1, substr_count($response->getContent(), "gtag('config', 'G-NGFW8V5GLR');"));
+        $this->switchMode('supplier')->assertRedirect(route('dashboard'));
+        $this->get(route('profile.edit'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
+    }
+
+    public function test_google_analytics_is_included_for_suppliers_using_pharmacy_mode(): void
+    {
+        $user = User::factory()->wholesaler()->create();
+
+        $this->actingAs($user)->get(route('profile.edit'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
+        $this->switchMode('pharmacy')->assertRedirect(route('catalog'));
+        $this->get(route('profile.edit'))->assertOk()->assertSee("gtag('config', 'G-NGFW8V5GLR');", false);
+    }
+
+    public function test_google_analytics_is_not_included_for_guests(): void
+    {
+        $this->get(route('login'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
+    }
+
+    public function test_google_analytics_tracks_primary_pharmacies_with_account_modes_enabled_or_disabled(): void
+    {
+        $user = User::factory()->pharmacy()->create();
+
+        $this->actingAs($user)->get(route('profile.edit'))->assertOk()->assertSee('G-NGFW8V5GLR');
+        config(['account-modes.enabled' => false]);
+        $this->get(route('profile.edit'))->assertOk()->assertSee('G-NGFW8V5GLR');
+    }
+
     public function test_admin_roles_are_active_and_switches_only_change_the_session(): void
     {
         $user = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);

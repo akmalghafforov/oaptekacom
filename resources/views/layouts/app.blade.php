@@ -1,6 +1,17 @@
 <!doctype html>
 <html lang="@yield('document-language', 'ru')" data-theme="{{ auth()->user()?->theme === 'dark' && ! request()->routeIs('login', 'login.*', 'admin.login*', 'provider.*', 'register', 'register.*') ? 'dark' : 'light' }}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OAPTEKA</title>@if(config('account-modes.enabled') && auth()->check())<meta name="mode-version" content="{{ app(\App\Services\AccountModeContext::class)->version }}"><meta name="mode-user" content="{{ auth()->id() }}">@endif
+@if(auth()->user()?->isPharmacyMode())
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-NGFW8V5GLR"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-NGFW8V5GLR');
+</script>
+@endif
 @if(request()->routeIs('cart'))<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">@endif @vite(['resources/css/app.css', 'resources/js/app.js'])</head>
 <body class="flex min-h-dvh flex-col">
 <header lang="ru" class="app-header border-b border-border bg-surface" data-app-header><div class="page-container flex min-h-16 flex-wrap items-center justify-between gap-3 py-3">
