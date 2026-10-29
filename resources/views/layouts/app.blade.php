@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="@yield('document-language', 'ru')" data-theme="{{ auth()->user()?->theme === 'dark' && ! request()->routeIs('login', 'login.*', 'admin.login*', 'provider.*', 'register', 'register.*') ? 'dark' : 'light' }}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>OAPTEKA</title>@if(config('account-modes.enabled') && auth()->check())<meta name="mode-version" content="{{ app(\App\Services\AccountModeContext::class)->version }}"><meta name="mode-user" content="{{ auth()->id() }}">@endif
-@if(auth()->user()?->isPharmacyMode())
+@if(request()->routeIs('login') || auth()->user()?->isPharmacyMode())
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-NGFW8V5GLR"></script>
 <script>

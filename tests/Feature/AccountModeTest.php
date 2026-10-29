@@ -70,9 +70,20 @@ class AccountModeTest extends TestCase
         $this->get(route('profile.edit'))->assertOk()->assertSee("gtag('config', 'G-NGFW8V5GLR');", false);
     }
 
-    public function test_google_analytics_is_not_included_for_guests(): void
+    public function test_google_analytics_is_included_once_on_the_login_page(): void
     {
-        $this->get(route('login'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
+        $response = $this->get(route('login'))->assertOk();
+
+        $response->assertSeeInOrder(['<head>', 'https://www.googletagmanager.com/gtag/js?id=G-NGFW8V5GLR', "gtag('config', 'G-NGFW8V5GLR');", '</head>'], false);
+        $this->assertSame(1, substr_count($response->getContent(), 'https://www.googletagmanager.com/gtag/js?id=G-NGFW8V5GLR'));
+        $this->assertSame(1, substr_count($response->getContent(), "gtag('config', 'G-NGFW8V5GLR');"));
+    }
+
+    public function test_google_analytics_is_not_included_on_other_guest_pages(): void
+    {
+        $this->get(route('register'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
+        $this->get(route('provider.login'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
+        $this->get(route('admin.login'))->assertOk()->assertDontSee('G-NGFW8V5GLR');
     }
 
     public function test_google_analytics_tracks_primary_pharmacies_with_account_modes_enabled_or_disabled(): void
