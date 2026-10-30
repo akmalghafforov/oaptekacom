@@ -34,6 +34,11 @@ class ImportProcessor
                     $result['warnings'][] = 'Полный дубликат предложения.';
                 }
             }
+            foreach (['category_candidates', 'categorization_evidence'] as $field) {
+                if (isset($result[$field])) {
+                    $result[$field] = app(CategoryEvidence::class)->sanitize($result[$field]);
+                }
+            }
             PriceListImportRow::updateOrCreate(
                 ['price_list_import_id' => $import->id, 'source_row' => $sourceRow],
                 $result,

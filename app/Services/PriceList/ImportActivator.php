@@ -74,7 +74,7 @@ class ImportActivator
                 'category_rule_set_id' => $import->product_category_rule_set_id,
                 'category_rule_set_checksum' => $import->product_category_rule_set_checksum,
                 'category_confidence' => $row->categorization_confidence,
-                'category_evidence' => $this->json($row->categorization_evidence), 'category_assigned_at' => $now,
+                'category_evidence' => $this->json($row->categorization_evidence === null ? null : app(CategoryEvidence::class)->sanitize($row->categorization_evidence)), 'category_assigned_at' => $now,
                 'created_at' => $now, 'updated_at' => $now,
             ];
         })->values()->all());
@@ -264,7 +264,7 @@ class ImportActivator
                 if (! isset($categoryIds[$code])) {
                     continue;
                 }
-                $candidate = $candidates->get($code, []);
+                $candidate = app(CategoryEvidence::class)->sanitize($candidates->get($code, []));
                 $pivots[] = ['medicine_id' => $medicines[$row->parsed_values['normalized_name']]->id,
                     'product_category_id' => $categoryIds[$code], 'source' => 'automatic',
                     'confidence' => $candidate['confidence'] ?? 0, 'rule_set_id' => $import->product_category_rule_set_id,

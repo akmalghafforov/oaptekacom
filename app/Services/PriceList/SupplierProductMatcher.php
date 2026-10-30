@@ -31,16 +31,19 @@ class SupplierProductMatcher
         $supplierProduct ??= $aliasProduct;
 
         if ($supplierProduct !== null) {
-            $medicine = $supplierProduct->medicine()->with('categories')->firstOrFail();
+            $medicine = $supplierProduct->medicine()->firstOrFail();
+            $categories = $medicine->categories()
+                ->select(['product_categories.code', 'product_categories.label', 'medicine_product_category.confidence'])
+                ->toBase()->get();
             $result['supplier_product_id'] = $supplierProduct->id;
             $result['medicine_id'] = $medicine->id;
             $result['planned_action'] = PriceListRowAction::Update;
             $result['assigned_category'] = $medicine->category;
-            $result['assigned_categories'] = $medicine->categories->pluck('code')->all();
-            $result['category_candidates'] = $medicine->categories->map(fn ($category): array => ['code' => $category->code, 'label' => $category->label, 'confidence' => $category->pivot->confidence, 'decision' => 'accepted', 'evidence' => $category->pivot->evidence])->all();
+            $result['assigned_categories'] = $categories->pluck('code')->all();
+            $result['category_candidates'] = $categories->map(fn ($category): array => ['code' => $category->code, 'label' => $category->label, 'confidence' => $category->confidence, 'decision' => 'accepted'])->all();
             $result['categorization_status'] = $medicine->categories_locked_at ? 'manual_locked' : $medicine->category_status;
             $result['categorization_confidence'] = $medicine->category_confidence;
-            $result['categorization_evidence'] = $medicine->category_evidence;
+            $result['categorization_evidence'] = $medicine->category_evidence === null ? null : app(CategoryEvidence::class)->sanitize($medicine->category_evidence);
         }
 
         return $result;

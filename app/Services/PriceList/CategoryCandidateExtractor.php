@@ -12,7 +12,7 @@ class CategoryCandidateExtractor
     public function extract(PriceListImport $import): void
     {
         $groups = [];
-        $import->rows()->whereIn('categorization_status', ['uncategorized', 'attention_needed'])->each(function ($row) use (&$groups): void {
+        $import->rows()->select(['id', 'original_product_name'])->whereIn('categorization_status', ['uncategorized', 'attention_needed'])->lazyById(100)->each(function ($row) use (&$groups): void {
             $tokens = array_values(array_filter($this->normalizer->normalize($row->original_product_name)['tokens'], fn (string $token): bool => ! preg_match('/\d|^(мг|мл|г|кг|шт|уп|фл|ваг|рект|шприц)$/u', $token)));
             foreach (array_slice($tokens, 0, 3) as $length) {
                 $phrase = implode(' ', array_slice($tokens, 0, array_search($length, $tokens, true) + 1));
@@ -20,7 +20,11 @@ class CategoryCandidateExtractor
                     continue;
                 }
                 $groups[$phrase]['occurrences'] = ($groups[$phrase]['occurrences'] ?? 0) + 1;
-                $groups[$phrase]['examples'][] = $row->original_product_name;
+                $examples = $groups[$phrase]['examples'] ?? [];
+                if (count($examples) < 5 && ! in_array($row->original_product_name, $examples, true)) {
+                    $examples[] = $row->original_product_name;
+                }
+                $groups[$phrase]['examples'] = $examples;
             }
         });
         foreach ($groups as $phrase => $group) {
