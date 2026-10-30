@@ -5,7 +5,6 @@ namespace App\Services\PriceList;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
 use App\Models\AuditEvent;
-use App\Models\CartItem;
 use App\Models\Medicine;
 use App\Models\Offer;
 use App\Models\Organization;
@@ -16,6 +15,7 @@ use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\CartMaintenance;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -192,6 +192,7 @@ class ImportActivator
             $candidate->update(['status' => PriceListImportStatus::Completed, 'activated_by' => $actor?->id,
                 'activated_at' => now(), 'failed_at' => null, 'failure_stage' => null, 'failure_message' => null]);
             $supplier->update(['active_price_list_import_id' => $candidate->id]);
+            app(CartMaintenance::class)->replaceSupplierOffers($supplier, $actor);
 
             if (! AuditEvent::query()->where('event', 'price_list_import.activated')->where('subject_type', PriceListImport::class)->where('subject_id', $candidate->id)->exists()) {
                 app(AuditLogger::class)->log('price_list_import.activated', $candidate, [], ['supplier_organization_id' => $supplier->id, 'valid_rows' => $eligible]);
@@ -203,11 +204,17 @@ class ImportActivator
 
     public function cleanup(int $activeImportId, ?int $supersededImportId): void
     {
-        Offer::query()->where('price_list_import_id', $activeImportId)->where('is_active', false)->update(['is_active' => true]);
-        if ($supersededImportId !== null) {
-            CartItem::query()->whereHas('offer', fn ($query) => $query->where('price_list_import_id', $supersededImportId))->delete();
-            Offer::query()->where('price_list_import_id', $supersededImportId)->where('is_active', true)->update(['is_active' => false]);
-        }
+        DB::transaction(function () use ($activeImportId, $supersededImportId): void {
+            $import = PriceListImport::query()->findOrFail($activeImportId);
+            $supplier = Organization::query()->lockForUpdate()->findOrFail($import->supplier_organization_id);
+            if ($supplier->active_price_list_import_id !== $activeImportId) {
+                return;
+            }
+            Offer::query()->where('price_list_import_id', $activeImportId)->where('is_active', false)->update(['is_active' => true]);
+            if ($supersededImportId !== null) {
+                Offer::query()->where('price_list_import_id', $supersededImportId)->where('is_active', true)->update(['is_active' => false]);
+            }
+        }, 3);
     }
 
     /** @param Collection<int, PriceListImportRow> $rows @param Collection<string, Medicine> $medicines */

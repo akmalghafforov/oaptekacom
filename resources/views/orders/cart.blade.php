@@ -11,19 +11,16 @@
     </x-slot:actions>
 </x-ui.page-header>
 
-@if(($removedStaleItems ?? 0) > 0)
-    <x-ui.alert type="warning" class="mb-4">Устаревшие позиции удалены, потому что поставщик обновил прайс-лист.</x-ui.alert>
-@endif
-
 @if(! config('orders.placement_enabled'))
     <x-ui.alert type="warning" class="mb-4">Оформление заказов временно недоступно. Вы можете собрать список товаров и поделиться им.</x-ui.alert>
 @endif
+
+<x-ui.alert type="warning" class="mb-4" data-cart-exclusion-warning :hidden="! $cart->items->contains(fn ($item) => ! $item->isEligible())">В корзине есть недоступные позиции. Они сохранены вместе с запрошенным количеством. Они исключены из итогов, отправки и файлов. Перед оформлением проверьте предупреждения у товаров.</x-ui.alert>
 
 @if($cart->items->isNotEmpty())
     @php
         $visibleGroups = $supplierGroups->filter(fn ($group) => ! $group['supplier']->price_list_hidden);
         $cartTotal = $visibleGroups->reduce(fn ($total, $group) => bcadd($total, $group['total'], 2), '0.00');
-        $allShareText = "Заявки OAPTEKA\n".$visibleGroups->map(fn ($group) => $group['supplier']->name."\n".$group['items']->map(fn ($item) => "{$item->snapshot['medicine']} — {$item->quantity} × {$item->unit_price} TJS")->implode("\n")."\nИтого: {$group['total']} TJS")->implode("\n\n")."\nОбщий итог: {$cartTotal} TJS";
     @endphp
     @if($visibleGroups->count() !== $supplierGroups->count())
         <x-ui.alert type="warning" class="mb-4">Недоступные позиции остаются сохранены. К отправке доступны только видимые прайс-листы.</x-ui.alert>
@@ -41,7 +38,6 @@
         @foreach($supplierGroups as $supplierId => $group)
             @php
                 $supplier = $group['supplier'];
-                $shareText = "Заявка OAPTEKA\nПоставщик: {$supplier->name}\n".$group['items']->map(fn ($item) => "{$item->snapshot['medicine']} — {$item->quantity} × {$item->unit_price} TJS")->implode("\n")."\nИтого: {$group['total']} TJS";
             @endphp
             <x-ui.card class="!p-0">
                 <header class="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -56,9 +52,22 @@
                             <tbody>
                                 @foreach($group['items'] as $item)
                                     <tr>
-                                        <td><strong class="block break-words text-sm">{{ $item->snapshot['medicine'] }}</strong><span class="cart-request-stock">@if($item->offer->quantity !== null)В наличии: {{ rtrim(rtrim(number_format((float) $item->offer->quantity, 2, '.', ''), '0'), '.') }} ед.@else Остаток уточняется у поставщика.@endif</span></td>
+                                        <td><strong class="block break-words text-sm">{{ $item->snapshot['medicine'] }}</strong>
+                                            @if($item->proposed_unit_price !== null)
+                                                <x-ui.alert type="warning">Цена повысилась: {{ $item->unit_price }} → {{ $item->proposed_unit_price }} TJS. Подтвердите новую цену, чтобы заказать товар.</x-ui.alert>
+                                                <form data-cart-save-before-submit method="post" action="{{ route('cart.items.accept-price', $item) }}">
+                                                    @csrf <x-mode-version />
+                                                    <input type="hidden" name="offer_id" value="{{ $item->offer_id }}">
+                                                    <input type="hidden" name="proposed_unit_price" value="{{ $item->proposed_unit_price }}">
+                                                    <x-ui.button>Принять цену {{ $item->proposed_unit_price }} TJS</x-ui.button>
+                                                </form>
+                                            @elseif($item->offer_change && bccomp((string) $item->offer_change['previous_unit_price'], (string) $item->unit_price, 2) > 0)
+                                                <x-ui.alert type="success">Цена снижена: {{ $item->offer_change['previous_unit_price'] }} → {{ $item->unit_price }} TJS</x-ui.alert>
+                                            @endif
+                                            <x-ui.alert type="warning" :data-cart-availability-warning="$item->id" :hidden="$item->availabilityWarning() === null">{{ $item->availabilityWarning() }}</x-ui.alert>
+                                            <span class="cart-request-stock">@if($item->offer->quantity !== null)В наличии: {{ rtrim(rtrim(number_format((float) $item->offer->quantity, 2, '.', ''), '0'), '.') }} ед.@else Остаток уточняется у поставщика.@endif</span></td>
                                         <td><strong class="whitespace-nowrap">{{ $item->unit_price }} TJS</strong>@if(($item->snapshot['supplier_discount_percent'] ?? null) !== null && bccomp((string) $item->snapshot['supplier_discount_percent'], '0', 2) === 1)<span class="cart-request-discount">{{ $item->snapshot['raw_price'] ?? $item->snapshot['price'] }} TJS · Скидка {{ $item->snapshot['supplier_discount_percent'] }}%</span>@endif</td>
-                                        <td>@if($supplier->price_list_hidden)<span>{{ $item->quantity }} шт.</span>@else<form method="post" action="{{ route('cart.update', $item) }}" class="cart-request-quantity" data-cart-quantity-form data-cart-item-id="{{ $item->id }}" data-cart-supplier-id="{{ $supplierId }}">@csrf <x-mode-version /> @method('PATCH')<x-ui.quantity-stepper name="quantity" :id="'quantity-'.$item->id" :value="$item->quantity" :max="$item->offer->quantity ?? 999999" /><span id="quantity-status-{{ $item->id }}" class="cart-request-quantity-status" data-cart-quantity-status role="status"></span></form>@endif</td>
+                                        <td>@if($item->availability_reason && $item->availability_reason !== 'insufficient_stock')<span>{{ $item->quantity }} шт.</span>@else<form method="post" action="{{ route('cart.update', $item) }}" class="cart-request-quantity" data-cart-quantity-form data-cart-item-id="{{ $item->id }}" data-cart-supplier-id="{{ $supplierId }}">@csrf <x-mode-version /> @method('PATCH')<x-ui.quantity-stepper name="quantity" :id="'quantity-'.$item->id" :value="$item->quantity" :max="$item->offer->quantity ?? 999999" /><span id="quantity-status-{{ $item->id }}" class="cart-request-quantity-status" data-cart-quantity-status role="status"></span></form>@endif</td>
                                         <td class="whitespace-nowrap"><strong class="block text-accent" data-cart-item-line-total="{{ $item->id }}">{{ bcmul((string) $item->unit_price, (string) $item->quantity, 2) }} TJS</strong><x-ui.icon-button label="Удалить {{ $item->snapshot['medicine'] }}" data-dialog-open aria-controls="cart-item-delete-{{ $item->id }}">×</x-ui.icon-button></td>
                                     </tr>
                                 @endforeach
@@ -70,7 +79,7 @@
                     <div class="grid gap-3 md:grid-cols-[auto_1fr_auto] md:items-start">
                         @unless($supplier->price_list_hidden)
                             <div class="flex flex-wrap items-center gap-2">
-                                <x-ui.button type="button" data-supplier-share data-supplier-id="{{ $supplierId }}" data-share-url="{{ route('cart.suppliers.share', $supplier) }}" data-share-text="{{ $shareText }}" data-csrf-token="{{ csrf_token() }}">Поделиться</x-ui.button>
+                                <x-ui.button type="button" data-supplier-share data-supplier-id="{{ $supplierId }}" data-share-url="{{ route('cart.suppliers.share', $supplier) }}" data-csrf-token="{{ csrf_token() }}">Поделиться</x-ui.button>
                                 <x-ui.dropdown :id="'supplier-download-'.$supplierId" label="Скачать">
                                     <x-ui.button type="button" variant="ghost" class="w-full justify-start" role="menuitem" data-file-prepare="pdf" :data-file-url="route('cart.suppliers.pdf', $supplier)">PDF</x-ui.button>
                                     <x-ui.button type="button" variant="ghost" class="w-full justify-start" role="menuitem" data-file-prepare="excel" :data-file-url="route('cart.suppliers.excel', $supplier)">Excel</x-ui.button>
@@ -103,7 +112,7 @@
             </x-ui.card>
 
             @unless($supplier->price_list_hidden)
-            <x-ui.confirmation-dialog name="supplier-archive-{{ $supplierId }}" title="Отправить в архив?" description="Заявка сохранится в архиве, а позиции этого поставщика удалятся из корзины."><form data-cart-save-before-submit method="post" action="{{ route('cart.suppliers.archive', $supplier) }}" class="flex flex-wrap justify-end gap-2">@csrf <x-mode-version /> <x-ui.button type="button" variant="secondary" data-dialog-close>Отмена</x-ui.button><x-ui.button>В архив</x-ui.button></form></x-ui.confirmation-dialog>
+            <x-ui.confirmation-dialog name="supplier-archive-{{ $supplierId }}" title="Отправить в архив?" description="Доступные позиции сохранятся в архиве и удалятся из корзины. Недоступные позиции останутся."><form data-cart-save-before-submit method="post" action="{{ route('cart.suppliers.archive', $supplier) }}" class="flex flex-wrap justify-end gap-2">@csrf <x-mode-version /> <x-ui.button type="button" variant="secondary" data-dialog-close>Отмена</x-ui.button><x-ui.button>В архив</x-ui.button></form></x-ui.confirmation-dialog>
 
             @endunless
             <x-ui.confirmation-dialog name="supplier-clear-{{ $supplierId }}" title="Очистить заявку?" description="Все позиции этого поставщика будут удалены из корзины.">
@@ -117,7 +126,7 @@
             @endforeach
         @endforeach
     </div>
-    <x-ui.card class="cart-action-bar"><div><span class="text-sm text-muted">Итого к отправке</span><p class="text-xl font-bold text-accent" data-cart-total>{{ number_format((float) $cartTotal, 2, '.', ' ') }} TJS</p></div><div class="flex flex-wrap gap-2">@if(config('orders.placement_enabled'))<form data-cart-save-before-submit method="post" action="{{ route('cart.checkout') }}">@csrf <x-mode-version /> <x-ui.button :disabled="$visibleGroups->isEmpty()">Оформить все</x-ui.button></form>@endif<x-ui.button type="button" variant="secondary" data-cart-share data-share-text="{{ $allShareText }}" :disabled="$visibleGroups->isEmpty()">Поделиться</x-ui.button><x-ui.button type="button" variant="ghost" class="text-danger" data-dialog-open aria-controls="cart-clear-all">Очистить</x-ui.button></div></x-ui.card>
+    <x-ui.card class="cart-action-bar"><div><span class="text-sm text-muted">Итого к отправке</span><p class="text-xl font-bold text-accent" data-cart-total>{{ number_format((float) $cartTotal, 2, '.', ' ') }} TJS</p></div><div class="flex flex-wrap gap-2">@if(config('orders.placement_enabled'))<form data-cart-save-before-submit method="post" action="{{ route('cart.checkout') }}">@csrf <x-mode-version /> <x-ui.button :disabled="$visibleGroups->isEmpty()">Оформить все</x-ui.button></form>@endif<x-ui.button type="button" variant="secondary" data-cart-share data-share-url="{{ route('cart.share') }}" data-csrf-token="{{ csrf_token() }}" :disabled="$visibleGroups->isEmpty()">Поделиться</x-ui.button><x-ui.button type="button" variant="ghost" class="text-danger" data-dialog-open aria-controls="cart-clear-all">Очистить</x-ui.button></div></x-ui.card>
     <x-ui.confirmation-dialog name="cart-clear-all" title="Очистить корзину?" description="Все заявки и позиции будут удалены из корзины."><form method="post" action="{{ route('cart.destroy') }}" class="flex flex-wrap justify-end gap-2">@csrf <x-mode-version /> @method('DELETE')<x-ui.button type="button" variant="secondary" data-dialog-close>Отмена</x-ui.button><x-ui.button variant="danger">Очистить всё</x-ui.button></form></x-ui.confirmation-dialog>
 @else
     <x-ui.empty-state title="Корзина пуста" description="Добавьте товары из каталога, чтобы сформировать заявку поставщику.">

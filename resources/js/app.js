@@ -1,6 +1,8 @@
+import { createCartTextShare } from './cart-text-share.js';
+import { updateCartAvailability } from './cart-availability.js';
 import { initializeOtpResend } from './otp-resend.js';
 import { initializeDropdown } from './ui-dropdown.js';
-import { createCartSaveCoordinator } from './cart-save-coordinator.js';
+import { createCartSaveCoordinator, initializeCartSaveBeforeSubmit } from './cart-save-coordinator.js';
 import { initializeGmailActions, initializeGmailProgress } from './gmail.js';
 import { initializeAccountMode } from './account-mode';
 import { createSupplierFileRenderer } from './supplier-file-renderer.js';
@@ -280,19 +282,21 @@ document.querySelectorAll('[data-quantity-stepper]').forEach((stepper) => {
 
 const formatCartAmount = (value) => `${Number(value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} TJS`;
 const supplierFileShares = new Map();
+const cartTextShares = new Map();
 const cartQuantityGroups = new Map();
 let cartModeStale = false;
 const cartSaves = createCartSaveCoordinator(cartQuantityGroups, () => cartModeStale);
 const updateCartSharing = () => {
     const pending = [...cartQuantityGroups.values()].some((group) => group.saving || group.desired !== group.confirmed || group.error);
     document.querySelectorAll('[data-supplier-share], [data-cart-share]').forEach((button) => {
-        button.disabled = cartModeStale || pending || button.dataset.shareUnavailable === 'true';
+        button.disabled = cartModeStale || pending || button.dataset.shareBusy === 'true' || button.dataset.shareUnavailable === 'true';
     });
 };
 document.querySelectorAll('[data-cart-share]').forEach((button) => { button.dataset.shareUnavailable = String(button.disabled); });
 document.addEventListener('account-mode-stale', () => {
     cartModeStale = true;
     supplierFileShares.forEach((sharing) => sharing.invalidate());
+    cartTextShares.forEach((sharing) => sharing.invalidate());
     updateCartSharing();
 });
 
@@ -351,17 +355,8 @@ cartQuantityGroups.forEach((group) => {
             document.querySelectorAll('[data-cart-total]').forEach((element) => { element.textContent = formatCartAmount(data.cart.total); });
             updateCartBadges(document, data.cart.total_quantity);
 
-            const supplierShare = document.querySelector(`[data-supplier-share][data-supplier-id="${data.supplier.id}"]`);
-            if (supplierShare) {
-                supplierShare.dataset.shareText = data.supplier.share_text;
-                supplierShare.textContent = 'Поделиться';
-            }
-
-            const cartShare = document.querySelector('[data-cart-share]');
-            if (cartShare) {
-                cartShare.dataset.shareText = data.cart.share_text;
-                cartShare.textContent = 'Поделиться';
-            }
+            updateCartAvailability(document, data);
+            cartTextShares.forEach((sharing) => sharing.invalidate());
 
             if (group.desired === quantity) {
                 setInputs(group.confirmed);
@@ -407,6 +402,7 @@ cartQuantityGroups.forEach((group) => {
 
         if (quantity !== group.desired) {
             supplierFileShares.get(group.forms[0].form.dataset.cartSupplierId)?.invalidate();
+            cartTextShares.forEach((sharing) => sharing.invalidate());
         }
         group.error = false;
         group.desired = quantity;
@@ -427,96 +423,46 @@ cartQuantityGroups.forEach((group) => {
     });
 });
 
-document.querySelectorAll('[data-supplier-share]').forEach((button) => button.addEventListener('click', async () => {
-    if (button.disabled || cartModeStale) return;
-    const text = button.dataset.shareText;
-    let sharedVia = null;
-
-    try {
-        if (navigator.share) {
-            await navigator.share({ title: 'Заявка OAPTEKA', text });
-            sharedVia = 'native';
-        } else if (navigator.clipboard) {
-            await navigator.clipboard.writeText(text);
-            sharedVia = 'clipboard';
-        }
-    } catch (error) {
-        return;
-    }
-
-    if (! sharedVia) {
-        return;
-    }
-
-    button.disabled = true;
-
-    try {
-        const response = await fetch(button.dataset.shareUrl, {
-            method: 'POST',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '', 'X-CSRF-TOKEN': button.dataset.csrfToken,
-            },
-            body: new URLSearchParams({ shared_via: sharedVia }),
-        });
-
-        if (response.status === 409) document.dispatchEvent(new CustomEvent('account-mode-stale'));
-        if (! response.ok) {
-            throw new Error('Unable to save the supplier request.');
-        }
-
-        button.textContent = sharedVia === 'clipboard' ? 'Скопировано' : 'Отправлено';
-    } catch (error) {
-        updateCartSharing();
-        window.alert('Не удалось подтвердить отправку. Позиции остались в корзине.');
-    }
-}));
-
-document.querySelectorAll('[data-cart-share]').forEach((button) => button.addEventListener('click', async () => {
-    if (button.disabled || cartModeStale) return;
-    try {
-        if (navigator.share) {
-            await navigator.share({ title: 'Заявки OAPTEKA', text: button.dataset.shareText });
-        } else if (navigator.clipboard) {
-            await navigator.clipboard.writeText(button.dataset.shareText);
-            button.textContent = 'Скопировано';
-        } else {
-            window.alert('Функция «Поделиться» недоступна в этом браузере.');
-        }
-    } catch (error) {
-        if (error.name !== 'AbortError') {
-            window.alert('Не удалось поделиться заявками.');
-        }
-    }
-}));
+document.querySelectorAll('[data-supplier-share], [data-cart-share]').forEach((button) => {
+    const sharing = createCartTextShare({
+        navigator,
+        isBlocked: () => cartModeStale,
+        prepareText: async () => {
+            await cartSaves.flush();
+            const response = await fetch(button.dataset.shareUrl, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '',
+                    'X-CSRF-TOKEN': button.dataset.csrfToken,
+                },
+                body: new URLSearchParams({ shared_via: navigator.share ? 'native' : 'clipboard' }),
+            });
+            if (response.status === 409) document.dispatchEvent(new CustomEvent('account-mode-stale'));
+            if (!response.ok) throw new Error('Unable to prepare current basket.');
+            return response.json();
+        },
+        onState: ({ busy, ready, message }) => {
+            button.dataset.shareBusy = String(busy);
+            button.textContent = busy ? 'Подготовка…' : ready ? (navigator.share ? 'Отправить заявку' : 'Скопировать заявку') : 'Поделиться';
+            button.setAttribute('aria-live', 'polite');
+            updateCartSharing();
+            if (message) window.alert(message);
+        },
+    });
+    cartTextShares.set(button, sharing);
+    button.addEventListener('click', () => { if (!button.disabled) sharing.activate(); });
+});
 
 const flushCartQuantities = () => cartSaves.flush();
 
 document.querySelectorAll('[data-cart-save-before-submit]').forEach((form) => {
-    let submitting = false;
-    form.addEventListener('submit', async (event) => {
-        if (submitting && !cartModeStale) return;
-        event.preventDefault();
-        const feedback = document.querySelector('[data-cart-action-error]');
-        try {
-            await flushCartQuantities();
-            feedback.hidden = true;
-            submitting = true;
-            form.requestSubmit(event.submitter);
-            submitting = false;
-        } catch {
-            feedback.hidden = false;
-            let localFeedback = form.querySelector('[data-cart-submit-error]');
-            if (!localFeedback) {
-                localFeedback = document.createElement('p');
-                localFeedback.dataset.cartSubmitError = '';
-                localFeedback.className = 'w-full text-sm text-danger';
-                localFeedback.setAttribute('role', 'alert');
-                form.append(localFeedback);
-            }
-            localFeedback.textContent = feedback.textContent;
-        }
+    initializeCartSaveBeforeSubmit(form, {
+        flush: flushCartQuantities,
+        isBlocked: () => cartModeStale,
+        feedback: document.querySelector('[data-cart-action-error]'),
+        createElement: () => document.createElement('p'),
     });
 });
 

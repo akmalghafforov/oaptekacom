@@ -97,6 +97,8 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::get('/cart/suppliers/{supplier}/excel', [SupplierCartExportController::class, 'excel'])->name('cart.suppliers.excel');
     Route::get('/cart', [CartController::class, 'show'])->name('cart');
     Route::post('/cart/checkout', [CartController::class, 'checkout'])->name('cart.checkout');
+    Route::post('/cart/share', [CartController::class, 'share'])->name('cart.share');
+    Route::post('/cart/items/{item}/accept-price', [CartController::class, 'acceptPrice'])->name('cart.items.accept-price');
     Route::post('/cart/{offer}', [CartController::class, 'add'])->name('cart.add');
     Route::patch('/cart/items/{item}', [CartController::class, 'update'])->name('cart.update');
     Route::delete('/cart/items/{item}', [CartController::class, 'destroy'])->name('cart.items.destroy');

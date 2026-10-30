@@ -31,7 +31,7 @@ class BatchedPriceListActivationTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_switches_catalogue_and_cleans_superseded_legacy_state(): void
+    public function test_switches_catalogue_and_preserves_superseded_basket_items(): void
     {
         $supplier = Organization::factory()->wholesaler()->create();
         $actor = User::factory()->wholesaler($supplier)->create();
@@ -50,7 +50,7 @@ class BatchedPriceListActivationTest extends TestCase
         $this->assertSame($candidate->id, $supplier->fresh()->active_price_list_import_id);
         $this->assertSame(2, Offer::query()->currentCatalog()->count());
         $this->assertDatabaseHas('offers', ['id' => $oldOffer->id, 'is_active' => false]);
-        $this->assertDatabaseMissing('cart_items', ['offer_id' => $oldOffer->id]);
+        $this->assertDatabaseHas('cart_items', ['offer_id' => $oldOffer->id, 'availability_reason' => 'missing_replacement']);
         $this->assertDatabaseHas('audit_events', ['event' => 'price_list_import.activated', 'subject_id' => $candidate->id]);
     }
 

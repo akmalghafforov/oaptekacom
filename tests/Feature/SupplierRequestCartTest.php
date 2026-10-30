@@ -490,14 +490,14 @@ class SupplierRequestCartTest extends TestCase
         $this->assertDatabaseMissing('cart_items', ['offer_id' => $visibleOffer->id]);
     }
 
-    public function test_hidden_cart_items_still_become_stale_when_the_import_is_replaced(): void
+    public function test_hidden_cart_items_are_retained_when_the_import_is_replaced(): void
     {
         [$user, $supplier, $offer] = $this->cartWithTwoSuppliers();
         $this->actingAs($user)->post(route('cart.add', $offer));
         $supplier->update(['price_list_hidden' => true]);
         $this->activeImport($supplier);
-        $this->actingAs($user)->get(route('cart'))->assertOk()->assertSeeText('Устаревшие позиции удалены');
-        $this->assertDatabaseMissing('cart_items', ['offer_id' => $offer->id]);
+        $this->actingAs($user)->get(route('cart'))->assertOk()->assertSeeText('Товар отсутствует в новом прайс-листе');
+        $this->assertDatabaseHas('cart_items', ['offer_id' => $offer->id]);
     }
 
     /** @return array{User, Organization, Offer, Offer} */

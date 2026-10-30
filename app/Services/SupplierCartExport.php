@@ -12,16 +12,24 @@ use PhpOffice\PhpSpreadsheet\Spreadsheet;
 
 class SupplierCartExport
 {
-    public function __construct(private SupplierDiscountPrice $prices) {}
+    public function __construct(private SupplierDiscountPrice $prices, private CartMaintenance $maintenance) {}
 
-    /** @return array{buyer: string, supplier: string, generatedAt: string, items: array<int, array{name: string, quantity: int, price: string, total: string}>, total: string} */
+    /** @return array{excluded: int, buyer: string, supplier: string, generatedAt: string, items: array<int, array{name: string, quantity: int, price: string, total: string}>, total: string} */
     public function data(User $user, Organization $supplier): array
+    {
+        return $this->maintenance->transaction($user, [$supplier->id], fn (): array => $this->validatedData($user, $supplier->fresh()));
+    }
+
+    private function validatedData(User $user, Organization $supplier): array
     {
         abort_unless($user->canBuy(), 403);
         abort_if($supplier->price_list_hidden, 404);
         $items = CartItem::query()->whereHas('cart', fn ($query) => $query->where('user_id', $user->id))
-            ->whereHas('offer', fn ($query) => $query->where('organization_id', $supplier->id))->orderBy('id')->get();
+            ->whereHas('offer', fn ($query) => $query->where('organization_id', $supplier->id))->with('offer.organization')->orderBy('id')->lockForUpdate()->get();
         abort_if($items->isEmpty(), 404);
+        $excluded = $items->count() - $this->maintenance->eligible($items)->count();
+        $items = $this->maintenance->eligible($items);
+        abort_if($items->isEmpty(), 422, 'Нет доступных позиций для отправки.');
         $rows = $items->map(fn (CartItem $item): array => [
             'name' => $item->snapshot['medicine'], 'quantity' => (int) $item->quantity,
             'price' => (string) $item->unit_price, 'total' => $this->prices->lineTotal($item->quantity, (string) $item->unit_price),
@@ -29,7 +37,7 @@ class SupplierCartExport
 
         return [
             'buyer' => $user->activeOrganization()?->name ?? $user->name, 'supplier' => $supplier->name,
-            'generatedAt' => now('Asia/Dushanbe')->format('d.m.Y H:i'), 'items' => $rows,
+            'excluded' => $excluded, 'generatedAt' => now('Asia/Dushanbe')->format('d.m.Y H:i'), 'items' => $rows,
             'total' => array_reduce($rows, fn (string $total, array $row): string => bcadd($total, $row['total'], 2), '0.00'),
         ];
     }
@@ -55,7 +63,7 @@ class SupplierCartExport
         $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Заявка');
-        foreach (['OAPTEKA - Предварительная заявка', 'Покупатель: '.$data['buyer'], 'Поставщик: '.$data['supplier'], 'Дата: '.$data['generatedAt']] as $index => $text) {
+        foreach (['OAPTEKA - Предварительная заявка', 'Покупатель: '.$data['buyer'], 'Поставщик: '.$data['supplier'], 'Дата: '.$data['generatedAt'].' · Исключено недоступных позиций: '.$data['excluded']] as $index => $text) {
             $sheet->setCellValueExplicit('A'.($index + 1), $text, DataType::TYPE_STRING);
             $sheet->mergeCells('A'.($index + 1).':D'.($index + 1));
         }

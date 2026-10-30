@@ -14,6 +14,7 @@ th { text-align: left; background: #ecfdf5; }
 .total { margin-top: 16px; text-align: right; font-weight: bold; }
 </style></head>
 <body>
+@if($excluded > 0)<p>Исключено недоступных позиций: {{ $excluded }}. Они сохранены в корзине.</p>@endif
 <h1>OAPTEKA</h1><p>Предварительная заявка</p>
 <p>Покупатель: {{ $buyer }}</p><p>Поставщик: {{ $supplier }}</p><p>Дата: {{ $generatedAt }}</p>
 <table><thead><tr><th style="width: 49%">Товар</th><th style="width: 11%">Кол-во</th><th style="width: 18%">Цена, TJS</th><th style="width: 22%">Сумма, TJS</th></tr></thead><tbody>

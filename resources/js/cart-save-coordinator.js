@@ -21,3 +21,29 @@ export function createCartSaveCoordinator(groups, isBlocked = () => false) {
         },
     };
 }
+
+export function initializeCartSaveBeforeSubmit(form, { flush, isBlocked, feedback, createElement }) {
+    let submitting = false;
+    form.addEventListener('submit', async (event) => {
+        if (submitting && !isBlocked()) return;
+        event.preventDefault();
+        try {
+            await flush();
+            feedback.hidden = true;
+            submitting = true;
+            form.requestSubmit(event.submitter);
+            submitting = false;
+        } catch {
+            feedback.hidden = false;
+            let localFeedback = form.querySelector('[data-cart-submit-error]');
+            if (!localFeedback) {
+                localFeedback = createElement();
+                localFeedback.dataset.cartSubmitError = '';
+                localFeedback.className = 'w-full text-sm text-danger';
+                localFeedback.setAttribute('role', 'alert');
+                form.append(localFeedback);
+            }
+            localFeedback.textContent = feedback.textContent;
+        }
+    });
+}
