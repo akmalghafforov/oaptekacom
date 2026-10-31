@@ -4,9 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Enums\OrganizationType;
 use App\Models\Organization;
-use App\Models\PharmacySupplierDiscount;
 use App\Models\PriceListImport;
-use App\Services\AuditLogger;
+use App\Services\CartMaintenance;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -37,7 +36,7 @@ class PartnerController extends Controller
         return view('partners.index', compact('cities', 'suppliers', 'discounts'));
     }
 
-    public function updateDiscount(Request $request, Organization $supplier, AuditLogger $auditLogger): RedirectResponse
+    public function updateDiscount(Request $request, Organization $supplier, CartMaintenance $maintenance): RedirectResponse
     {
         $value = $request->input('supplier_discount_percent');
         if (is_string($value) && trim($value) === '') {
@@ -46,32 +45,9 @@ class PartnerController extends Controller
 
         $data = $request->validate(['supplier_discount_percent' => ['nullable', 'numeric', 'between:0,100', 'decimal:0,2']]);
         abort_unless($supplier->type === OrganizationType::Wholesaler && $supplier->status === 'active', 404);
-        $discount = $request->user()->activeOrganization()->pharmacySupplierDiscounts()->where('supplier_organization_id', $supplier->id)->first();
         $supplierDiscountPercent = $data['supplier_discount_percent'] ?? null;
+        $maintenance->updateAgreement($request->user(), $supplier, $supplierDiscountPercent === null ? null : (string) $supplierDiscountPercent);
 
-        if ($supplierDiscountPercent === null) {
-            if ($discount) {
-                $before = $discount->only('supplier_discount_percent');
-                $discount->delete();
-                $auditLogger->log('pharmacy_supplier_discount.cleared', $discount, $before);
-            }
-
-            return back()->with('success', 'Согласованная скидка удалена.');
-        }
-
-        if ($discount) {
-            $before = $discount->only('supplier_discount_percent');
-            $discount->update(['supplier_discount_percent' => $supplierDiscountPercent]);
-            $auditLogger->log('pharmacy_supplier_discount.updated', $discount, $before, $discount->fresh()->only('supplier_discount_percent'));
-        } else {
-            $discount = PharmacySupplierDiscount::query()->create([
-                'pharmacy_organization_id' => $request->user()->activeOrganizationId(),
-                'supplier_organization_id' => $supplier->id,
-                'supplier_discount_percent' => $supplierDiscountPercent,
-            ]);
-            $auditLogger->log('pharmacy_supplier_discount.created', $discount, [], $discount->only('supplier_discount_percent'));
-        }
-
-        return back()->with('success', 'Согласованная скидка сохранена.');
+        return back()->with('success', $supplierDiscountPercent === null ? 'Согласованная скидка удалена.' : 'Согласованная скидка сохранена.');
     }
 }

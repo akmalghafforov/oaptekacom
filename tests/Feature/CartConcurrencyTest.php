@@ -29,7 +29,11 @@ class CartConcurrencyTest extends TestCase
     #[TestWith(['update'])]
     #[TestWith(['delete'])]
     #[TestWith(['checkout'])]
-    public function test_activation_and_customer_actions_serialize_without_losing_requested_items(string $action): void
+    #[TestWith(['agreement'])]
+    #[TestWith(['update', 'agreement'])]
+    #[TestWith(['delete', 'agreement'])]
+    #[TestWith(['checkout', 'agreement'])]
+    public function test_activation_and_customer_actions_serialize_without_losing_requested_items(string $action, string $concurrentOperation = 'activation'): void
     {
         if (getenv('CART_CONCURRENCY_TESTS') !== '1' || ! function_exists('pcntl_fork') || ! in_array(DB::getDriverName(), ['mysql', 'pgsql'], true)) {
             $this->markTestSkipped('Opt in with CART_CONCURRENCY_TESTS=1 against a migrated, isolated MySQL/PostgreSQL test database.');
@@ -58,7 +62,7 @@ class CartConcurrencyTest extends TestCase
         DB::disconnect();
 
         try {
-            foreach (['activation', $action] as $index => $operation) {
+            foreach ([$concurrentOperation, $action] as $index => $operation) {
                 $pid = pcntl_fork();
                 if ($pid === -1) {
                     throw new RuntimeException('Cannot fork test worker');
@@ -79,6 +83,7 @@ class CartConcurrencyTest extends TestCase
                         } else {
                             $this->actingAs($user->fresh());
                             $response = match ($operation) {
+                                'agreement' => $this->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '5.00']),
                                 'update' => $this->patchJson(route('cart.update', $item), ['quantity' => 8]),
                                 'delete' => $this->deleteJson(route('cart.items.destroy', $item)),
                                 'checkout' => $this->postJson(route('cart.checkout')),
@@ -105,10 +110,17 @@ class CartConcurrencyTest extends TestCase
                 $this->assertSame(0, pcntl_wexitstatus($status), is_file($directory.'/error-'.$index) ? file_get_contents($directory.'/error-'.$index) : 'Worker failed');
             }
             DB::purge();
-            $this->assertSame($next->id, $supplier->fresh()->active_price_list_import_id);
-            if ($action === 'update') {
+            $this->assertSame($concurrentOperation === 'activation' ? $next->id : $old->id, $supplier->fresh()->active_price_list_import_id);
+            if ($action === 'agreement') {
+                $this->assertSame('5.00', $item->fresh()->snapshot['supplier_discount_percent']);
+                $this->assertSame('19.00', $item->fresh()->proposed_unit_price);
+                $this->assertContains($item->fresh()->unit_price, ['9.50', '10.00']);
+            } elseif ($action === 'update') {
                 $this->assertSame(8, $item->fresh()->quantity);
-                $this->assertSame($next->offers()->sole()->id, $item->fresh()->offer_id);
+                $this->assertSame($concurrentOperation === 'activation' ? $next->offers()->sole()->id : $offer->id, $item->fresh()->offer_id);
+                if ($concurrentOperation === 'agreement') {
+                    $this->assertSame('9.50', $item->fresh()->unit_price);
+                }
             } elseif ($action === 'checkout' && $item->fresh() !== null) {
                 $this->assertSame(7, $item->fresh()->quantity);
                 $this->assertSame('10.00', $item->fresh()->unit_price);

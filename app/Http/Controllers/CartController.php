@@ -112,6 +112,7 @@ class CartController extends Controller
                 'price' => $offer->price,
                 'raw_price' => $offer->price,
                 'supplier_discount_percent' => $supplierDiscountPercent,
+                'pharmacy_organization_id' => $request->user()->isPharmacyMode() ? $request->user()->activeOrganizationId() : null,
                 'source_name' => $offer->source_name,
                 'batch' => $offer->batch,
                 'expires_at' => $offer->expires_at?->toDateString(),

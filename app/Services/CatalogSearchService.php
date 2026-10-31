@@ -176,7 +176,7 @@ class CatalogSearchService
 
     private function discountPercentExpression(): string
     {
-        return 'CASE WHEN COALESCE(pharmacy_supplier_discounts.supplier_discount_percent, 0.00) > discount_suppliers.default_discount_percent THEN pharmacy_supplier_discounts.supplier_discount_percent ELSE discount_suppliers.default_discount_percent END';
+        return 'COALESCE(pharmacy_supplier_discounts.supplier_discount_percent, discount_suppliers.default_discount_percent)';
     }
 
     private function effectivePriceExpression(bool $hasPharmacyContext): string

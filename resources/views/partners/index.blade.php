@@ -134,7 +134,7 @@
                 @method('PATCH')
                 <input type="hidden" name="supplier_id" value="{{ $supplier->id }}">
                 <p class="text-sm text-muted">Скидка по умолчанию: {{ $supplier->default_discount_percent }}%. Согласованная: {{ $discount?->supplier_discount_percent ?? '—' }}{{ $discount ? '%' : '' }}. Применяется: {{ $effectiveDiscount }}%.</p>
-                <x-ui.input id="supplier-discount-percent-{{ $supplier->id }}" name="supplier_discount_percent" type="number" min="0" max="100" step="0.01" label="Согласованная скидка от поставщика, %" :value="old('supplier_discount_percent', $discount?->supplier_discount_percent)" hint="Применяется большая из двух скидок к текущей цене, включая акционную. Пустое поле удаляет договорённость и возвращает скидку по умолчанию. Скидка 0% не отменяет скидку поставщика." />
+                <x-ui.input id="supplier-discount-percent-{{ $supplier->id }}" name="supplier_discount_percent" type="number" min="0" max="100" step="0.01" label="Согласованная скидка от поставщика, %" :value="old('supplier_discount_percent', $discount?->supplier_discount_percent)" hint="Согласованная скидка заменяет скидку по умолчанию и применяется к текущей цене, включая акционную. Пустое поле удаляет договорённость и возвращает скидку по умолчанию. Скидка 0% отменяет скидку поставщика." />
                 <x-ui.button>Сохранить скидку</x-ui.button>
             </form>
         </div>

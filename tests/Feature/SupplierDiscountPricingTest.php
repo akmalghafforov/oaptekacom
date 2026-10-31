@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\PriceListImportStatus;
+use App\Enums\UserRole;
 use App\Models\AuditEvent;
 use App\Models\Cart;
 use App\Models\Medicine;
@@ -24,7 +25,7 @@ class SupplierDiscountPricingTest extends TestCase
 {
     use LazilyRefreshDatabase;
 
-    public function test_defaults_and_agreements_select_the_higher_discount_in_catalog_and_cart_for_each_pharmacy(): void
+    public function test_defaults_and_agreements_prefer_agreements_in_catalog_and_cart_for_each_pharmacy(): void
     {
         [$supplier, $import] = $this->activeImport();
         $supplier->update(['default_discount_percent' => '12.34']);
@@ -37,10 +38,10 @@ class SupplierDiscountPricingTest extends TestCase
                 PharmacySupplierDiscount::create(['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => $agreement]);
             }
             $expectedPercent = match ($agreement) {
-                '15.00' => '15.00', '100.00' => '100.00', default => '12.34'
+                default => $agreement ?? '12.34'
             };
             $expectedPrice = match ($agreement) {
-                '15.00' => '8.50', '100.00' => '0.00', default => '8.76'
+                '0.00' => '10.00', '5.00' => '9.50', '15.00' => '8.50', '100.00' => '0.00', default => '8.76'
             };
             $result = app(CatalogSearchService::class)->search([], $pharmacy->id);
             $catalogOffer = collect($result->items())->firstWhere('id', $offer->id);
@@ -80,13 +81,14 @@ class SupplierDiscountPricingTest extends TestCase
         $this->assertSame('12.34', $archive->items()->sole()->snapshot['supplier_discount_percent']);
     }
 
-    public function test_default_discount_drives_sorting_pagination_filters_and_facets_without_affecting_other_suppliers_or_modes(): void
+    public function test_lower_agreement_drives_sorting_pagination_filters_and_facets_without_affecting_other_suppliers_or_modes(): void
     {
         config(['catalog.page_size' => 1]);
         [$pharmacy, $user] = $this->pharmacyUser();
         [$supplier, $import] = $this->activeImport();
         [$other, $otherImport] = $this->activeImport();
-        $supplier->update(['default_discount_percent' => '50.00']);
+        $supplier->update(['default_discount_percent' => '75.00']);
+        PharmacySupplierDiscount::create(['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => '50.00']);
         $discounted = $this->offer($supplier, $import, 'Со скидкой', 'со скидкой', '10.00');
         $regular = $this->offer($other, $otherImport, 'Обычный', 'обычный', '6.00');
         $category = ProductCategory::query()->where('is_active', true)->firstOrFail();
@@ -144,7 +146,7 @@ class SupplierDiscountPricingTest extends TestCase
         $this->assertStringNotContainsString('Ваша скидка 12.34%', $response->json('html'));
     }
 
-    public function test_cart_and_order_snapshot_the_effective_price_without_repricing_existing_lines(): void
+    public function test_legacy_cart_agreement_is_repaired_before_checkout(): void
     {
         config()->set('orders.placement_enabled', true);
         [$pharmacy, $user] = $this->pharmacyUser();
@@ -165,12 +167,12 @@ class SupplierDiscountPricingTest extends TestCase
         $discount->update(['supplier_discount_percent' => '50.00']);
         $supplier->update(['default_discount_percent' => '75.00']);
         $this->actingAs($user)->post(route('cart.add', $offer), ['quantity' => 1])->assertRedirect();
-        $this->assertSame('8.76', $cartItem->fresh()->unit_price);
+        $this->assertSame('5.00', $cartItem->fresh()->unit_price);
 
         $this->actingAs($user)->post(route('cart.checkout'))->assertRedirect(route('orders.index'));
         $order = Order::query()->sole();
-        $this->assertSame('17.52', $order->total);
-        $this->assertSame('8.76', $order->items()->sole()->unit_price);
+        $this->assertSame('10.00', $order->total);
+        $this->assertSame('5.00', $order->items()->sole()->unit_price);
     }
 
     public function test_partner_discount_can_be_created_updated_and_cleared_with_audit_payload(): void
@@ -188,6 +190,125 @@ class SupplierDiscountPricingTest extends TestCase
         $this->assertSame('100.00', $events->first()->after['supplier_discount_percent']);
         $this->assertSame('0.00', $events->get(1)->after['supplier_discount_percent']);
         $this->assertSame('0.00', $events->last()->before['supplier_discount_percent']);
+    }
+
+    public function test_agreement_edits_reprice_all_pharmacy_users_and_preserve_other_baskets_and_archives(): void
+    {
+        [$pharmacy, $user] = $this->pharmacyUser();
+        $colleague = User::factory()->pharmacy($pharmacy)->create();
+        Subscription::factory()->for($colleague)->create();
+        [, $outsider] = $this->pharmacyUser();
+        [$supplier, $import] = $this->activeImport();
+        [$otherSupplier, $otherImport] = $this->activeImport();
+        $supplier->update(['default_discount_percent' => '12.34']);
+        $offer = $this->offer($supplier, $import, 'Товар', 'товар', '10.00');
+        $otherOffer = $this->offer($otherSupplier, $otherImport, 'Другой', 'другой', '20.00');
+        foreach ([$user, $colleague, $outsider] as $buyer) {
+            $this->actingAs($buyer)->post(route('cart.add', $offer), ['quantity' => 2])->assertRedirect();
+            $this->actingAs($buyer)->post(route('cart.add', $otherOffer))->assertRedirect();
+        }
+        foreach (['5.00' => '9.50', '0.00' => '10.00', '' => '8.76'] as $percent => $price) {
+            $this->actingAs($user)->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => (string) $percent])->assertSessionHas('success');
+            foreach ([$user, $colleague] as $buyer) {
+                $items = Cart::where('user_id', $buyer->id)->sole()->items()->get();
+                $this->assertSame($price, $items->firstWhere('offer_id', $offer->id)->unit_price);
+                $this->assertSame(2, $items->firstWhere('offer_id', $offer->id)->quantity);
+                $this->assertSame('20.00', $items->firstWhere('offer_id', $otherOffer->id)->unit_price);
+            }
+            $this->assertSame('8.76', Cart::where('user_id', $outsider->id)->sole()->items()->where('offer_id', $offer->id)->sole()->unit_price);
+        }
+        $this->actingAs($user)->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '5.00'])->assertSessionHas('success');
+        $this->get(route('partners.index'))->assertSee('Применяется 5.00%');
+        $this->assertSame('9.50', collect(app(CatalogSearchService::class)->search([], $pharmacy->id)->items())->firstWhere('id', $offer->id)->effective_price);
+        $this->get(route('cart'))->assertSee('19.00 TJS');
+        $this->assertSame('19.00', app(SupplierCartExport::class)->data($user, $supplier)['total']);
+        $this->postJson(route('cart.suppliers.share', $supplier), ['shared_via' => 'clipboard'])->assertOk()->assertJsonPath('share_text', "Заявки OAPTEKA\n{$supplier->name}\nТовар — 2 × 9.50 TJS\nИтого: 19.00 TJS\nОбщий итог: 19.00 TJS");
+        $this->post(route('cart.suppliers.archive', $supplier))->assertRedirect();
+        $archive = SupplierRequest::query()->sole();
+        $this->assertSame('19.00', $archive->total);
+        $this->assertSame('9.50', $archive->items()->sole()->unit_price);
+        $this->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '50.00'])->assertSessionHas('success');
+        $this->assertSame('19.00', $archive->fresh()->total);
+    }
+
+    public function test_pending_import_price_is_recalculated_and_only_cleared_when_no_increase_remains(): void
+    {
+        [, $user] = $this->pharmacyUser();
+        [$supplier, $import] = $this->activeImport();
+        $offer = $this->offer($supplier, $import, 'Товар', 'товар', '20.00');
+        $this->actingAs($user)->post(route('cart.add', $offer))->assertRedirect();
+        $item = Cart::where('user_id', $user->id)->sole()->items()->sole();
+        $original = ['price' => '10.00'];
+        $item->update(['unit_price' => '10.00', 'proposed_unit_price' => '20.00', 'original_snapshot' => $original]);
+
+        $this->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '25.00'])->assertSessionHas('success');
+        $this->assertSame('10.00', $item->fresh()->unit_price);
+        $this->assertSame('15.00', $item->fresh()->proposed_unit_price);
+        $this->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '50.00'])->assertSessionHas('success');
+        $this->assertSame('10.00', $item->fresh()->unit_price);
+        $this->assertNull($item->fresh()->proposed_unit_price);
+        $this->assertSame($original, $item->fresh()->original_snapshot);
+    }
+
+    public function test_role_assignment_baskets_are_repriced_while_supplier_purchases_are_excluded(): void
+    {
+        config(['account-modes.enabled' => true]);
+        $user = User::factory()->wholesaler()->create();
+        $pharmacy = $user->roleAssignments()->where('role', UserRole::Pharmacy)->sole()->organization;
+        $colleague = User::factory()->pharmacy($pharmacy)->create();
+        Subscription::factory()->for($colleague)->create();
+        [$supplier, $import] = $this->activeImport();
+        $offer = $this->offer($supplier, $import, 'Товар', 'товар', '10.00');
+        $otherOffer = $this->offer($supplier, $import, 'Покупка поставщика', 'покупка поставщика', '20.00');
+        $cart = Cart::create(['user_id' => $user->id]);
+        $pharmacyItem = $cart->items()->create(['offer_id' => $offer->id, 'quantity' => 2, 'unit_price' => '10.00', 'snapshot' => ['raw_price' => '10.00', 'supplier_discount_percent' => '0.00']]);
+        $supplierItem = $cart->items()->create(['offer_id' => $otherOffer->id, 'quantity' => 1, 'unit_price' => '20.00', 'snapshot' => ['raw_price' => '20.00', 'supplier_discount_percent' => null]]);
+
+        $this->actingAs($colleague)->get(route('partners.index'))->assertOk();
+        $this->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '5.00', '_mode_version' => session('account_mode.version')])->assertSessionHas('success');
+
+        $this->assertSame('9.50', $pharmacyItem->fresh()->unit_price);
+        $this->assertSame('20.00', $supplierItem->fresh()->unit_price);
+        $this->assertNull($supplierItem->fresh()->snapshot['supplier_discount_percent']);
+    }
+
+    public function test_legacy_repair_uses_saved_raw_price_and_offer_fallback_before_export(): void
+    {
+        [$pharmacy, $user] = $this->pharmacyUser();
+        [$supplier, $import] = $this->activeImport();
+        $offer = $this->offer($supplier, $import, 'Товар', 'товар', '20.00');
+        $legacyOffer = $this->offer($supplier, $import, 'Старый', 'старый', '30.00');
+        $cart = Cart::create(['user_id' => $user->id]);
+        $item = $cart->items()->create(['offer_id' => $offer->id, 'quantity' => 2, 'unit_price' => '5.00', 'snapshot' => ['medicine' => 'Товар', 'raw_price' => '10.00', 'supplier_discount_percent' => '50.00']]);
+        $legacyItem = $cart->items()->create(['offer_id' => $legacyOffer->id, 'quantity' => 1, 'unit_price' => '15.00', 'snapshot' => ['medicine' => 'Старый', 'supplier_discount_percent' => '50.00']]);
+        PharmacySupplierDiscount::create(['pharmacy_organization_id' => $pharmacy->id, 'supplier_organization_id' => $supplier->id, 'supplier_discount_percent' => '0.00']);
+
+        $this->assertSame('50.00', app(SupplierCartExport::class)->data($user, $supplier)['total']);
+        $this->assertSame('10.00', $item->fresh()->unit_price);
+        $this->assertSame('30.00', $legacyItem->fresh()->unit_price);
+        $this->assertSame('0.00', $item->fresh()->snapshot['supplier_discount_percent']);
+    }
+
+    public function test_audit_failure_rolls_back_agreement_and_basket_changes(): void
+    {
+        [$pharmacy, $user] = $this->pharmacyUser();
+        [$supplier, $import] = $this->activeImport();
+        $offer = $this->offer($supplier, $import, 'Товар', 'товар', '10.00');
+        $this->actingAs($user)->post(route('cart.add', $offer))->assertRedirect();
+        $item = Cart::where('user_id', $user->id)->sole()->items()->sole();
+        AuditEvent::creating(function (AuditEvent $event): void {
+            if ($event->event === 'cart.discount_repriced') {
+                throw new \RuntimeException('Audit unavailable');
+            }
+        });
+        try {
+            $this->patch(route('partners.discount', $supplier), ['supplier_discount_percent' => '5.00'])->assertServerError();
+            $this->assertDatabaseMissing('pharmacy_supplier_discounts', ['pharmacy_organization_id' => $pharmacy->id]);
+            $this->assertSame('10.00', $item->fresh()->unit_price);
+            $this->assertDatabaseMissing('audit_events', ['event' => 'pharmacy_supplier_discount.created']);
+        } finally {
+            AuditEvent::flushEventListeners();
+        }
     }
 
     /** @return array{Organization, User} */

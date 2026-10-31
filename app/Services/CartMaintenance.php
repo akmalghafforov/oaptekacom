@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Enums\UserRole;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Offer;
 use App\Models\Organization;
+use App\Models\PharmacySupplierDiscount;
 use App\Models\User;
 use Closure;
 use Illuminate\Support\Collection;
@@ -32,11 +34,94 @@ class CartMaintenance
             })->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             $items = $cart->items()->with('offer')->orderBy('id')->lockForUpdate()->get();
             foreach ($items as $item) {
-                $this->reconcile($item, $suppliers[$item->offer->organization_id]);
+                $supplier = $suppliers[$item->offer->organization_id];
+                $this->reconcile($item, $supplier);
+                $pharmacyId = $this->pharmacyId($item, $user);
+                if ($pharmacyId !== null) {
+                    $agreement = PharmacySupplierDiscount::query()->where('pharmacy_organization_id', $pharmacyId)
+                        ->where('supplier_organization_id', $supplier->id)->value('supplier_discount_percent');
+                    if ($agreement !== null) {
+                        $this->reprice($item, $agreement);
+                    }
+                }
             }
 
             return $action();
         }, 3);
+    }
+
+    public function updateAgreement(User $actor, Organization $supplier, ?string $percent): void
+    {
+        $pharmacyId = $actor->activeOrganizationId();
+        DB::transaction(function () use ($actor, $supplier, $percent, $pharmacyId): void {
+            $users = User::query()->where(function ($query) use ($pharmacyId): void {
+                $query->whereHas('roleAssignments', fn ($query) => $query->where('role', UserRole::Pharmacy)->where('organization_id', $pharmacyId))
+                    ->orWhere(fn ($query) => $query->where('role', UserRole::Pharmacy)->where('organization_id', $pharmacyId));
+            })->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $carts = Cart::query()->whereIn('user_id', $users->keys())->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $supplier = Organization::query()->whereKey($supplier->id)->lockForUpdate()->firstOrFail();
+            $discount = PharmacySupplierDiscount::query()->where('pharmacy_organization_id', $pharmacyId)
+                ->where('supplier_organization_id', $supplier->id)->lockForUpdate()->first();
+            $before = $discount?->only('supplier_discount_percent') ?? [];
+            if ($percent === null) {
+                if ($discount !== null) {
+                    $discount->delete();
+                    $this->audit->log('pharmacy_supplier_discount.cleared', $discount, $before, [], $actor);
+                }
+            } else {
+                $event = $discount === null ? 'pharmacy_supplier_discount.created' : 'pharmacy_supplier_discount.updated';
+                $discount ??= new PharmacySupplierDiscount(['pharmacy_organization_id' => $pharmacyId, 'supplier_organization_id' => $supplier->id]);
+                $discount->supplier_discount_percent = $percent;
+                $discount->save();
+                $this->audit->log($event, $discount, $before, $discount->only('supplier_discount_percent'), $actor);
+            }
+            $selectedPercent = $this->prices->selectedPercent($percent, $supplier->default_discount_percent);
+            $items = CartItem::query()->whereIn('cart_id', $carts->keys())
+                ->whereHas('offer', fn ($query) => $query->where('organization_id', $supplier->id))
+                ->with('offer')->orderBy('id')->lockForUpdate()->get();
+            foreach ($items as $item) {
+                if ($this->pharmacyId($item, $users[$carts[$item->cart_id]->user_id]) !== $pharmacyId) {
+                    continue;
+                }
+                $this->reconcile($item, $supplier, $actor);
+                $this->reprice($item, $selectedPercent, $actor);
+            }
+        }, 3);
+    }
+
+    private function pharmacyId(CartItem $item, User $user): ?int
+    {
+        if (array_key_exists('pharmacy_organization_id', $item->snapshot)) {
+            return $item->snapshot['pharmacy_organization_id'];
+        }
+        if ($user->role === UserRole::Pharmacy) {
+            return $user->organization_id;
+        }
+        if (($item->snapshot['supplier_discount_percent'] ?? null) !== null) {
+            return $user->roleAssignments()->where('role', UserRole::Pharmacy)->value('organization_id');
+        }
+
+        return null;
+    }
+
+    private function reprice(CartItem $item, string $percent, ?User $actor = null): void
+    {
+        $savedPercent = $item->snapshot['supplier_discount_percent'] ?? null;
+        if ($savedPercent !== null && bccomp((string) $savedPercent, $percent, 2) === 0) {
+            return;
+        }
+        $before = $item->toArray();
+        $price = $this->prices->effectivePrice((string) ($item->snapshot['raw_price'] ?? $item->offer->price), $percent);
+        if ($item->proposed_unit_price !== null && bccomp($price, $item->unit_price, 2) > 0) {
+            $item->proposed_unit_price = $price;
+        } else {
+            $item->unit_price = $price;
+            $item->proposed_unit_price = null;
+            $item->offer_change = null;
+        }
+        $item->snapshot = array_replace($item->snapshot, ['supplier_discount_percent' => bcadd($percent, '0', 2)]);
+        $item->save();
+        $this->audit->log('cart.discount_repriced', $item, $before, $item->toArray(), $actor);
     }
 
     /** Caller holds the supplier lock inside the activation transaction. */
