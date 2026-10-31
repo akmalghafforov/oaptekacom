@@ -159,11 +159,97 @@ export const updateCatalogOfferCartState = (root, { offer_id: offerId, quantity 
         addControls?.querySelectorAll('button').forEach((button) => { button.disabled = inCart || !canAdd; });
         inCartControls?.querySelectorAll('[data-cart-quantity]').forEach((element) => { element.textContent = quantity; });
 
+        offer.querySelectorAll('[data-cart-status]').forEach((status) => status.setAttribute('aria-label', `Товар в корзине: ${quantity} шт.`));
+        offer.querySelectorAll('[data-catalog-quantity]').forEach((control) => {
+            control.querySelector('[data-quantity-edit]').hidden = false;
+            const input = control.querySelector('[data-quantity-editor]');
+            input.value = String(quantity);
+            input.hidden = true;
+            input.removeAttribute('aria-invalid');
+            control.querySelector('[data-quantity-error]').hidden = true;
+        });
         const removeForm = inCartControls?.querySelector('[data-cart-remove-form]');
         if (removeForm && removeUrl) removeForm.action = removeUrl;
         removeForm?.querySelectorAll('button').forEach((button) => { button.disabled = !inCart; });
     });
 };
+
+export const initializeCatalogQuantities = (root, { busy = new Set(), fetcher = (...args) => fetch(...args), documentRoot = document } = {}) => {
+    const controlFor = (target) => target.closest('[data-catalog-quantity]');
+    const parts = (control) => ({ button: control.querySelector('[data-quantity-edit]'), input: control.querySelector('[data-quantity-editor]'), error: control.querySelector('[data-quantity-error]') });
+    const close = (control, focus = false) => {
+        const { button, input, error } = parts(control);
+        input.hidden = true;
+        button.hidden = false;
+        error.hidden = true;
+        input.removeAttribute('aria-invalid');
+        if (focus) button.focus();
+    };
+    const save = async (control, focus = false) => {
+        const { button, input, error } = parts(control);
+        const offerId = control.closest('[data-offer-id]').dataset.offerId;
+        if (input.hidden || busy.has(offerId)) return;
+        const quantity = Number(input.value);
+        const fail = (message) => {
+            error.textContent = message;
+            error.hidden = false;
+            input.setAttribute('aria-invalid', 'true');
+            if (!error.id) error.id = `catalog-quantity-error-${++initializeCatalogQuantities.errorId}`;
+            input.setAttribute('aria-describedby', error.id);
+        };
+        if (!/^\d+$/.test(input.value) || !Number.isInteger(quantity) || quantity < 1 || quantity > 999999) {
+            fail('Введите целое количество от 1 до 999999.');
+            return;
+        }
+        if (quantity === Number(button.querySelector('[data-cart-quantity]').textContent)) { close(control, focus); return; }
+        const form = control.closest('[data-cart-in-cart-controls]').querySelector('[data-cart-remove-form]');
+        busy.add(offerId);
+        input.readOnly = true;
+        try {
+            const response = await fetcher(form.action, {
+                method: 'PATCH',
+                headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value, 'X-Mode-Version': documentRoot.querySelector('meta[name="mode-version"]')?.content ?? '' },
+                body: JSON.stringify({ quantity }),
+            });
+            if (response.status === 409) documentRoot.dispatchEvent(new CustomEvent('account-mode-stale'));
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.item) throw new Error(data.errors?.quantity?.[0] ?? data.message ?? 'Не удалось обновить количество.');
+            updateCatalogOfferCartState(root, { offer_id: offerId, quantity: data.item.quantity });
+            updateCartBadges(documentRoot, data.cart.total_quantity);
+            root.querySelectorAll(`[data-offer-id="${offerId}"] [data-catalog-quantity]`).forEach((instance) => close(instance));
+            close(control, focus);
+        } catch (failure) {
+            fail(failure instanceof TypeError ? 'Ошибка сети. Не удалось обновить количество.' : failure.message);
+        } finally {
+            busy.delete(offerId);
+            input.readOnly = false;
+        }
+    };
+    root.addEventListener('click', (event) => {
+        if (!event.target.closest('[data-quantity-edit]')) return;
+        const control = controlFor(event.target);
+        if (busy.has(control.closest('[data-offer-id]').dataset.offerId)) return;
+        const { button, input } = parts(control);
+        input.value = button.querySelector('[data-cart-quantity]').textContent;
+        button.hidden = true;
+        input.hidden = false;
+        input.focus();
+        input.select();
+    });
+    root.addEventListener('focusout', (event) => {
+        if (event.target.matches('[data-quantity-editor]')) void save(controlFor(event.target));
+    });
+    root.addEventListener('keydown', (event) => {
+        if (!event.target.matches('[data-quantity-editor]')) return;
+        if (event.key === 'Enter') { event.preventDefault(); void save(controlFor(event.target), true); }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            if (!busy.has(event.target.closest('[data-offer-id]').dataset.offerId)) close(controlFor(event.target), true);
+        }
+    });
+    return busy;
+};
+initializeCatalogQuantities.errorId = 0;
 
 export class CatalogSearchController {
     constructor({ fetcher, onState, onData, onFilters }) {
@@ -459,6 +545,7 @@ export function initializeCatalogSearch(root) {
     dialog.querySelector('[data-filter-reset]').addEventListener('click', () => { dialog.querySelector('[name="filter_sort"][value="price_asc"]').checked = true; dialog.querySelectorAll('[data-option-label] input').forEach((input) => { input.checked = false; }); });
     dialog.querySelector('[data-filter-apply]').addEventListener('click', () => { const values = (name) => [...dialog.querySelectorAll(`[name="filter_${name}[]"]:checked`)].map((input) => input.value); const filters = { sort: dialog.querySelector('[name="filter_sort"]:checked')?.value ?? 'price_asc', cities: values('cities'), suppliers: values('suppliers') }; dialog.close(); controller.setFilters(filters); });
 
+    const busyOffers = initializeCatalogQuantities(root);
     root.addEventListener('submit', async (event) => {
         const cartForm = event.target.closest('[data-cart-form]');
         const removeForm = event.target.closest('[data-cart-remove-form]');
@@ -466,6 +553,9 @@ export function initializeCatalogSearch(root) {
         event.preventDefault();
 
         const form = cartForm ?? removeForm;
+        const offerId = form.closest('[data-offer-id]').dataset.offerId;
+        if (busyOffers.has(offerId)) return;
+        busyOffers.add(offerId);
         const button = form.querySelector('button');
         button.disabled = true;
         try {
@@ -487,6 +577,8 @@ export function initializeCatalogSearch(root) {
         } catch {
             announcer.textContent = cartForm ? 'Не удалось добавить товар в корзину.' : 'Не удалось удалить товар из корзины.';
             button.disabled = false;
+        } finally {
+            busyOffers.delete(offerId);
         }
     });
 

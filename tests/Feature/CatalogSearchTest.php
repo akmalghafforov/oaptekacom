@@ -408,6 +408,9 @@ class CatalogSearchTest extends TestCase
             $this->assertStringContainsString('aria-label="Товар в корзине: 3 шт."', $html);
             $this->assertStringContainsString('data-cart-quantity>3</span>', $html);
             $this->assertStringContainsString('data-cart-remove-form', $html);
+            $this->assertStringContainsString('data-quantity-edit', $html);
+            $this->assertStringContainsString('data-quantity-editor', $html);
+            $this->assertStringContainsString('max="999999"', $html);
             $this->assertStringContainsString('action="'.route('cart.items.destroy', $item).'"', $html);
             $this->assertStringNotContainsString('Добавить ещё', $html);
         }

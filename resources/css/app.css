@@ -317,7 +317,7 @@
         .mobile-offer-row:nth-child(2) { animation-delay: 30ms; }
         .mobile-offer-row:nth-child(3) { animation-delay: 60ms; }
         .mobile-offer-image { @apply hidden; }
-        .mobile-offer-content { @apply grid grid-cols-[minmax(0,1fr)_auto_5.25rem] items-start gap-x-1 gap-y-0.5; }
+        .mobile-offer-content { @apply grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-1 gap-y-0.5; }
         .mobile-offer-product, .mobile-offer-secondary { @apply !contents; }
         .mobile-offer-name { @apply col-span-3 col-start-1 row-start-1; }
         .mobile-offer-name h3 { @apply !leading-4; }
@@ -334,11 +334,13 @@
         .mobile-offer-row [data-cart-submit] svg,
         .mobile-offer-row [data-cart-remove-form] svg { @apply !size-4; }
         .mobile-offer-row [data-cart-in-cart-controls] > div { @apply !min-h-8 !gap-1 !px-0.5; }
-        .mobile-offer-row [data-cart-in-cart-controls] > [role="status"] > span:first-child { @apply !hidden; }
+        .mobile-offer-row [data-cart-in-cart-controls] > [data-cart-status] > span:first-child { @apply !hidden; }
         .mobile-offer-badge { @apply rounded-md border border-current/10 px-1.5 py-0 text-xs leading-tight; }
         [data-catalog-search] .mobile-offer-row p.shrink-0.text-accent,
         [data-catalog-search] [data-catalog-grid] .catalog-offer-card .text-2xl.text-accent { color: var(--catalog-accent); }
         [data-catalog-grid] { @apply grid-cols-2 gap-2; }
+        [data-catalog-grid] [data-cart-status] { @apply !gap-1 !px-1; }
+        [data-catalog-grid] [data-cart-status] > div > span:first-child { @apply hidden; }
         [data-catalog-grid] .catalog-offer-card { @apply gap-3 p-3; animation: catalog-result-in 180ms ease-out both; }
         [data-catalog-grid] .catalog-offer-card > div:first-child img { @apply aspect-[4/3]; }
         [data-catalog-grid] .catalog-offer-card .text-lg { @apply line-clamp-2 text-[0.8125rem] leading-tight; }

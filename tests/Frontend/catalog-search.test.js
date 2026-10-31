@@ -113,7 +113,7 @@ test('cart responses persistently synchronize every rendered offer state and bas
         querySelectorAll: (selector) => selector === '[data-cart-quantity]' ? [quantity] : [],
         querySelector: (selector) => selector === '[data-cart-remove-form]' ? removeForm : null,
     };
-    const offer = { querySelector: (selector) => selector === '[data-cart-add-controls]' ? addControls : inCartControls };
+    const offer = { querySelectorAll: () => [], querySelector: (selector) => selector === '[data-cart-add-controls]' ? addControls : inCartControls };
     const root = { querySelectorAll: (selector) => selector === '[data-offer-id="42"]' ? [offer, offer] : [] };
     const badge = { textContent: '', classList: classList() };
     const documentRoot = { querySelectorAll: () => [badge] };
