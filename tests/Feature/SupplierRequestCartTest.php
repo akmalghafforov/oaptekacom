@@ -128,7 +128,10 @@ class SupplierRequestCartTest extends TestCase
         $this->actingAs($user)->post(route('cart.add', $offer));
 
         $response = $this->actingAs($user)->get(route('cart'))
-            ->assertSee('Оформление заказов временно недоступно.')
+            ->assertDontSee('Оформление заказов временно недоступно.')
+            ->assertSee('В наличии: 10 ед.')
+            ->assertDontSee('Остаток уточняется')
+            ->assertDontSee('cart-mobile-bar', false)
             ->assertSee('Поделиться')
             ->assertSee('В архив')
             ->assertSee('data-file-prepare="pdf"', false)
@@ -142,6 +145,12 @@ class SupplierRequestCartTest extends TestCase
         $document = new \DOMDocument;
         @$document->loadHTML('<?xml encoding="UTF-8">'.$response->getContent());
         $xpath = new \DOMXPath($document);
+        $this->assertSame(1, $xpath->query('//div[contains(concat(" ", normalize-space(@class), " "), " cart-request-list ")]/*')->length);
+        $this->assertSame(0, $xpath->query('//div[contains(concat(" ", normalize-space(@class), " "), " cart-request-list ")]//dialog')->length);
+        $this->assertSame(1, $xpath->query('//dialog[@id="supplier-archive-'.$supplier->id.'"]')->length);
+        $this->assertSame(1, $xpath->query('//dialog[@id="supplier-clear-'.$supplier->id.'"]')->length);
+        $this->assertSame(1, $xpath->query('//dialog[starts-with(@id, "cart-item-delete-")]')->length);
+        $this->assertSame(1, $xpath->query('//button[@data-cart-share]')->length);
         $this->assertSame(1, $xpath->query('//table[not(ancestor::dialog)]')->length);
         $this->assertSame(4, $xpath->query('//table/thead/tr/th')->length);
         $this->assertSame(1, $xpath->query('//form[@data-cart-quantity-form and not(ancestor::dialog)]')->length);
@@ -245,6 +254,10 @@ class SupplierRequestCartTest extends TestCase
 
         $item = Cart::query()->where('user_id', $user->id)->sole()->items()->sole();
         $this->assertSame(999999, $item->quantity);
+
+        $this->get(route('cart'))
+            ->assertDontSee('Остаток уточняется')
+            ->assertDontSee('В наличии:');
 
         $this->patchJson(route('cart.update', $item), ['quantity' => 1000])->assertOk();
         $this->patchJson(route('cart.update', $item), ['quantity' => 999999])
