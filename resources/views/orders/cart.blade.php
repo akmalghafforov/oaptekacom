@@ -41,19 +41,19 @@
             @endphp
             <x-ui.card class="!p-0">
                 <details class="group/supplier" data-cart-supplier-group="{{ $supplierId }}">
-                    <summary class="flex min-h-10 cursor-pointer list-none flex-wrap items-center justify-between gap-3 rounded-panel p-4 focus-visible:outline-focus [&::-webkit-details-marker]:hidden">
-                        <span class="min-w-0 break-words text-base font-bold">{{ $supplier->name }}</span>
-                        <span class="flex flex-wrap items-center gap-3"><span>{{ $group['items']->count() }} поз.</span><strong class="text-accent" data-cart-supplier-total="{{ $supplierId }}">{{ number_format((float) $group['total'], 2, '.', ' ') }} TJS</strong><svg class="size-4 shrink-0 group-open/supplier:rotate-180" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg></span>
+                    <summary class="cart-supplier-heading flex min-h-10 cursor-pointer list-none flex-wrap items-center justify-between gap-3 rounded-panel p-4 focus-visible:outline-focus [&::-webkit-details-marker]:hidden">
+                        <span class="min-w-0 break-words text-base font-bold">{{ $supplier->name }}<span class="cart-mobile-count">{{ $group['items']->count() }} поз.</span></span>
+                        <span class="flex flex-wrap items-center gap-3"><span class="cart-desktop-count">{{ $group['items']->count() }} поз.</span><strong class="text-accent" data-cart-supplier-total="{{ $supplierId }}">{{ number_format((float) $group['total'], 2, '.', ' ') }} TJS</strong><svg class="size-4 shrink-0 group-open/supplier:rotate-180" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg></span>
                     </summary>
                     @if($supplier->price_list_hidden)<x-ui.alert type="warning">Прайс-лист временно скрыт</x-ui.alert>@endif
-                    <div class="cart-request-items overflow-y-auto">
+                    <div class="cart-request-items">
                         <div class="table-wrap cart-request-table-wrap" tabindex="0" role="region" aria-label="Товары: {{ $supplier->name }}">
                             <table class="data-table cart-request-table">
                                 <thead><tr><th>Товар</th><th>Цена</th><th>Количество</th><th>Сумма</th></tr></thead>
                                 <tbody>
                                     @foreach($group['items'] as $item)
                                         <tr>
-                                            <td><strong class="block break-words text-sm">{{ $item->snapshot['medicine'] }}</strong>
+                                            <td class="cart-product-name"><strong class="block break-words text-sm">{{ $item->snapshot['medicine'] }}</strong>
                                                 @if($item->proposed_unit_price !== null)
                                                     <x-ui.alert type="warning">Цена повысилась: {{ $item->unit_price }} → {{ $item->proposed_unit_price }} TJS. Подтвердите новую цену, чтобы заказать товар.</x-ui.alert>
                                                     <form data-cart-save-before-submit method="post" action="{{ route('cart.items.accept-price', $item) }}">
@@ -66,18 +66,18 @@
                                                     <x-ui.alert type="success">Цена снижена: {{ $item->offer_change['previous_unit_price'] }} → {{ $item->unit_price }} TJS</x-ui.alert>
                                                 @endif
                                                 <x-ui.alert type="warning" :data-cart-availability-warning="$item->id" :hidden="$item->availabilityWarning() === null">{{ $item->availabilityWarning() }}</x-ui.alert>
-                                                <span class="cart-request-stock">@if($item->offer->quantity !== null)В наличии: {{ rtrim(rtrim(number_format((float) $item->offer->quantity, 2, '.', ''), '0'), '.') }} ед.@else Остаток уточняется у поставщика.@endif</span></td>
-                                            <td><strong class="whitespace-nowrap">{{ $item->unit_price }} TJS</strong>@if(($item->snapshot['supplier_discount_percent'] ?? null) !== null && bccomp((string) $item->snapshot['supplier_discount_percent'], '0', 2) === 1)<span class="cart-request-discount">{{ $item->snapshot['raw_price'] ?? $item->snapshot['price'] }} TJS · Скидка {{ $item->snapshot['supplier_discount_percent'] }}%</span>@endif</td>
-                                            <td>@if($item->availability_reason && $item->availability_reason !== 'insufficient_stock')<span>{{ $item->quantity }} шт.</span>@else<form method="post" action="{{ route('cart.update', $item) }}" class="cart-request-quantity" data-cart-quantity-form data-cart-item-id="{{ $item->id }}" data-cart-supplier-id="{{ $supplierId }}">@csrf <x-mode-version /> @method('PATCH')<x-ui.quantity-stepper name="quantity" :id="'quantity-'.$item->id" :value="$item->quantity" :max="$item->offer->quantity ?? 999999" /><span id="quantity-status-{{ $item->id }}" class="cart-request-quantity-status" data-cart-quantity-status role="status"></span></form>@endif</td>
-                                            <td class="whitespace-nowrap"><strong class="block text-accent" data-cart-item-line-total="{{ $item->id }}">{{ bcmul((string) $item->unit_price, (string) $item->quantity, 2) }} TJS</strong><x-ui.icon-button label="Удалить {{ $item->snapshot['medicine'] }}" data-dialog-open aria-controls="cart-item-delete-{{ $item->id }}">×</x-ui.icon-button></td>
+                                                <span class="cart-request-stock cart-desktop-stock">@if($item->offer->quantity !== null)В наличии: {{ rtrim(rtrim(number_format((float) $item->offer->quantity, 2, '.', ''), '0'), '.') }} ед.@else Остаток уточняется у поставщика.@endif</span></td>
+                                            <td class="cart-product-price"><strong class="whitespace-nowrap">{{ $item->unit_price }} TJS<span class="cart-mobile-only"> / шт.</span></strong><span class="cart-request-stock cart-mobile-stock">@if($item->offer->quantity !== null)В наличии: {{ rtrim(rtrim(number_format((float) $item->offer->quantity, 2, '.', ''), '0'), '.') }} ед.@else Остаток уточняется@endif</span>@if(($item->snapshot['supplier_discount_percent'] ?? null) !== null && bccomp((string) $item->snapshot['supplier_discount_percent'], '0', 2) === 1)<span class="cart-request-discount">{{ $item->snapshot['raw_price'] ?? $item->snapshot['price'] }} TJS · Скидка {{ $item->snapshot['supplier_discount_percent'] }}%</span>@endif</td>
+                                            <td class="cart-product-quantity">@if($item->availability_reason && $item->availability_reason !== 'insufficient_stock')<span>{{ $item->quantity }} шт.</span>@else<form method="post" action="{{ route('cart.update', $item) }}" class="cart-request-quantity" data-cart-quantity-form data-cart-item-id="{{ $item->id }}" data-cart-supplier-id="{{ $supplierId }}">@csrf <x-mode-version /> @method('PATCH')<x-ui.quantity-stepper name="quantity" :id="'quantity-'.$item->id" :value="$item->quantity" :max="$item->offer->quantity ?? 999999" /><span id="quantity-status-{{ $item->id }}" class="cart-request-quantity-status" data-cart-quantity-status role="status"></span></form>@endif</td>
+                                            <td class="cart-product-total"><strong class="block text-accent" data-cart-item-line-total="{{ $item->id }}">{{ bcmul((string) $item->unit_price, (string) $item->quantity, 2) }} TJS</strong><x-ui.icon-button label="Удалить {{ $item->snapshot['medicine'] }}" data-dialog-open aria-controls="cart-item-delete-{{ $item->id }}">×</x-ui.icon-button></td>
                                         </tr>
                                     @endforeach
                                 </tbody>
                             </table>
                         </div>
                     </div>
-                    <div class="border-t border-border p-4" @unless($supplier->price_list_hidden) data-supplier-file-export="{{ $supplierId }}" aria-busy="false" @endunless>
-                        <div class="grid gap-3 md:grid-cols-[auto_1fr_auto] md:items-start">
+                    <div class="cart-supplier-actions border-t border-border p-4" @unless($supplier->price_list_hidden) data-supplier-file-export="{{ $supplierId }}" aria-busy="false" @endunless>
+                        <div class="cart-desktop-actions grid gap-3 md:grid-cols-[auto_1fr_auto] md:items-start">
                             @unless($supplier->price_list_hidden)
                                 <div class="flex flex-wrap items-center gap-2">
                                     <x-ui.button type="button" data-supplier-share data-supplier-id="{{ $supplierId }}" data-share-url="{{ route('cart.suppliers.share', $supplier) }}" data-csrf-token="{{ csrf_token() }}">Поделиться</x-ui.button>
@@ -100,6 +100,27 @@
                                 @endunless
                                 <x-ui.button type="button" variant="danger" data-dialog-open aria-controls="supplier-clear-{{ $supplierId }}">Очистить</x-ui.button>
                             </div>
+                        </div>
+                        <div class="cart-mobile-actions">
+                            @unless($supplier->price_list_hidden)
+                                @if(config('orders.placement_enabled'))
+                                    <form data-cart-save-before-submit method="post" action="{{ route('cart.suppliers.checkout', $supplier) }}">@csrf <x-mode-version /><x-ui.button>Оформить заказ</x-ui.button></form>
+                                @else
+                                    <x-ui.button type="button" data-supplier-share data-supplier-id="{{ $supplierId }}" data-share-url="{{ route('cart.suppliers.share', $supplier) }}" data-csrf-token="{{ csrf_token() }}">Поделиться</x-ui.button>
+                                @endif
+                                <x-ui.dropdown :id="'supplier-more-'.$supplierId" label="Ещё">
+                                    @if(config('orders.placement_enabled'))
+                                        <x-ui.button type="button" variant="ghost" role="menuitem" data-supplier-share data-supplier-id="{{ $supplierId }}" data-share-url="{{ route('cart.suppliers.share', $supplier) }}" data-csrf-token="{{ csrf_token() }}">Поделиться</x-ui.button>
+                                    @endif
+                                    <x-ui.button type="button" variant="ghost" role="menuitem" data-file-prepare="pdf" :data-file-url="route('cart.suppliers.pdf', $supplier)">PDF</x-ui.button>
+                                    <x-ui.button type="button" variant="ghost" role="menuitem" data-file-prepare="excel" :data-file-url="route('cart.suppliers.excel', $supplier)">Excel</x-ui.button>
+                                    <x-ui.button type="button" variant="ghost" role="menuitem" data-dialog-open aria-controls="supplier-archive-{{ $supplierId }}">В архив</x-ui.button>
+                                    <x-ui.button type="button" variant="ghost" class="text-danger" role="menuitem" data-dialog-open aria-controls="supplier-clear-{{ $supplierId }}">Очистить</x-ui.button>
+                                    <p class="p-2 text-sm text-muted">Как отправить? Скачайте файл или выберите WhatsApp в меню отправки. Если отправка файлов недоступна, прикрепите скачанный файл в чате WhatsApp.</p>
+                                </x-ui.dropdown>
+                            @else
+                                <x-ui.button type="button" variant="danger" data-dialog-open aria-controls="supplier-clear-{{ $supplierId }}">Очистить</x-ui.button>
+                            @endunless
                         </div>
                         @unless($supplier->price_list_hidden)
                             <div class="mt-3 flex flex-wrap items-center gap-2" data-file-feedback hidden>
@@ -128,7 +149,31 @@
             @endforeach
         @endforeach
     </div>
-    <x-ui.card class="cart-action-bar"><div><span class="text-sm text-muted">Итого к отправке</span><p class="text-xl font-bold text-accent" data-cart-total>{{ number_format((float) $cartTotal, 2, '.', ' ') }} TJS</p></div><div class="flex flex-wrap gap-2">@if(config('orders.placement_enabled'))<form data-cart-save-before-submit method="post" action="{{ route('cart.checkout') }}">@csrf <x-mode-version /> <x-ui.button :disabled="$visibleGroups->isEmpty()">Оформить все</x-ui.button></form>@endif<x-ui.button type="button" variant="secondary" data-cart-share data-share-url="{{ route('cart.share') }}" data-csrf-token="{{ csrf_token() }}" :disabled="$visibleGroups->isEmpty()">Поделиться</x-ui.button><x-ui.button type="button" variant="ghost" class="text-danger" data-dialog-open aria-controls="cart-clear-all">Очистить</x-ui.button></div></x-ui.card>
+    <x-ui.card class="cart-action-bar cart-desktop-actions"><div><span class="text-sm text-muted">Итого к отправке</span><p class="text-xl font-bold text-accent" data-cart-total>{{ number_format((float) $cartTotal, 2, '.', ' ') }} TJS</p></div><div class="flex flex-wrap gap-2">@if(config('orders.placement_enabled'))<form data-cart-save-before-submit method="post" action="{{ route('cart.checkout') }}">@csrf <x-mode-version /> <x-ui.button :disabled="$visibleGroups->isEmpty()">Оформить все</x-ui.button></form>@endif<x-ui.button type="button" variant="secondary" data-cart-share data-share-url="{{ route('cart.share') }}" data-csrf-token="{{ csrf_token() }}" :disabled="$visibleGroups->isEmpty()">Поделиться</x-ui.button><x-ui.button type="button" variant="ghost" class="text-danger" data-dialog-open aria-controls="cart-clear-all">Очистить</x-ui.button></div></x-ui.card>
+    <x-ui.card class="cart-mobile-bar">
+        <div class="cart-mobile-total"><span class="text-sm text-muted">Итого к отправке</span><strong class="text-accent" data-cart-total>{{ number_format((float) $cartTotal, 2, '.', ' ') }} TJS</strong></div>
+        <div class="cart-mobile-actions">
+            @if(config('orders.placement_enabled'))
+                <form data-cart-save-before-submit method="post" action="{{ route('cart.checkout') }}">@csrf <x-mode-version /><x-ui.button :disabled="$visibleGroups->isEmpty()">Оформить все</x-ui.button></form>
+            @else
+                <x-ui.button type="button" data-cart-share data-share-url="{{ route('cart.share') }}" data-csrf-token="{{ csrf_token() }}" :disabled="$visibleGroups->isEmpty()">Поделиться</x-ui.button>
+            @endif
+            <x-ui.dropdown id="cart-mobile-more" label="Ещё">
+                @if(config('orders.placement_enabled'))
+                    <x-ui.button type="button" variant="ghost" role="menuitem" data-cart-share data-share-url="{{ route('cart.share') }}" data-csrf-token="{{ csrf_token() }}" :disabled="$visibleGroups->isEmpty()">Поделиться</x-ui.button>
+                @endif
+                <x-ui.button type="button" variant="ghost" class="text-danger" role="menuitem" data-dialog-open aria-controls="cart-clear-all">Очистить</x-ui.button>
+                @php
+                    $supportPhone = trim((string) config('contact.whatsapp_phone'));
+                    $supportDigits = preg_replace('/[^0-9]/', '', $supportPhone);
+                    $supportIsValid = preg_match('/^\+?[0-9 ()-]+$/D', $supportPhone) && preg_match('/^[1-9][0-9]{6,14}$/D', $supportDigits);
+                @endphp
+                @if($supportIsValid)
+                    <x-ui.button :href="'https://wa.me/'.$supportDigits" variant="ghost" role="menuitem" target="_blank" rel="noopener noreferrer">Вопросы — WhatsApp</x-ui.button>
+                @endif
+            </x-ui.dropdown>
+        </div>
+    </x-ui.card>
     <x-ui.confirmation-dialog name="cart-clear-all" title="Очистить корзину?" description="Все заявки и позиции будут удалены из корзины."><form method="post" action="{{ route('cart.destroy') }}" class="flex flex-wrap justify-end gap-2">@csrf <x-mode-version /> @method('DELETE')<x-ui.button type="button" variant="secondary" data-dialog-close>Отмена</x-ui.button><x-ui.button variant="danger">Очистить всё</x-ui.button></form></x-ui.confirmation-dialog>
 @else
     <x-ui.empty-state title="Корзина пуста" description="Добавьте товары из каталога, чтобы сформировать заявку поставщику.">

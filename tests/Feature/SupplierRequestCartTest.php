@@ -145,12 +145,12 @@ class SupplierRequestCartTest extends TestCase
         $this->assertSame(1, $xpath->query('//table[not(ancestor::dialog)]')->length);
         $this->assertSame(4, $xpath->query('//table/thead/tr/th')->length);
         $this->assertSame(1, $xpath->query('//form[@data-cart-quantity-form and not(ancestor::dialog)]')->length);
-        $this->assertSame(2, $xpath->query('//button[@data-file-prepare and not(ancestor::dialog)]')->length);
-        $this->assertSame(1, $xpath->query('//button[@data-supplier-share and not(ancestor::dialog)]')->length);
+        $this->assertSame(4, $xpath->query('//button[@data-file-prepare and not(ancestor::dialog)]')->length);
+        $this->assertSame(2, $xpath->query('//button[@data-supplier-share and not(ancestor::dialog)]')->length);
         $this->assertSame(1, $xpath->query('//details[not(@open)]/summary[contains(., "Как отправить?")]')->length);
-        $this->assertSame(2, $xpath->query('//div[@role="menu" and @hidden]/button[@role="menuitem"]')->length);
-        $this->assertSame(1, $xpath->query('//button[@aria-controls="supplier-archive-'.$supplier->id.'"]')->length);
-        $this->assertSame(1, $xpath->query('//button[@aria-controls="supplier-clear-'.$supplier->id.'"]')->length);
+        $this->assertSame(4, $xpath->query('//div[@id="supplier-more-'.$supplier->id.'" and @hidden]/button[@role="menuitem"]')->length);
+        $this->assertSame(2, $xpath->query('//button[@aria-controls="supplier-archive-'.$supplier->id.'"]')->length);
+        $this->assertSame(2, $xpath->query('//button[@aria-controls="supplier-clear-'.$supplier->id.'"]')->length);
 
         $this->actingAs($user)->post(route('cart.suppliers.share', $supplier), ['shared_via' => 'clipboard'])
             ->assertRedirect(route('cart'));
@@ -447,7 +447,7 @@ class SupplierRequestCartTest extends TestCase
 
         $this->actingAs($user)->get(route('cart'))->assertOk()->assertSeeText('Прайс-лист временно скрыт')
             ->assertDontSee('data-cart-quantity-form', false)->assertDontSee('data-supplier-share ', false)
-            ->assertDontSee('data-supplier-file-export', false)->assertDontSee('data-dropdown-trigger', false)
+            ->assertDontSee('data-supplier-file-export', false)->assertDontSee('id="supplier-more-', false)->assertDontSee('id="supplier-download-', false)
             ->assertDontSee('Как отправить?')->assertDontSee('В архив')->assertSee('Очистить');
         $this->assertDatabaseHas('cart_items', ['id' => $item->id, 'quantity' => 2]);
         $this->actingAs($user)->patchJson(route('cart.update', $item), ['quantity' => 3])->assertUnprocessable();
