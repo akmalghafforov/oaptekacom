@@ -1,3 +1,9 @@
+x-bounded-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 name: oapteka-op
 x-php: &php
   image: oapteka-php:${RELEASE_TAG:?Set an immutable runtime image tag}
@@ -8,6 +14,7 @@ x-php: &php
   environment:
     APP_ENV: production
     APP_DEBUG: 'false'
+    LOG_CHANNEL: stderr
     APP_KEY: ${APP_KEY:?Set the persistent production key}
     APP_URL: ${APP_URL:?Set the HTTPS application URL matching TRAEFIK_HOST}
     DB_CONNECTION: pgsql
@@ -55,6 +62,7 @@ x-php: &php
       condition: service_completed_successfully
 services:
   postgres:
+    logging: *bounded-logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -76,6 +84,7 @@ services:
       timeout: 5s
       retries: 10
   storage-init:
+    logging: *bounded-logging
     <<: *php
     user: root
     volumes: &writable-php-volumes
@@ -103,6 +112,7 @@ services:
     entrypoint: [sh, /usr/local/bin/production-entrypoint]
     command: [storage-init]
   dependencies:
+    logging: *bounded-logging
     <<: *php
     profiles: [release]
     user: www-data
@@ -110,6 +120,7 @@ services:
     volumes: *writable-php-volumes
     command: [dependencies]
   app-init:
+    logging: *bounded-logging
     <<: *php
     command: [app-init]
     depends_on:
@@ -118,19 +129,23 @@ services:
       postgres:
         condition: service_healthy
   app:
+    logging: *bounded-logging
     <<: *php
     restart: unless-stopped
   queue:
+    logging: *bounded-logging
     <<: *php
     restart: unless-stopped
     command: [queue]
     stop_grace_period: 150s
   scheduler:
+    logging: *bounded-logging
     <<: *php
     restart: unless-stopped
     command: [php, artisan, 'schedule:work', '--no-interaction']
     stop_grace_period: 150s
   release:
+    logging: *bounded-logging
     <<: *php
     profiles: [release]
     depends_on:
@@ -140,6 +155,7 @@ services:
         condition: service_healthy
     command: [release, list, '--no-interaction']
   assets:
+    logging: *bounded-logging
     image: node:24-alpine
     profiles: [release]
     working_dir: /build
@@ -152,6 +168,7 @@ services:
       - ${APP_SOURCE_PATH}/public:/build/public
       - node-dependencies:/build/node_modules
   nginx:
+    logging: *bounded-logging
     image: oapteka-nginx:${RELEASE_TAG:?Set an immutable runtime image tag}
     build:
       context: ${APP_SOURCE_PATH}

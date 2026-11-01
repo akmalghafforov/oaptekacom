@@ -42,7 +42,7 @@ endif
 
 images: check ## Check required production images before stopping services.
 ifeq ($(ENVIRONMENT),production)
-	@set -eu; images="$$( $(COMPOSE_COMMAND) --profile release config --images )"; \
+	@set -eu; images="$$( $(COMPOSE_COMMAND) config --images )"; \
 	for image in $$images; do \
 		docker image inspect "$$image" >/dev/null 2>&1 || { \
 			printf 'Required image %s is missing; run make build for application images, or docker pull %s for external images.\n' "$$image" "$$image" >&2; exit 1; }; \
@@ -73,15 +73,13 @@ up: network
 	$(COMPOSE_COMMAND) up --build --detach
 endif
 
-apply: ## Apply production code, dependencies, assets, migrations and caches using existing images.
+apply: ## Apply prepared source, dependencies and caches using existing images.
 ifeq ($(ENVIRONMENT),production)
 apply: images
 	$(MAKE) stop
 	$(MAKE) init
 	$(MAKE) db-up
 	$(MAKE) dependencies
-	$(MAKE) assets
-	$(MAKE) migrate
 	$(MAKE) start
 else
 	@printf 'make apply is production-only; select a production ENV_FILE. Use make up locally.\n' >&2
@@ -98,10 +96,12 @@ restart: ## Stop and restart application services with fresh production caches.
 	$(MAKE) stop
 	$(MAKE) up
 
-build: check ## Build service images.
-	$(COMPOSE_COMMAND) build
+build: check ## Build service images locally.
+	@test "$(ENVIRONMENT)" = local -o "$(LOCAL_BUILD)" = 1 || (echo "Build production images on the workstation with LOCAL_BUILD=1."; exit 1)
+	DOCKER_DEFAULT_PLATFORM=linux/amd64 $(COMPOSE_COMMAND) build app nginx
 
-assets: check ## Install frontend dependencies and build assets in a temporary container.
+assets: check ## Build frontend assets locally in a temporary container.
+	@test "$(ENVIRONMENT)" = local -o "$(LOCAL_BUILD)" = 1 || (echo "Build production assets locally with LOCAL_BUILD=1 and upload public/build."; exit 1)
 ifeq ($(ENVIRONMENT),production)
 	$(COMPOSE_COMMAND) run --rm --no-deps --pull never assets
 else

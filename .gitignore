@@ -30,3 +30,7 @@ Thumbs.db
 *.secret
 .env.production.*
 !.env.production.example
+
+# Operator-only release markers and private deployment inventories.
+/.release-commit
+/.resource-deploy/

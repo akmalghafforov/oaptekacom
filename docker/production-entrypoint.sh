@@ -11,10 +11,12 @@ case "${1:-}" in
         exit 0
         ;;
     dependencies)
-        export COMPOSER_HOME="$(mktemp -d /tmp/oapteka-composer.XXXXXX)"
-        export COMPOSER_CACHE_DIR="$COMPOSER_HOME/cache"
-        trap 'rm -rf "$COMPOSER_HOME"' EXIT
-        composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+        cmp -s composer.lock /opt/oapteka-composer.lock || {
+            echo 'Runtime image does not match composer.lock; build a new RELEASE_TAG locally.' >&2
+            exit 1
+        }
+        find vendor -mindepth 1 -maxdepth 1 -exec rm -rf {} \;
+        cp -a /opt/oapteka-vendor/. vendor/
         composer check-platform-reqs --no-dev
         exit 0
         ;;
