@@ -40,75 +40,77 @@
                 $supplier = $group['supplier'];
             @endphp
             <x-ui.card class="!p-0">
-                <header class="flex flex-wrap items-center justify-between gap-3 p-4">
-                    <h2 class="min-w-0 break-words text-base font-bold">{{ $supplier->name }}</h2>
-                    <div class="flex flex-wrap items-center gap-3"><span>{{ $group['items']->count() }} поз.</span><strong class="text-accent" data-cart-supplier-total="{{ $supplierId }}">{{ number_format((float) $group['total'], 2, '.', ' ') }} TJS</strong></div>
-                </header>
-                @if($supplier->price_list_hidden)<x-ui.alert type="warning">Прайс-лист временно скрыт</x-ui.alert>@endif
-                <div class="cart-request-items overflow-y-auto">
-                    <div class="table-wrap cart-request-table-wrap" tabindex="0" role="region" aria-label="Товары: {{ $supplier->name }}">
-                        <table class="data-table cart-request-table">
-                            <thead><tr><th>Товар</th><th>Цена</th><th>Количество</th><th>Сумма</th></tr></thead>
-                            <tbody>
-                                @foreach($group['items'] as $item)
-                                    <tr>
-                                        <td><strong class="block break-words text-sm">{{ $item->snapshot['medicine'] }}</strong>
-                                            @if($item->proposed_unit_price !== null)
-                                                <x-ui.alert type="warning">Цена повысилась: {{ $item->unit_price }} → {{ $item->proposed_unit_price }} TJS. Подтвердите новую цену, чтобы заказать товар.</x-ui.alert>
-                                                <form data-cart-save-before-submit method="post" action="{{ route('cart.items.accept-price', $item) }}">
-                                                    @csrf <x-mode-version />
-                                                    <input type="hidden" name="offer_id" value="{{ $item->offer_id }}">
-                                                    <input type="hidden" name="proposed_unit_price" value="{{ $item->proposed_unit_price }}">
-                                                    <x-ui.button>Принять цену {{ $item->proposed_unit_price }} TJS</x-ui.button>
-                                                </form>
-                                            @elseif($item->offer_change && bccomp((string) $item->offer_change['previous_unit_price'], (string) $item->unit_price, 2) > 0)
-                                                <x-ui.alert type="success">Цена снижена: {{ $item->offer_change['previous_unit_price'] }} → {{ $item->unit_price }} TJS</x-ui.alert>
-                                            @endif
-                                            <x-ui.alert type="warning" :data-cart-availability-warning="$item->id" :hidden="$item->availabilityWarning() === null">{{ $item->availabilityWarning() }}</x-ui.alert>
-                                            <span class="cart-request-stock">@if($item->offer->quantity !== null)В наличии: {{ rtrim(rtrim(number_format((float) $item->offer->quantity, 2, '.', ''), '0'), '.') }} ед.@else Остаток уточняется у поставщика.@endif</span></td>
-                                        <td><strong class="whitespace-nowrap">{{ $item->unit_price }} TJS</strong>@if(($item->snapshot['supplier_discount_percent'] ?? null) !== null && bccomp((string) $item->snapshot['supplier_discount_percent'], '0', 2) === 1)<span class="cart-request-discount">{{ $item->snapshot['raw_price'] ?? $item->snapshot['price'] }} TJS · Скидка {{ $item->snapshot['supplier_discount_percent'] }}%</span>@endif</td>
-                                        <td>@if($item->availability_reason && $item->availability_reason !== 'insufficient_stock')<span>{{ $item->quantity }} шт.</span>@else<form method="post" action="{{ route('cart.update', $item) }}" class="cart-request-quantity" data-cart-quantity-form data-cart-item-id="{{ $item->id }}" data-cart-supplier-id="{{ $supplierId }}">@csrf <x-mode-version /> @method('PATCH')<x-ui.quantity-stepper name="quantity" :id="'quantity-'.$item->id" :value="$item->quantity" :max="$item->offer->quantity ?? 999999" /><span id="quantity-status-{{ $item->id }}" class="cart-request-quantity-status" data-cart-quantity-status role="status"></span></form>@endif</td>
-                                        <td class="whitespace-nowrap"><strong class="block text-accent" data-cart-item-line-total="{{ $item->id }}">{{ bcmul((string) $item->unit_price, (string) $item->quantity, 2) }} TJS</strong><x-ui.icon-button label="Удалить {{ $item->snapshot['medicine'] }}" data-dialog-open aria-controls="cart-item-delete-{{ $item->id }}">×</x-ui.icon-button></td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
+                <details class="group/supplier" data-cart-supplier-group="{{ $supplierId }}">
+                    <summary class="flex min-h-10 cursor-pointer list-none flex-wrap items-center justify-between gap-3 rounded-panel p-4 focus-visible:outline-focus [&::-webkit-details-marker]:hidden">
+                        <span class="min-w-0 break-words text-base font-bold">{{ $supplier->name }}</span>
+                        <span class="flex flex-wrap items-center gap-3"><span>{{ $group['items']->count() }} поз.</span><strong class="text-accent" data-cart-supplier-total="{{ $supplierId }}">{{ number_format((float) $group['total'], 2, '.', ' ') }} TJS</strong><svg class="size-4 shrink-0 group-open/supplier:rotate-180" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg></span>
+                    </summary>
+                    @if($supplier->price_list_hidden)<x-ui.alert type="warning">Прайс-лист временно скрыт</x-ui.alert>@endif
+                    <div class="cart-request-items overflow-y-auto">
+                        <div class="table-wrap cart-request-table-wrap" tabindex="0" role="region" aria-label="Товары: {{ $supplier->name }}">
+                            <table class="data-table cart-request-table">
+                                <thead><tr><th>Товар</th><th>Цена</th><th>Количество</th><th>Сумма</th></tr></thead>
+                                <tbody>
+                                    @foreach($group['items'] as $item)
+                                        <tr>
+                                            <td><strong class="block break-words text-sm">{{ $item->snapshot['medicine'] }}</strong>
+                                                @if($item->proposed_unit_price !== null)
+                                                    <x-ui.alert type="warning">Цена повысилась: {{ $item->unit_price }} → {{ $item->proposed_unit_price }} TJS. Подтвердите новую цену, чтобы заказать товар.</x-ui.alert>
+                                                    <form data-cart-save-before-submit method="post" action="{{ route('cart.items.accept-price', $item) }}">
+                                                        @csrf <x-mode-version />
+                                                        <input type="hidden" name="offer_id" value="{{ $item->offer_id }}">
+                                                        <input type="hidden" name="proposed_unit_price" value="{{ $item->proposed_unit_price }}">
+                                                        <x-ui.button>Принять цену {{ $item->proposed_unit_price }} TJS</x-ui.button>
+                                                    </form>
+                                                @elseif($item->offer_change && bccomp((string) $item->offer_change['previous_unit_price'], (string) $item->unit_price, 2) > 0)
+                                                    <x-ui.alert type="success">Цена снижена: {{ $item->offer_change['previous_unit_price'] }} → {{ $item->unit_price }} TJS</x-ui.alert>
+                                                @endif
+                                                <x-ui.alert type="warning" :data-cart-availability-warning="$item->id" :hidden="$item->availabilityWarning() === null">{{ $item->availabilityWarning() }}</x-ui.alert>
+                                                <span class="cart-request-stock">@if($item->offer->quantity !== null)В наличии: {{ rtrim(rtrim(number_format((float) $item->offer->quantity, 2, '.', ''), '0'), '.') }} ед.@else Остаток уточняется у поставщика.@endif</span></td>
+                                            <td><strong class="whitespace-nowrap">{{ $item->unit_price }} TJS</strong>@if(($item->snapshot['supplier_discount_percent'] ?? null) !== null && bccomp((string) $item->snapshot['supplier_discount_percent'], '0', 2) === 1)<span class="cart-request-discount">{{ $item->snapshot['raw_price'] ?? $item->snapshot['price'] }} TJS · Скидка {{ $item->snapshot['supplier_discount_percent'] }}%</span>@endif</td>
+                                            <td>@if($item->availability_reason && $item->availability_reason !== 'insufficient_stock')<span>{{ $item->quantity }} шт.</span>@else<form method="post" action="{{ route('cart.update', $item) }}" class="cart-request-quantity" data-cart-quantity-form data-cart-item-id="{{ $item->id }}" data-cart-supplier-id="{{ $supplierId }}">@csrf <x-mode-version /> @method('PATCH')<x-ui.quantity-stepper name="quantity" :id="'quantity-'.$item->id" :value="$item->quantity" :max="$item->offer->quantity ?? 999999" /><span id="quantity-status-{{ $item->id }}" class="cart-request-quantity-status" data-cart-quantity-status role="status"></span></form>@endif</td>
+                                            <td class="whitespace-nowrap"><strong class="block text-accent" data-cart-item-line-total="{{ $item->id }}">{{ bcmul((string) $item->unit_price, (string) $item->quantity, 2) }} TJS</strong><x-ui.icon-button label="Удалить {{ $item->snapshot['medicine'] }}" data-dialog-open aria-controls="cart-item-delete-{{ $item->id }}">×</x-ui.icon-button></td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
-                <div class="border-t border-border p-4" @unless($supplier->price_list_hidden) data-supplier-file-export="{{ $supplierId }}" aria-busy="false" @endunless>
-                    <div class="grid gap-3 md:grid-cols-[auto_1fr_auto] md:items-start">
-                        @unless($supplier->price_list_hidden)
-                            <div class="flex flex-wrap items-center gap-2">
-                                <x-ui.button type="button" data-supplier-share data-supplier-id="{{ $supplierId }}" data-share-url="{{ route('cart.suppliers.share', $supplier) }}" data-csrf-token="{{ csrf_token() }}">Поделиться</x-ui.button>
-                                <x-ui.dropdown :id="'supplier-download-'.$supplierId" label="Скачать">
-                                    <x-ui.button type="button" variant="ghost" class="w-full justify-start" role="menuitem" data-file-prepare="pdf" :data-file-url="route('cart.suppliers.pdf', $supplier)">PDF</x-ui.button>
-                                    <x-ui.button type="button" variant="ghost" class="w-full justify-start" role="menuitem" data-file-prepare="excel" :data-file-url="route('cart.suppliers.excel', $supplier)">Excel</x-ui.button>
-                                </x-ui.dropdown>
-                            </div>
-                            <details class="order-3 text-sm text-muted md:order-none">
-                                <summary class="flex min-h-10 cursor-pointer items-center rounded-control focus-visible:outline-focus">Как отправить?</summary>
-                                <p class="max-w-sm py-2">Скачайте файл или выберите WhatsApp в меню отправки. Если отправка файлов недоступна, скачайте файл и прикрепите его в чате WhatsApp.</p>
-                            </details>
-                        @endunless
-                        <div class="flex flex-wrap items-center gap-2 md:col-start-3 md:justify-end">
+                    <div class="border-t border-border p-4" @unless($supplier->price_list_hidden) data-supplier-file-export="{{ $supplierId }}" aria-busy="false" @endunless>
+                        <div class="grid gap-3 md:grid-cols-[auto_1fr_auto] md:items-start">
                             @unless($supplier->price_list_hidden)
-                                @if(config('orders.placement_enabled'))
-                                    <form data-cart-save-before-submit method="post" action="{{ route('cart.suppliers.checkout', $supplier) }}">@csrf <x-mode-version /> <x-ui.button>Оформить заказ</x-ui.button></form>
-                                @endif
-                                <x-ui.button type="button" variant="secondary" data-dialog-open aria-controls="supplier-archive-{{ $supplierId }}">В архив</x-ui.button>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <x-ui.button type="button" data-supplier-share data-supplier-id="{{ $supplierId }}" data-share-url="{{ route('cart.suppliers.share', $supplier) }}" data-csrf-token="{{ csrf_token() }}">Поделиться</x-ui.button>
+                                    <x-ui.dropdown :id="'supplier-download-'.$supplierId" label="Скачать">
+                                        <x-ui.button type="button" variant="ghost" class="w-full justify-start" role="menuitem" data-file-prepare="pdf" :data-file-url="route('cart.suppliers.pdf', $supplier)">PDF</x-ui.button>
+                                        <x-ui.button type="button" variant="ghost" class="w-full justify-start" role="menuitem" data-file-prepare="excel" :data-file-url="route('cart.suppliers.excel', $supplier)">Excel</x-ui.button>
+                                    </x-ui.dropdown>
+                                </div>
+                                <details class="order-3 text-sm text-muted md:order-none">
+                                    <summary class="flex min-h-10 cursor-pointer items-center rounded-control focus-visible:outline-focus">Как отправить?</summary>
+                                    <p class="max-w-sm py-2">Скачайте файл или выберите WhatsApp в меню отправки. Если отправка файлов недоступна, скачайте файл и прикрепите его в чате WhatsApp.</p>
+                                </details>
                             @endunless
-                            <x-ui.button type="button" variant="danger" data-dialog-open aria-controls="supplier-clear-{{ $supplierId }}">Очистить</x-ui.button>
+                            <div class="flex flex-wrap items-center gap-2 md:col-start-3 md:justify-end">
+                                @unless($supplier->price_list_hidden)
+                                    @if(config('orders.placement_enabled'))
+                                        <form data-cart-save-before-submit method="post" action="{{ route('cart.suppliers.checkout', $supplier) }}">@csrf <x-mode-version /> <x-ui.button>Оформить заказ</x-ui.button></form>
+                                    @endif
+                                    <x-ui.button type="button" variant="secondary" data-dialog-open aria-controls="supplier-archive-{{ $supplierId }}">В архив</x-ui.button>
+                                @endunless
+                                <x-ui.button type="button" variant="danger" data-dialog-open aria-controls="supplier-clear-{{ $supplierId }}">Очистить</x-ui.button>
+                            </div>
                         </div>
+                        @unless($supplier->price_list_hidden)
+                            <div class="mt-3 flex flex-wrap items-center gap-2" data-file-feedback hidden>
+                                <span class="size-4 shrink-0 rounded-full border-2 border-accent-strong border-t-transparent motion-safe:animate-spin" data-file-spinner aria-hidden="true" hidden></span>
+                                <p class="text-sm" data-file-status role="status" aria-live="polite" aria-atomic="true"></p>
+                                <x-ui.button type="button" variant="secondary" data-file-share hidden>Поделиться файлом</x-ui.button>
+                            </div>
+                            <a data-file-download hidden></a>
+                        @endunless
                     </div>
-                    @unless($supplier->price_list_hidden)
-                        <div class="mt-3 flex flex-wrap items-center gap-2" data-file-feedback hidden>
-                            <span class="size-4 shrink-0 rounded-full border-2 border-accent-strong border-t-transparent motion-safe:animate-spin" data-file-spinner aria-hidden="true" hidden></span>
-                            <p class="text-sm" data-file-status role="status" aria-live="polite" aria-atomic="true"></p>
-                            <x-ui.button type="button" variant="secondary" data-file-share hidden>Поделиться файлом</x-ui.button>
-                        </div>
-                        <a data-file-download hidden></a>
-                    @endunless
-                </div>
+                </details>
             </x-ui.card>
 
             @unless($supplier->price_list_hidden)
