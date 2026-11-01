@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\CatalogSearchService;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 use Tests\TestCase;
 
 class SupplierRequestCartTest extends TestCase
@@ -396,11 +397,35 @@ class SupplierRequestCartTest extends TestCase
             $this->assertSame(3.69, $sheet->getCell('D7')->getValue());
             $this->assertSame(3.69, $sheet->getCell('D8')->getValue());
             $this->assertSame('Итого, TJS', $sheet->getCell('C8')->getValue());
+            $this->assertSame('Предварительная заявка', $sheet->getCell('A5')->getValue());
+            $this->assertSame('oapteka.app', $sheet->getCell('C1')->getValue());
+            $this->assertSame('https://oapteka.app', $sheet->getCell('C1')->getHyperlink()->getUrl());
+            $this->assertSame('Отправьте ваш прайс-лист на upload@oapteka.app.', $sheet->getCell('A10')->getValue());
+            $this->assertSame('mailto:upload@oapteka.app', $sheet->getCell('A10')->getHyperlink()->getUrl());
+            $this->assertCount(1, $sheet->getDrawingCollection());
+            $drawing = $sheet->getDrawingCollection()[0];
+            $this->assertSame('OAPTEKA', $drawing->getName());
+            $this->assertSame(file_get_contents(public_path('images/oapteka-logo-header.png')), file_get_contents($drawing->getPath()));
+            $this->assertFalse($sheet->getShowGridlines());
+            $this->assertSame('#,##0.00', $sheet->getStyle('C7')->getNumberFormat()->getFormatCode());
+            $this->assertSame('#,##0.00', $sheet->getStyle('D8')->getNumberFormat()->getFormatCode());
+            $this->assertSame('n', $sheet->getCell('C7')->getDataType());
+            $this->assertSame('n', $sheet->getCell('D7')->getDataType());
+            $this->assertSame('n', $sheet->getCell('D8')->getDataType());
+            $this->assertSame('A1:D10', $sheet->getPageSetup()->getPrintArea());
+            $this->assertSame([6, 6], $sheet->getPageSetup()->getRowsToRepeatAtTop());
+            $this->assertSame(1, $sheet->getPageSetup()->getFitToWidth());
+            $this->assertSame(0, $sheet->getPageSetup()->getFitToHeight());
+            $this->assertSame(PageSetup::PAPERSIZE_A4, $sheet->getPageSetup()->getPaperSize());
+            $this->assertSame('portrait', $sheet->getPageSetup()->getOrientation());
         } finally {
             unlink($file);
         }
         $pdf = $this->get(route('cart.suppliers.pdf', $supplier))->assertDownload('oapteka-supplier-'.$supplier->id.'.pdf')->assertHeader('Content-Type', 'application/pdf');
         $this->assertStringStartsWith('%PDF-', $pdf->getContent());
+        $this->assertStringContainsString('/Subtype /Image', $pdf->getContent());
+        $this->assertStringContainsString('https://oapteka.app', $pdf->getContent());
+        $this->assertStringContainsString('mailto:upload@oapteka.app', $pdf->getContent());
         $this->assertSame($before, $cart->items()->get()->toArray());
         $this->assertDatabaseCount('supplier_requests', 0);
         $this->assertDatabaseCount('orders', 0);
