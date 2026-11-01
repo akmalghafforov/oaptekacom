@@ -5,8 +5,11 @@ namespace App\Models;
 use App\Enums\SubscriptionPlan;
 use App\Enums\SubscriptionStatus;
 use App\Enums\SubscriptionTerm;
+use Carbon\CarbonInterface;
 use Database\Factories\SubscriptionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -30,6 +33,45 @@ class Subscription extends Model
     public function paymentRequest(): BelongsTo
     {
         return $this->belongsTo(PaymentRequest::class);
+    }
+
+    #[Scope]
+    protected function currentPaid(Builder $query, ?CarbonInterface $today = null): void
+    {
+        $date = ($today ?? now('Asia/Dushanbe'))->toDateString();
+
+        $query->where('subscriptions.status', SubscriptionStatus::Active)
+            ->whereIn('subscriptions.plan', [SubscriptionPlan::Base, SubscriptionPlan::Premium])
+            ->whereDate('subscriptions.starts_on', '<=', $date)
+            ->whereDate('subscriptions.ends_on', '>=', $date);
+    }
+
+    #[Scope]
+    protected function effectiveStatus(Builder $query, SubscriptionStatus $status, CarbonInterface $today): void
+    {
+        if ($status === SubscriptionStatus::Expired) {
+            $query->where(function (Builder $query) use ($today): void {
+                $query->where('subscriptions.status', SubscriptionStatus::Expired)
+                    ->orWhere(function (Builder $query) use ($today): void {
+                        $query->where('subscriptions.status', SubscriptionStatus::Active)
+                            ->whereDate('subscriptions.ends_on', '<', $today->toDateString());
+                    });
+            });
+        } elseif ($status === SubscriptionStatus::Active) {
+            $query->currentPaid($today);
+        } else {
+            $query->where('subscriptions.status', $status);
+        }
+    }
+
+    public function effectiveStatusOn(CarbonInterface $today): SubscriptionStatus
+    {
+        if ($this->status === SubscriptionStatus::Active && $this->ends_on !== null
+            && $this->ends_on->toDateString() < $today->toDateString()) {
+            return SubscriptionStatus::Expired;
+        }
+
+        return $this->status;
     }
 
     protected function casts(): array

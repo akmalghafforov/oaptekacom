@@ -153,6 +153,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::post('/users/{user}/block', [AdminController::class, 'toggleBlock'])->name('admin.block');
         Route::post('/users/{user}/phone', [AdminController::class, 'remediatePhone'])->name('admin.phone.remediate');
         Route::get('/subscriptions', [AdminSubscriptionController::class, 'index'])->name('admin.subscriptions.index');
+        Route::get('/subscriptions/create', [AdminSubscriptionController::class, 'create'])->name('admin.subscriptions.create');
         Route::post('/subscriptions', [AdminSubscriptionController::class, 'store'])->name('admin.subscriptions.store');
         Route::post('/subscriptions/{subscription}/cancel', [AdminSubscriptionController::class, 'cancel'])->name('admin.subscriptions.cancel');
         Route::get('/subscription-prices', [AdminSubscriptionController::class, 'prices'])->name('admin.subscription-prices.edit');

@@ -6,6 +6,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\SubscriptionPlan;
 use App\Enums\SubscriptionTerm;
 use App\Http\Requests\GrantSubscriptionRequest;
+use App\Http\Requests\IndexSubscriptionRequest;
 use App\Http\Requests\ReviewPaymentRequest;
 use App\Http\Requests\UpdatePaymentMethodsRequest;
 use App\Http\Requests\UpdateSubscriptionPlanPricesRequest;
@@ -15,6 +16,7 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPlanPrice;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\SubscriptionMonitoring;
 use App\Services\SubscriptionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,9 +25,18 @@ use InvalidArgumentException;
 
 class AdminSubscriptionController extends Controller
 {
-    public function index(): View
+    public function index(IndexSubscriptionRequest $request, SubscriptionMonitoring $monitoring): View
     {
-        return view('admin.subscriptions.index', ['users' => User::query()->with('organization')->where('role', 'pharmacy')->orderBy('name')->get(), 'subscriptions' => Subscription::query()->with(['user.organization', 'assignedBy'])->latest()->paginate(30), 'plans' => [SubscriptionPlan::Base, SubscriptionPlan::Premium], 'terms' => SubscriptionTerm::cases()]);
+        return view('admin.subscriptions.index', $monitoring->data($request->validated()));
+    }
+
+    public function create(): View
+    {
+        return view('admin.subscriptions.create', [
+            'users' => User::query()->with('organization')->where('role', 'pharmacy')->orderBy('name')->get(),
+            'plans' => [SubscriptionPlan::Base, SubscriptionPlan::Premium],
+            'terms' => SubscriptionTerm::cases(),
+        ]);
     }
 
     public function store(GrantSubscriptionRequest $request, SubscriptionService $subscriptions): RedirectResponse

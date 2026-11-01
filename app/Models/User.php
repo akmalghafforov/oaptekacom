@@ -4,7 +4,6 @@ namespace App\Models;
 
 use App\Enums\AccountMode;
 use App\Enums\SubscriptionPlan;
-use App\Enums\SubscriptionStatus;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use App\Services\AccountModeContext;
@@ -188,10 +187,7 @@ class User extends Authenticatable
         }
 
         return $this->subscriptions()
-            ->where('status', SubscriptionStatus::Active)
-            ->whereIn('plan', [SubscriptionPlan::Base, SubscriptionPlan::Premium])
-            ->whereDate('starts_on', '<=', now('Asia/Dushanbe')->toDateString())
-            ->whereDate('ends_on', '>=', now('Asia/Dushanbe')->toDateString())
+            ->currentPaid()
             ->exists();
     }
 
