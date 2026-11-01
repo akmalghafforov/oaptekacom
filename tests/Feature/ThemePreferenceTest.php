@@ -48,7 +48,10 @@ class ThemePreferenceTest extends TestCase
     public function test_dark_administration_pagination_keeps_page_links_and_current_page(): void
     {
         $admin = User::factory()->admin()->create(['theme' => 'dark', 'two_factor_confirmed_at' => now()]);
-        User::factory()->admin()->count(30)->create();
+        $accounts = User::factory()->admin()->count(30)->create()->prepend($admin);
+        foreach ($accounts as $account) {
+            $account->roleAssignments()->whereIn('role', ['pharmacy', 'wholesaler'])->delete();
+        }
 
         $this->actingAs($admin)->get(route('admin.users', ['page' => 2]))
             ->assertSeeHtml('<html lang="ru" data-theme="dark">')

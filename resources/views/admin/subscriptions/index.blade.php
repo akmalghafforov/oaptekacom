@@ -7,7 +7,8 @@
             <x-ui.button :href="route('admin.subscriptions.create')">Выдать подписку</x-ui.button>
             <x-ui.button variant="secondary" :href="route('admin.subscription-prices.edit')">Цены тарифов</x-ui.button>
             <x-ui.button variant="secondary" :href="route('admin.subscription-payments.index')">Платежи</x-ui.button>
-            <x-ui.button variant="ghost" :href="route('admin.users')">Пользователи</x-ui.button>
+            <x-ui.button variant="ghost" :href="route('admin.pharmacies.index')">Аптеки</x-ui.button>
+            <x-ui.button variant="ghost" :href="route('admin.providers.index')">Поставщики</x-ui.button>
         </div>
     </x-slot:actions>
 </x-ui.page-header>

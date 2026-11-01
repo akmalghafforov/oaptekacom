@@ -7,6 +7,7 @@ use App\Models\Organization;
 use App\Models\Subscription;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class NavigationTest extends TestCase
@@ -95,13 +96,45 @@ class NavigationTest extends TestCase
         $response = $this->actingAs($user)->get(route('profile.edit'));
 
         $response
-            ->assertSeeText(['Операционный центр', 'Пользователи', 'Подписки', 'Профиль', 'Выйти', 'Администратор Навигация'])
-            ->assertDontSeeText('Модули')
+            ->assertSeeText(['Операционный центр', 'Аптеки', 'Поставщики', 'Подписки', 'Профиль', 'Выйти', 'Администратор Навигация'])
+            ->assertDontSeeText(['Модули', 'Пользователи'])
             ->assertSeeText(['Меню аккаунта', 'Обзор', 'Мой тариф', 'Безлимитный доступ'])
             ->assertSeeHtml(['data-account-link="admin.index"', 'data-account-link="profile.edit"', 'data-account-link="subscription.create"', 'data-account-logout="data-account-logout"'])
             ->assertDontSeeText(['Каталог', 'Корзина', 'Заказы'])
-            ->assertSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.users').'"', 'href="'.route('admin.subscriptions.index').'"'])
+            ->assertSeeHtml(['href="'.route('admin.index').'"', 'href="'.route('admin.pharmacies.index').'"', 'href="'.route('admin.providers.index').'"', 'href="'.route('admin.subscriptions.index').'"'])
+            ->assertDontSeeHtml('href="'.route('admin.users').'"')
             ->assertDontSeeHtml(['href="'.route('catalog').'"', 'href="'.route('cart').'"', 'href="'.route('orders.index').'"']);
+    }
+
+    #[TestWith(['pharmacy', 'admin.pharmacies', 'index'])]
+    #[TestWith(['pharmacy', 'admin.pharmacies', 'show'])]
+    #[TestWith(['pharmacy', 'admin.pharmacies', 'edit'])]
+    #[TestWith(['wholesaler', 'admin.providers', 'index'])]
+    #[TestWith(['wholesaler', 'admin.providers', 'show'])]
+    #[TestWith(['wholesaler', 'admin.providers', 'edit'])]
+    public function test_directory_navigation_is_active_on_list_detail_and_edit_pages(string $type, string $prefix, string $page): void
+    {
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $organization = Organization::factory()->{$type}()->create();
+
+        $response = $this->actingAs($admin)->get(route($prefix.'.'.$page, $page === 'index' ? [] : [$organization]));
+
+        $document = new \DOMDocument;
+        @$document->loadHTML($response->getContent());
+        $xpath = new \DOMXPath($document);
+        $this->assertSame(2, $xpath->query('//nav/a[@href="'.route($prefix.'.index').'" and @aria-current="page"]')->length);
+        $response->assertDontSeeHtml('href="'.route('admin.users').'"');
+    }
+
+    public function test_dashboard_and_subscriptions_have_directory_shortcuts_without_users(): void
+    {
+        $this->actingAs(User::factory()->admin()->create(['two_factor_confirmed_at' => now()]));
+
+        foreach (['admin.index', 'admin.subscriptions.index'] as $page) {
+            $this->get(route($page))->assertSeeHtml('href="'.route('admin.pharmacies.index').'"')
+                ->assertSeeHtml('href="'.route('admin.providers.index').'"')
+                ->assertDontSeeHtml('href="'.route('admin.users').'"');
+        }
     }
 
     public function test_login_navigation_excludes_authorized_destinations(): void

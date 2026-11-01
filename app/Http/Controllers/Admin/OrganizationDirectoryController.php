@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\OrganizationType;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\OrganizationDirectoryRequest;
 use App\Http\Requests\UpdateAdminOrganizationRequest;
 use App\Http\Requests\UpdateOrganizationAccountRequest;
 use App\Http\Requests\UpdatePriceListVisibilityRequest;
@@ -14,18 +15,17 @@ use App\Services\AuditLogger;
 use App\Services\OrganizationApprovalService;
 use App\Services\TelegramSupplierReviews;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class OrganizationDirectoryController extends Controller
 {
-    public function pharmacies(Request $request): View
+    public function pharmacies(OrganizationDirectoryRequest $request): View
     {
         return $this->index($request, OrganizationType::Pharmacy);
     }
 
-    public function providers(Request $request): View
+    public function providers(OrganizationDirectoryRequest $request): View
     {
         return $this->index($request, OrganizationType::Wholesaler);
     }
@@ -96,17 +96,24 @@ class OrganizationDirectoryController extends Controller
         return $this->archive($organization, OrganizationType::Wholesaler, $auditLogger);
     }
 
-    private function index(Request $request, OrganizationType $type): View
+    private function index(OrganizationDirectoryRequest $request, OrganizationType $type): View
     {
-        $sorts = ['name' => 'name', 'status' => 'status', 'created_at' => 'created_at'];
-        $sort = $request->string('sort')->toString();
-        $column = $sorts[$sort] ?? 'created_at';
-        $direction = $request->string('direction')->lower()->toString() === 'asc' ? 'asc' : 'desc';
+        $filters = $request->validated();
+        $sort = $filters['sort'] ?? 'created_at';
+        $direction = $filters['direction'] ?? 'desc';
 
         $organizations = Organization::query()
             ->where('type', $type)
-            ->when($request->filled('name'), fn ($query) => $query->where('name', 'like', '%'.$request->string('name')->toString().'%'))
-            ->when($request->filled('email'), fn ($query) => $query->whereHas('assignedUsers', fn ($users) => $users->where('email', 'like', '%'.$request->string('email')->toString().'%')))
+            ->when($request->filled('name'), function ($query) use ($request): void {
+                $name = '%'.$request->string('name')->toString().'%';
+                $query->where(fn ($names) => $names->where('name', 'like', $name)
+                    ->orWhereHas('assignedUsers', fn ($users) => $users->where('name', 'like', $name)));
+            })
+            ->when($request->filled('email'), function ($query) use ($request): void {
+                $email = '%'.$request->string('email')->toString().'%';
+                $query->where(fn ($emails) => $emails->where('contact_email', 'like', $email)
+                    ->orWhereHas('assignedUsers', fn ($users) => $users->where('email', 'like', $email)));
+            })
             ->when($request->filled('phone'), function ($query) use ($request) {
                 $phone = $request->string('phone')->toString();
 
@@ -115,11 +122,12 @@ class OrganizationDirectoryController extends Controller
                         ->orWhereHas('assignedUsers', fn ($users) => $users->where('phone', 'like', '%'.$phone.'%'));
                 });
             })
+            ->when($request->filled('city'), fn ($query) => $query->where('city', 'like', '%'.$request->string('city')->toString().'%'))
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->when($request->filled('created_from'), fn ($query) => $query->whereDate('created_at', '>=', $request->date('created_from')))
             ->when($request->filled('created_to'), fn ($query) => $query->whereDate('created_at', '<=', $request->date('created_to')))
             ->with('assignedUsers')
-            ->orderBy($column, $direction)
+            ->orderBy($sort, $direction)
             ->orderByDesc('id')
             ->paginate(20)
             ->withQueryString();
@@ -127,7 +135,7 @@ class OrganizationDirectoryController extends Controller
         return view('admin.organizations.index', [
             'organizations' => $organizations,
             'type' => $type,
-            'sort' => $sorts[$sort] ?? 'created_at',
+            'sort' => $sort,
             'direction' => $direction,
         ]);
     }

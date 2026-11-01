@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\OrganizationType;
 use App\Enums\TradeMode;
+use App\Enums\UserRole;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\AuditLogger;
@@ -43,7 +44,14 @@ class AdminController extends Controller
 
     public function users(): View
     {
-        return view('admin.users', ['users' => User::with('organization')->paginate(30)]);
+        return view('admin.users', ['users' => User::query()
+            ->whereNotIn('role', [UserRole::Pharmacy, UserRole::Wholesaler])
+            ->whereDoesntHave('organization', fn ($query) => $query->whereIn('type', [OrganizationType::Pharmacy, OrganizationType::Wholesaler]))
+            ->whereDoesntHave('roleAssignments', fn ($query) => $query
+                ->where(fn ($assignments) => $assignments->whereIn('role', [UserRole::Pharmacy, UserRole::Wholesaler])
+                    ->orWhereHas('organization', fn ($organizations) => $organizations->whereIn('type', [OrganizationType::Pharmacy, OrganizationType::Wholesaler]))))
+            ->with('organization')
+            ->paginate(30)]);
     }
 
     public function toggleBlock(User $user, AuditLogger $auditLogger): RedirectResponse

@@ -35,7 +35,7 @@ class AdminSubscriptionGrantPageTest extends TestCase
             ->assertSee($account->organization->name.' · '.$account->name.' · '.$account->phone)
             ->assertDontSee($supplier->name)
             ->assertSeeHtml('action="'.route('admin.subscriptions.store').'"');
-        $this->get(route('admin.users'))->assertSeeHtml('href="'.e(route('admin.subscriptions.create', ['user_id' => $account->id])).'"');
+        $this->get(route('admin.pharmacies.show', $account->organization))->assertSeeHtml('href="'.e(route('admin.subscriptions.create', ['user_id' => $account->id])).'"');
     }
 
     public function test_validation_recovers_submitted_values_on_the_grant_page(): void
