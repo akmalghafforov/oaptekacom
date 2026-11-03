@@ -83,7 +83,8 @@ class CartController extends Controller
     public function add(Offer $offer, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse|JsonResponse
     {
         $this->authorize('view', $offer);
-        abort_unless($request->user()->canBuy() && $this->isCurrent($offer), 404);
+        abort_unless($request->user()->canBuy(), 404, 'Добавление в корзину недоступно в текущем режиме');
+        abort_unless($this->isCurrent($offer), 404, 'Предложение недоступно. Проверьте наличие у поставщика.');
         $validated = $request->validate(['quantity' => 'nullable|integer|min:1|max:999999']);
         $cartItem = CartItem::query()->lockForUpdate()->firstOrNew(['cart_id' => $this->cart($request)->id, 'offer_id' => $offer->id]);
         if ($cartItem->proposed_unit_price !== null) {

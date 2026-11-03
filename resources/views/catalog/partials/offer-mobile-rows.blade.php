@@ -1,5 +1,6 @@
 @foreach($offers as $offer)
     @php
+        $feedbackId = 'catalog-cart-feedback-mobile-'.$offer->id.'-'.Illuminate\Support\Str::uuid();
         $available = $offer->quantity === null || $offer->quantity >= 1;
         $inCart = (int) ($cartQuantities[$offer->id] ?? 0);
         $cartItemId = $cartItemIds[$offer->id] ?? null;
@@ -7,7 +8,7 @@
         $expiresSoon = $offer->expires_at?->lte(now()->addMonths(config('catalog.expiration_warning_months')));
         $hasSupplierDiscount = $offer->applied_supplier_discount_percent !== null && bccomp($offer->applied_supplier_discount_percent, '0', 2) === 1;
     @endphp
-    <article class="mobile-offer-row" data-mobile-result-shell="list" data-mobile-offer-row data-offer-id="{{ $offer->id }}">
+    <article class="mobile-offer-row" data-mobile-result-shell="list" data-mobile-offer-row data-offer-id="{{ $offer->id }}" data-cart-saved-quantity="{{ $inCart }}">
         <div aria-hidden="true" class="invisible mobile-offer-image"></div>
         <div class="mobile-offer-content min-w-0 grow">
             <div class="mobile-offer-product flex items-start justify-between gap-2">
@@ -30,13 +31,14 @@
                     @endif
                 </div>
                 <div data-cart-add-controls data-cart-can-add="{{ $canBuy && $available ? 'true' : 'false' }}" @class(['hidden' => $inCart > 0])><form method="post" action="{{ route('cart.add', $offer) }}" data-cart-form class="flex items-center gap-1.5">@csrf <x-mode-version />
-                    <input type="number" name="quantity" value="1" min="1" max="999999" @disabled($inCart > 0) class="min-h-10 w-14 rounded-control border border-control-border px-2 text-center text-sm" aria-label="Количество {{ $offer->medicine->name }}">
-                    <x-ui.icon-button type="submit" label="Добавить в корзину" :disabled="$inCart > 0 || ! $canBuy || ! $available" class="!size-10 !min-h-0 !min-w-0 !rounded-lg !border-cart-action-border !bg-cart-action !text-white hover:!border-cart-accent hover:!bg-cart-action-hover disabled:!bg-cart-action" data-cart-submit>
+                    <input type="number" name="quantity" aria-describedby="{{ $feedbackId }}" value="1" min="1" max="999999" @disabled($inCart > 0) class="min-h-10 w-14 rounded-control border border-control-border px-2 text-center text-sm" aria-label="Количество {{ $offer->medicine->name }}">
+                    <x-ui.icon-button type="submit" label="Добавить в корзину" aria-describedby="{{ $feedbackId }}" :disabled="$inCart > 0 || ! $canBuy || ! $available" class="!size-10 !min-h-0 !min-w-0 !rounded-lg !border-cart-action-border !bg-cart-action !text-white hover:!border-cart-accent hover:!bg-cart-action-hover disabled:!bg-cart-action" data-cart-submit>
                         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 9V7a4 4 0 0 1 8 0v2M5 9h14l-1 10H6L5 9Zm4 4v3m6-3v3" /></svg>
                     </x-ui.icon-button>
                 </form></div>
-                <div data-cart-in-cart-controls @class(['hidden' => $inCart === 0])><div class="flex min-h-10 items-center gap-1.5 rounded-control bg-accent-surface px-2 text-accent" data-cart-status aria-label="Товар в корзине: {{ $inCart }} шт."><span class="relative grid size-7 shrink-0 place-items-center rounded-full bg-surface text-accent shadow-sm"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-3.5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.9a2 2 0 0 0 1.9-1.4L20.5 8H6.2M10 20.5h.01M17 20.5h.01" /></svg><span class="absolute -bottom-0.5 -right-0.5 grid size-3 place-items-center rounded-full bg-action text-white"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" class="size-2"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m3.5 8 2.5 2.5 5-5" /></svg></span></span><x-ui.catalog-quantity :quantity="$inCart" :product="$offer->medicine->name" /><form method="post" action="{{ $cartItemId ? route('cart.items.destroy', $cartItemId) : '' }}" data-cart-remove-form>@csrf <x-mode-version /> @method('DELETE')<x-ui.icon-button type="submit" label="Удалить {{ $offer->medicine->name }} из корзины" class="!size-10 !min-h-0 !min-w-0 !rounded-lg !border-danger-border !text-danger hover:!bg-danger-surface"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 7h12m-9 0V5h6v2m-8 0 1 12h8l1-12" /></svg></x-ui.icon-button></form></div></div>
+                <div data-cart-in-cart-controls @class(['hidden' => $inCart === 0])><div class="flex min-h-10 items-center gap-1.5 rounded-control bg-accent-surface px-2 text-accent" data-cart-status aria-label="Товар в корзине: {{ $inCart }} шт."><span class="relative grid size-7 shrink-0 place-items-center rounded-full bg-surface text-accent shadow-sm"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-3.5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 4h2l2.2 10.2a2 2 0 0 0 2 1.6h7.9a2 2 0 0 0 1.9-1.4L20.5 8H6.2M10 20.5h.01M17 20.5h.01" /></svg><span class="absolute -bottom-0.5 -right-0.5 grid size-3 place-items-center rounded-full bg-action text-white"><svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" class="size-2"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m3.5 8 2.5 2.5 5-5" /></svg></span></span><x-ui.catalog-quantity :quantity="$inCart" :product="$offer->medicine->name" /><form method="post" action="{{ $cartItemId ? route('cart.items.destroy', $cartItemId) : '' }}" data-cart-remove-form>@csrf <x-mode-version /> @method('DELETE')<x-ui.icon-button type="submit" aria-describedby="{{ $feedbackId }}" label="Удалить {{ $offer->medicine->name }} из корзины" class="!size-10 !min-h-0 !min-w-0 !rounded-lg !border-danger-border !text-danger hover:!bg-danger-surface"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="size-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 7h12m-9 0V5h6v2m-8 0 1 12h8l1-12" /></svg></x-ui.icon-button></form></div></div>
             </div>
+            <x-ui.catalog-cart-feedback :offer="$offer" :can-buy="$canBuy" :id="$feedbackId" class="col-span-full" />
         </div>
     </article>
 @endforeach

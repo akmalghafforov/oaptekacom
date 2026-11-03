@@ -146,35 +146,127 @@ export const updateCartBadges = (documentRoot, totalQuantity) => {
     });
 };
 
-export const updateCatalogOfferCartState = (root, { offer_id: offerId, quantity = 0, remove_url: removeUrl = '' }) => {
+const renderCatalogOfferCartState = (offer, { quantity = 0, remove_url: removeUrl = '' }) => {
     const inCart = quantity > 0;
+    offer.dataset.cartSavedQuantity = String(quantity);
 
-    root.querySelectorAll(`[data-offer-id="${offerId}"]`).forEach((offer) => {
-        const addControls = offer.querySelector('[data-cart-add-controls]');
-        const inCartControls = offer.querySelector('[data-cart-in-cart-controls]');
-        addControls?.classList.toggle('hidden', inCart);
-        inCartControls?.classList.toggle('hidden', !inCart);
-        const canAdd = addControls?.dataset?.cartCanAdd !== 'false';
-        addControls?.querySelectorAll('input').forEach((input) => { input.disabled = inCart; });
-        addControls?.querySelectorAll('button').forEach((button) => { button.disabled = inCart || !canAdd; });
-        inCartControls?.querySelectorAll('[data-cart-quantity]').forEach((element) => { element.textContent = quantity; });
+    const addControls = offer.querySelector('[data-cart-add-controls]');
+    const inCartControls = offer.querySelector('[data-cart-in-cart-controls]');
+    addControls?.classList.toggle('hidden', inCart);
+    inCartControls?.classList.toggle('hidden', !inCart);
+    const canAdd = addControls?.dataset?.cartCanAdd !== 'false';
+    addControls?.querySelectorAll('input').forEach((input) => { input.disabled = inCart; });
+    addControls?.querySelectorAll('button').forEach((button) => { button.disabled = inCart || !canAdd; });
+    inCartControls?.querySelectorAll('[data-cart-quantity]').forEach((element) => { element.textContent = quantity; });
 
-        offer.querySelectorAll('[data-cart-status]').forEach((status) => status.setAttribute('aria-label', `Товар в корзине: ${quantity} шт.`));
-        offer.querySelectorAll('[data-catalog-quantity]').forEach((control) => {
-            control.querySelector('[data-quantity-edit]').hidden = false;
-            const input = control.querySelector('[data-quantity-editor]');
-            input.value = String(quantity);
-            input.hidden = true;
-            input.removeAttribute('aria-invalid');
-            control.querySelector('[data-quantity-error]').hidden = true;
-        });
-        const removeForm = inCartControls?.querySelector('[data-cart-remove-form]');
-        if (removeForm && removeUrl) removeForm.action = removeUrl;
-        removeForm?.querySelectorAll('button').forEach((button) => { button.disabled = !inCart; });
+    offer.querySelectorAll('[data-cart-status]').forEach((status) => status.setAttribute('aria-label', `Товар в корзине: ${quantity} шт.`));
+    offer.querySelectorAll('[data-catalog-quantity]').forEach((control) => {
+        control.querySelector('[data-quantity-edit]').hidden = false;
+        const input = control.querySelector('[data-quantity-editor]');
+        input.value = String(quantity);
+        input.hidden = true;
+        input.removeAttribute('aria-invalid');
+        control.querySelector('[data-quantity-error]').hidden = true;
     });
+    const removeForm = inCartControls?.querySelector('[data-cart-remove-form]');
+    if (removeForm && removeUrl) removeForm.action = removeUrl;
+    removeForm?.querySelectorAll('button').forEach((button) => { button.disabled = !inCart; });
 };
 
-export const initializeCatalogQuantities = (root, { busy = new Set(), fetcher = (...args) => fetch(...args), documentRoot = document } = {}) => {
+export const updateCatalogOfferCartState = (root, { offer_id: offerId, ...state }) => {
+    root.querySelectorAll(`[data-offer-id="${offerId}"]`).forEach((offer) => renderCatalogOfferCartState(offer, state));
+};
+
+export const initializeCatalogCart = (root, { busy = new Set(), fetcher = (...args) => fetch(...args), documentRoot = document } = {}) => {
+    const states = new Map();
+    const feedback = new Map();
+    const renderedStates = new WeakMap();
+    const renderedFeedback = new WeakMap();
+    const announcer = root.querySelector('[data-catalog-announcer]');
+    const sync = () => {
+        root.querySelectorAll('[data-offer-id]').forEach((offer) => {
+            const offerId = offer.dataset.offerId;
+            const state = states.get(offerId);
+            if (state && renderedStates.get(offer) !== state) {
+                renderCatalogOfferCartState(offer, state);
+                renderedStates.set(offer, state);
+            }
+            const inCart = Number(offer.dataset.cartSavedQuantity) > 0;
+            const pending = busy.has(offerId);
+            offer.setAttribute('aria-busy', String(pending));
+            const addControls = offer.querySelector('[data-cart-add-controls]');
+            const canAdd = addControls?.dataset.cartCanAdd !== 'false';
+            addControls?.querySelectorAll('input, button').forEach((control) => { control.disabled = inCart || pending || !canAdd; });
+            offer.querySelectorAll('[data-cart-in-cart-controls] button').forEach((button) => { button.disabled = !inCart || pending; });
+            offer.querySelectorAll('[data-quantity-editor]').forEach((input) => { input.readOnly = pending; });
+            const message = feedback.get(offerId);
+            const error = offer.querySelector('[data-cart-error]');
+            if (error) {
+                error.textContent = message?.message ?? '';
+                error.hidden = !message?.message;
+            }
+            if (message && renderedFeedback.get(offer) !== message && message.quantity !== undefined) {
+                offer.querySelector('[data-cart-form]').elements.quantity.value = message.quantity;
+            }
+            renderedFeedback.set(offer, message);
+        });
+    };
+    const update = ({ offer_id: offerId, ...state }) => {
+        const key = String(offerId);
+        states.set(key, { ...states.get(key), ...state });
+        feedback.delete(key);
+        sync();
+    };
+    root.addEventListener('submit', async (event) => {
+        const cartForm = event.target.closest('[data-cart-form]');
+        const removeForm = event.target.closest('[data-cart-remove-form]');
+        if (!cartForm && !removeForm) return;
+        event.preventDefault();
+        const form = cartForm ?? removeForm;
+        const offer = form.closest('[data-offer-id]');
+        const offerId = offer.dataset.offerId;
+        const inCart = Number(offer.dataset.cartSavedQuantity) > 0;
+        if (busy.has(offerId) || (cartForm ? inCart || offer.querySelector('[data-cart-add-controls]').dataset.cartCanAdd === 'false' : !inCart)) return;
+        const quantity = cartForm ? form.elements.quantity.value : undefined;
+        busy.add(offerId);
+        feedback.set(offerId, { quantity });
+        sync();
+        try {
+            const response = await fetcher(form.action, {
+                method: cartForm ? 'POST' : 'DELETE',
+                headers: { Accept: 'application/json', 'X-Mode-Version': documentRoot.querySelector('meta[name="mode-version"]')?.content ?? '', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value, 'Content-Type': 'application/json' },
+                ...(cartForm ? { body: JSON.stringify({ quantity: Number(quantity) }) } : {}),
+            });
+            if (response.status === 409) documentRoot.dispatchEvent(new CustomEvent('account-mode-stale'));
+            const data = await response.json().catch(() => null);
+            if (!response.ok) {
+                const validation = Object.values(data?.errors ?? {}).flat().find((message) => typeof message === 'string' && message.trim());
+                const serverMessage = typeof data?.message === 'string' && data.message.trim() ? data.message : null;
+                throw new Error(validation ?? (cartForm && response.status === 404 ? 'Предложение недоступно. Проверьте наличие у поставщика.' : serverMessage)
+                    ?? (cartForm ? 'Не удалось добавить товар в корзину.' : 'Не удалось удалить товар из корзины.'));
+            }
+            if (String(data?.item?.offer_id) !== offerId || !Number.isInteger(data?.cart?.total_quantity) || data.cart.total_quantity < 0
+                || (cartForm && (!Number.isInteger(data.item.quantity) || data.item.quantity < 1 || typeof data.item.remove_url !== 'string' || !data.item.remove_url))) {
+                throw new Error('Некорректный ответ сервера. Повторите попытку.');
+            }
+            update({ ...data.item, quantity: cartForm ? data.item.quantity : 0 });
+            updateCartBadges(documentRoot, data.cart.total_quantity);
+            if (announcer) announcer.textContent = data.message ?? (cartForm ? 'Товар добавлен в корзину.' : 'Позиция удалена из корзины.');
+        } catch (failure) {
+            const message = failure instanceof TypeError ? 'Ошибка сети. Проверьте соединение и повторите попытку.'
+                : failure?.message || (cartForm ? 'Не удалось добавить товар в корзину.' : 'Не удалось удалить товар из корзины.');
+            feedback.set(offerId, { message, quantity });
+            if (announcer) announcer.textContent = message;
+        } finally {
+            busy.delete(offerId);
+            sync();
+        }
+    });
+    sync();
+    return { busy, sync, update, startSearch: () => states.clear() };
+};
+
+export const initializeCatalogQuantities = (root, { busy = new Set(), fetcher = (...args) => fetch(...args), documentRoot = document, onBusyChange = () => {}, onUpdate = (item) => updateCatalogOfferCartState(root, item) } = {}) => {
     const controlFor = (target) => target.closest('[data-catalog-quantity]');
     const parts = (control) => ({ button: control.querySelector('[data-quantity-edit]'), input: control.querySelector('[data-quantity-editor]'), error: control.querySelector('[data-quantity-error]') });
     const close = (control, focus = false) => {
@@ -204,6 +296,7 @@ export const initializeCatalogQuantities = (root, { busy = new Set(), fetcher = 
         if (quantity === Number(button.querySelector('[data-cart-quantity]').textContent)) { close(control, focus); return; }
         const form = control.closest('[data-cart-in-cart-controls]').querySelector('[data-cart-remove-form]');
         busy.add(offerId);
+        onBusyChange();
         input.readOnly = true;
         try {
             const response = await fetcher(form.action, {
@@ -214,7 +307,7 @@ export const initializeCatalogQuantities = (root, { busy = new Set(), fetcher = 
             if (response.status === 409) documentRoot.dispatchEvent(new CustomEvent('account-mode-stale'));
             const data = await response.json().catch(() => ({}));
             if (!response.ok || !data.item) throw new Error(data.errors?.quantity?.[0] ?? data.message ?? 'Не удалось обновить количество.');
-            updateCatalogOfferCartState(root, { offer_id: offerId, quantity: data.item.quantity });
+            onUpdate({ offer_id: offerId, quantity: data.item.quantity });
             updateCartBadges(documentRoot, data.cart.total_quantity);
             root.querySelectorAll(`[data-offer-id="${offerId}"] [data-catalog-quantity]`).forEach((instance) => close(instance));
             close(control, focus);
@@ -223,6 +316,7 @@ export const initializeCatalogQuantities = (root, { busy = new Set(), fetcher = 
         } finally {
             busy.delete(offerId);
             input.readOnly = false;
+            onBusyChange();
         }
     };
     root.addEventListener('click', (event) => {
@@ -447,6 +541,7 @@ export function initializeCatalogSearch(root) {
 
     const controller = new CatalogSearchController({
         fetcher: async (filters, signal) => {
+            cart.startSearch();
             const url = new URL(root.dataset.searchUrl, window.location.origin);
             Object.entries(filters).forEach(([key, value]) => Array.isArray(value) ? value.forEach((item) => url.searchParams.append(`${key}[]`, item)) : url.searchParams.set(key, value));
             const response = await fetch(url, { headers: { Accept: 'application/json' }, signal });
@@ -486,6 +581,7 @@ export function initializeCatalogSearch(root) {
             const mobileRows = root.querySelector('[data-catalog-mobile-rows]');
             if (append) mobileRows.insertAdjacentHTML('beforeend', catalogFragment(data, controller.view, 'mobile')); else mobileRows.innerHTML = catalogFragment(data, controller.view, 'mobile');
         }
+        cart.sync();
         if (data.facets) updateFacets(data.facets);
         root.querySelector('[data-result-count]').textContent = data.pagination ? `${data.pagination.total} предложений` : '';
         Object.entries(containers).forEach(([view, element]) => element.classList.toggle('hidden', view !== controller.view));
@@ -545,42 +641,8 @@ export function initializeCatalogSearch(root) {
     dialog.querySelector('[data-filter-reset]').addEventListener('click', () => { dialog.querySelector('[name="filter_sort"][value="price_asc"]').checked = true; dialog.querySelectorAll('[data-option-label] input').forEach((input) => { input.checked = false; }); });
     dialog.querySelector('[data-filter-apply]').addEventListener('click', () => { const values = (name) => [...dialog.querySelectorAll(`[name="filter_${name}[]"]:checked`)].map((input) => input.value); const filters = { sort: dialog.querySelector('[name="filter_sort"]:checked')?.value ?? 'price_asc', cities: values('cities'), suppliers: values('suppliers') }; dialog.close(); controller.setFilters(filters); });
 
-    const busyOffers = initializeCatalogQuantities(root);
-    root.addEventListener('submit', async (event) => {
-        const cartForm = event.target.closest('[data-cart-form]');
-        const removeForm = event.target.closest('[data-cart-remove-form]');
-        if (!cartForm && !removeForm) return;
-        event.preventDefault();
-
-        const form = cartForm ?? removeForm;
-        const offerId = form.closest('[data-offer-id]').dataset.offerId;
-        if (busyOffers.has(offerId)) return;
-        busyOffers.add(offerId);
-        const button = form.querySelector('button');
-        button.disabled = true;
-        try {
-            const response = await fetch(form.action, cartForm ? {
-                method: 'POST',
-                headers: { Accept: 'application/json', 'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ quantity: Number(form.elements.quantity.value) }),
-            } : {
-                method: 'DELETE',
-                headers: { Accept: 'application/json', 'X-Mode-Version': document.querySelector('meta[name="mode-version"]')?.content ?? '', 'X-CSRF-TOKEN': form.querySelector('[name="_token"]').value },
-            });
-            if (response.status === 409) document.dispatchEvent(new CustomEvent('account-mode-stale'));
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.message);
-
-            updateCatalogOfferCartState(root, { ...data.item, quantity: cartForm ? data.item.quantity : 0 });
-            updateCartBadges(document, data.cart.total_quantity);
-            announcer.textContent = data.message;
-        } catch {
-            announcer.textContent = cartForm ? 'Не удалось добавить товар в корзину.' : 'Не удалось удалить товар из корзины.';
-            button.disabled = false;
-        } finally {
-            busyOffers.delete(offerId);
-        }
-    });
+    const cart = initializeCatalogCart(root);
+    initializeCatalogQuantities(root, { busy: cart.busy, onBusyChange: cart.sync, onUpdate: cart.update });
 
     if ('IntersectionObserver' in window) new IntersectionObserver((entries) => { const panel = root.querySelector('[data-search-panel]'); panel.classList.toggle('is-compact', window.matchMedia('(min-width: 768px)').matches && !entries[0].isIntersecting); }, { rootMargin: '-72px 0px 0px' }).observe(root.querySelector('[data-search-sentinel]'));
     window.addEventListener('popstate', () => controller.restore(filtersFromUrl(), new URL(window.location.href).searchParams.get('view') ?? controller.view));
