@@ -20,10 +20,16 @@
                 </div>
                 <div class="space-y-3 border-t border-border pt-5">
                     <h3 class="font-semibold">Сроки и география</h3>
+                    @if($promotion->first_published_at !== null && $promotion->purchase_scope !== null)
+                        <p>Сроки зафиксированы: {{ $promotion->starts_on->format('d.m.Y') }} — {{ $promotion->ends_on->format('d.m.Y') }}</p>
+                        <input type="hidden" name="starts_on" value="{{ $promotion->starts_on->toDateString() }}">
+                        <input type="hidden" name="ends_on" value="{{ $promotion->ends_on->toDateString() }}">
+                    @else
                     <div class="grid min-w-0 gap-3 sm:grid-cols-2">
                         <x-ui.date-picker name="starts_on" label="Начало" :value="$promotion->starts_on?->toDateString()" required />
                         <x-ui.date-picker name="ends_on" label="Окончание" min-field="starts_on" :value="$promotion->ends_on?->toDateString()" required />
                     </div>
+                    @endif
                     <p class="text-xs text-muted">Даты включительно, часовой пояс Asia/Dushanbe.</p>
                     <x-ui.select name="city" label="Город">
                         <option value="">Все города</option>

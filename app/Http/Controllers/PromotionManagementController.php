@@ -42,7 +42,7 @@ class PromotionManagementController extends Controller
     public function edit(Promotion $promotion, Request $request): View
     {
         $this->authorize('manage', $promotion);
-        $promotion->load('items', 'attachments', 'organization');
+        $promotion->load('items', 'attachments', 'organization', 'prizes');
         $data = $request->validate(['offer_search' => ['nullable', 'string', 'max:255']]);
         $offerSearch = trim($data['offer_search'] ?? '');
         $companyOffers = Offer::query()->where('organization_id', $promotion->organization_id)->currentImport()->with('medicine');

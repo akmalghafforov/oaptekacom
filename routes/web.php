@@ -21,6 +21,7 @@ use App\Http\Controllers\PromotionAttachmentController;
 use App\Http\Controllers\PromotionController;
 use App\Http\Controllers\PromotionItemController;
 use App\Http\Controllers\PromotionManagementController;
+use App\Http\Controllers\PromotionParticipationController;
 use App\Http\Controllers\PromotionQuoteRequestController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SubscriptionRequestController;
@@ -96,6 +97,9 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::patch('/partners/{supplier}/discount', [PartnerController::class, 'updateDiscount'])->name('partners.discount');
     });
     Route::get('/promotions', [PromotionController::class, 'index'])->name('promotions.index');
+    Route::get('/promotions/participations', [PromotionParticipationController::class, 'mine'])->name('promotions.participations');
+    Route::get('/promotions/{promotion}/participants', [PromotionParticipationController::class, 'participants'])->name('promotions.participants');
+    Route::patch('/promotions/{promotion}/participation-settings', [PromotionParticipationController::class, 'update'])->name('promotions.participation-settings');
     Route::get('/promotions/manage', [PromotionManagementController::class, 'index'])->name('promotions.manage');
     Route::get('/promotions/create', [PromotionManagementController::class, 'create'])->name('promotions.create');
     Route::post('/promotions', [PromotionManagementController::class, 'store'])->name('promotions.store');

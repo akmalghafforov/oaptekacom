@@ -44,6 +44,9 @@
     }
 
     $accountItems[] = ['label' => 'Акции', 'description' => 'Предложения компаний', 'route' => 'promotions.index', 'active' => ['promotions.*']];
+    if ($user->isPharmacyMode()) {
+        $accountItems[] = ['label' => 'Мои участия', 'description' => 'Призовые акции вашей аптеки', 'route' => 'promotions.participations', 'active' => ['promotions.participations']];
+    }
     $accountItems[] = ['label' => 'Запросы цены', 'description' => 'Вопросы по акциям', 'route' => 'promotion-quotes.index', 'active' => ['promotion-quotes.*']];
 
     if (! $user->isPharmacyMode() && $user->hasUnlimitedSubscriptionAccess()) {

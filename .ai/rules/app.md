@@ -22,3 +22,6 @@ Promotion content and moderation writes take sorted company locks before promoti
 
 ## Keep promotion upload batches atomic
 Promotion materials[], banners[] and the optional single logo upload together; logo updates the company profile. Validate every file before storing any, then apply the batch under one PromotionWorkflow lock and increment terms once. Clean stored paths on failure, and retain the legacy role/file request shape for existing clients.
+
+## Capture prize eligibility only at placement under supplier locks
+Capture immutable promotion/order contributions only in the two checkout transactions, after saved discounted lines, for the active pharmacy identity. Never backfill historical orders or archives. Status updates and reconciliation acquire the supplier lock before order/promotion rows and recompute eligibility from captured contributions; retain first qualification when eligibility reverses. First publication locks participation settings/prizes for every promotion and dates for prize promotions; ordinary promotion dates retain existing behavior.

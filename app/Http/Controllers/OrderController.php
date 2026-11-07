@@ -3,10 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Organization;
 use App\Services\AuditLogger;
+use App\Services\PromotionQualification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class OrderController extends Controller
@@ -30,13 +33,20 @@ class OrderController extends Controller
         return view('orders.show', compact('order'));
     }
 
-    public function status(Order $order, Request $request, AuditLogger $auditLogger): RedirectResponse
+    public function status(Order $order, Request $request, AuditLogger $auditLogger, PromotionQualification $qualification): RedirectResponse
     {
         $this->authorize('update', $order);
         $validated = $request->validate(['status' => 'required|in:received,confirmed,partially_confirmed,preparing,ready,delivering,received_by_customer,cancelled']);
-        $before = $order->only('status');
-        $order->update($validated);
-        $auditLogger->log('order.status_changed', $order, $before, $order->only('status'));
+        DB::transaction(function () use ($order, $validated, $auditLogger, $qualification): void {
+            Organization::query()->whereKey($order->supplier_organization_id)->lockForUpdate()->firstOrFail();
+            $current = Order::query()->lockForUpdate()->findOrFail($order->id);
+            abort_unless($current->supplier_organization_id === $order->supplier_organization_id, 409);
+            $this->authorize('update', $current);
+            $before = $current->only('status');
+            $current->update($validated);
+            $qualification->recomputeForOrder($current);
+            $auditLogger->log('order.status_changed', $current, $before, $current->only('status'));
+        }, 3);
 
         return back()->with('success', 'Статус обновлён.');
     }

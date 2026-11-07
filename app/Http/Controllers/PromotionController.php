@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\PromotionStatus;
 use App\Models\Organization;
 use App\Models\Promotion;
+use App\Services\PromotionQualification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -28,14 +29,23 @@ class PromotionController extends Controller
         return view('promotions.index', compact('promotions', 'companies', 'cities', 'filters'));
     }
 
-    public function show(Promotion $promotion, Request $request): View
+    public function show(Promotion $promotion, Request $request, PromotionQualification $qualification): View
     {
         $this->authorize('view', $promotion);
-        $promotion->load('organization', 'items', 'attachments');
+        $promotion->load('organization', 'items', 'attachments', 'prizes');
+        $progress = null;
+        $participation = null;
+        if ($promotion->purchase_scope !== null && $request->user()->isPharmacyMode() && $request->user()->canBuy() && $request->user()->hasActiveSubscription()) {
+            $pharmacyId = $request->user()->activeOrganizationId();
+            if ($pharmacyId !== null) {
+                $progress = $qualification->progress($promotion, $pharmacyId);
+                $participation = $promotion->participants()->where('pharmacy_organization_id', $pharmacyId)->first();
+            }
+        }
         $phone = preg_replace('/\D/', '', $promotion->organization->whatsapp_phone ?? '');
         $whatsappUrl = $phone ? 'https://wa.me/'.$phone.'?text='.rawurlencode($promotion->title.' '.route('promotions.show', $promotion)) : null;
 
-        return view('promotions.show', compact('promotion', 'whatsappUrl'));
+        return view('promotions.show', compact('promotion', 'whatsappUrl', 'progress', 'participation'));
     }
 
     public function logo(Organization $organization, Request $request): BinaryFileResponse

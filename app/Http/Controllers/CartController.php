@@ -14,6 +14,7 @@ use App\Models\SupplierRequest;
 use App\Services\AuditLogger;
 use App\Services\CartMaintenance;
 use App\Services\PromotionCart;
+use App\Services\PromotionQualification;
 use App\Services\SupplierDiscountPrice;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\JsonResponse;
@@ -26,7 +27,7 @@ use Illuminate\View\View;
 
 class CartController extends Controller
 {
-    public function __construct(private CartMaintenance $maintenance) {}
+    public function __construct(private CartMaintenance $maintenance, private PromotionQualification $qualification) {}
 
     /**
      * Route bindings may predate a concurrent activation. Reload them only after
@@ -263,6 +264,7 @@ class CartController extends Controller
                 OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'promotion_item_id' => $cartItem->promotion_item_id, 'promotion_id' => $cartItem->snapshot['promotion_id'] ?? null, 'medicine_id' => $cartItem->medicineId(), 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
             }
 
+            $this->qualification->capture($order, $request->user());
             $this->maintenance->remove($cart, $cartItems, 'cart.checkout_removed', ['checkout_id' => $checkoutId]);
         });
 
@@ -350,6 +352,7 @@ class CartController extends Controller
                 foreach ($cartItems as $cartItem) {
                     OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'promotion_item_id' => $cartItem->promotion_item_id, 'promotion_id' => $cartItem->snapshot['promotion_id'] ?? null, 'medicine_id' => $cartItem->medicineId(), 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
                 }
+                $this->qualification->capture($order, $request->user());
             }
             $this->maintenance->remove($cart, $cart->items, 'cart.checkout_removed', ['checkout_id' => $checkoutId]);
         });

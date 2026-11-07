@@ -12,7 +12,7 @@
         <x-slot:actions>
             <div class="flex flex-wrap gap-2">
                 <x-ui.button :href="route('promotions.manage')" variant="secondary">К списку</x-ui.button>
-                @if($promotion->exists)<x-ui.button :href="route('promotions.show', $promotion)" variant="secondary">Предпросмотр</x-ui.button>@endif
+                @if($promotion->exists)<x-ui.button :href="route('promotions.show', $promotion)" variant="secondary">Предпросмотр</x-ui.button><x-ui.button :href="route('promotions.participants', $promotion)" variant="secondary">Участники</x-ui.button>@endif
             </div>
         </x-slot:actions>
     </x-ui.page-header>
@@ -25,6 +25,7 @@
             <x-ui.card>
                 <nav aria-label="Разделы редактора" class="space-y-1">
                     <a href="#information" class="flex min-h-10 items-center justify-between gap-2 rounded-control px-3 text-sm font-medium hover:bg-accent-surface">Основная информация <span aria-hidden="true">↓</span></a>
+                    <a href="#participation" class="flex min-h-10 items-center rounded-control px-3 text-sm font-medium hover:bg-accent-surface">Условия участия и призы</a>
                     <a href="#products" class="flex min-h-10 items-center justify-between gap-2 rounded-control px-3 text-sm font-medium hover:bg-accent-surface">Товары <span class="text-muted">{{ $itemCount }}</span></a>
                     <a href="#materials" class="flex min-h-10 items-center justify-between gap-2 rounded-control px-3 text-sm font-medium hover:bg-accent-surface">Материалы <span class="text-muted">{{ $materialCount }}</span></a>
                 </nav>
@@ -39,6 +40,7 @@
                 <x-ui.alert type="warning">Акция на проверке. Для редактирования отзовите заявку в черновик.</x-ui.alert>
             @endif
             @include('promotions.information')
+            @include('promotions.participation-settings')
             <x-ui.card id="products" class="min-w-0 scroll-mt-6">
                 <div class="mb-5 flex flex-wrap items-baseline justify-between gap-2">
                     <h2 class="text-xl font-bold">Товары <span class="text-muted">{{ $itemCount }}</span></h2>

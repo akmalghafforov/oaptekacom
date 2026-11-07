@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('content')
 <x-ui.page-header title="Акции" description="Предложения компаний, брошюры и специальные условия">
-    <x-slot:actions><div class="flex flex-wrap gap-2"><x-ui.button :href="route('promotion-quotes.index')" variant="secondary">Запросы цены</x-ui.button>@can('create', \App\Models\Promotion::class)<x-ui.button :href="route('promotions.manage')">Управление акциями</x-ui.button>@endcan</div></x-slot:actions>
+    <x-slot:actions>@if(auth()->user()->isPharmacyMode())<x-ui.button :href="route('promotions.participations')" variant="secondary">Мои участия</x-ui.button>@endif<div class="flex flex-wrap gap-2"><x-ui.button :href="route('promotion-quotes.index')" variant="secondary">Запросы цены</x-ui.button>@can('create', \App\Models\Promotion::class)<x-ui.button :href="route('promotions.manage')">Управление акциями</x-ui.button>@endcan</div></x-slot:actions>
 </x-ui.page-header>
 <x-ui.card class="mb-5">
     <form method="get" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -14,6 +14,7 @@
         <x-ui.button type="button" variant="secondary" data-promotion-share data-url="{{ route('promotions.show', $promotion) }}" data-title="{{ $promotion->title }}">Поделиться</x-ui.button><span data-promotion-share-status role="status" class="text-sm text-muted"></span>
     </div>
 </x-ui.card>
+@include('promotions.participation')
 <div class="grid gap-4 lg:grid-cols-2">
 @foreach($promotion->attachments as $attachment)
     <x-ui.card class="min-w-0 space-y-3">

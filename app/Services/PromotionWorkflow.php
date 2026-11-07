@@ -62,6 +62,13 @@ class PromotionWorkflow
                 if ((int) $data['organization_id'] !== $current->organization_id && ($current->first_published_at !== null || $current->items()->withTrashed()->exists())) {
                     throw ValidationException::withMessages(['organization_id' => 'Компания акции с позициями или историей публикации неизменна.']);
                 }
+                if ($current->first_published_at !== null && $current->purchase_scope !== null) {
+                    foreach (['starts_on', 'ends_on'] as $date) {
+                        if ($current->{$date}->toDateString() !== $data[$date]) {
+                            throw ValidationException::withMessages([$date => 'Сроки участия неизменны после первой публикации.']);
+                        }
+                    }
+                }
                 $before = $current->toArray();
                 $current->fill($data);
                 if ($poster !== null) {
@@ -77,6 +84,30 @@ class PromotionWorkflow
             }
             throw $exception;
         }
+    }
+
+    /** @param array<string, mixed> $data */
+    public function saveParticipation(User $user, Promotion $promotion, array $data): void
+    {
+        $this->locked($promotion, function (Promotion $current) use ($user, $data): void {
+            Gate::forUser($user)->authorize('update', $current);
+            if ($current->first_published_at !== null) {
+                throw ValidationException::withMessages(['participation_enabled' => 'Условия участия и призы неизменны после первой публикации.']);
+            }
+            $before = $current->load('prizes')->toArray();
+            $enabled = (bool) $data['participation_enabled'];
+            foreach (['purchase_scope', 'condition_match', 'minimum_total', 'minimum_order_value', 'minimum_order_count'] as $field) {
+                $current->{$field} = $enabled ? ($data[$field] ?? null) : null;
+            }
+            $current->prizes()->delete();
+            if ($enabled) {
+                foreach ($data['prizes'] as $prize) {
+                    $current->prizes()->create(['name' => $prize['name'], 'description' => $prize['description'] ?? null, 'quantity' => $prize['quantity'] ?? 1]);
+                }
+            }
+            $current->load('prizes');
+            $this->edited($current, $user, $before);
+        });
     }
 
     private function attachPoster(Promotion $promotion, UploadedFile $poster, string $path, User $user): void

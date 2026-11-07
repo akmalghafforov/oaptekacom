@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\PromotionConditionMatch;
+use App\Enums\PromotionPurchaseScope;
 use App\Enums\PromotionStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -40,6 +42,21 @@ class Promotion extends Model
         return $this->hasMany(PromotionQuoteRequest::class);
     }
 
+    public function prizes(): HasMany
+    {
+        return $this->hasMany(PromotionPrize::class)->orderBy('id');
+    }
+
+    public function contributions(): HasMany
+    {
+        return $this->hasMany(PromotionContribution::class);
+    }
+
+    public function participants(): HasMany
+    {
+        return $this->hasMany(PromotionParticipant::class);
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         $today = now('Asia/Dushanbe')->toDateString();
@@ -58,6 +75,6 @@ class Promotion extends Model
 
     protected function casts(): array
     {
-        return ['status' => PromotionStatus::class, 'starts_on' => 'date', 'ends_on' => 'date', 'first_published_at' => 'datetime', 'reviewed_at' => 'datetime'];
+        return ['purchase_scope' => PromotionPurchaseScope::class, 'condition_match' => PromotionConditionMatch::class, 'minimum_total' => 'decimal:2', 'minimum_order_value' => 'decimal:2', 'minimum_order_count' => 'integer', 'status' => PromotionStatus::class, 'starts_on' => 'date', 'ends_on' => 'date', 'first_published_at' => 'datetime', 'reviewed_at' => 'datetime'];
     }
 }
