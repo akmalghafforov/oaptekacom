@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd(), '');
+    const port = Number(env.VITE_PORT || 5173);
     const tls = env.DEV_TLS_CERT && env.DEV_TLS_KEY ? {
         cert: readFileSync(env.DEV_TLS_CERT),
         key: readFileSync(env.DEV_TLS_KEY),
@@ -25,9 +26,11 @@ export default defineConfig(({ mode }) => {
             tailwindcss(),
         ],
         server: {
+            port,
+            strictPort: true,
             ...(tls ? {
                 https: tls,
-                origin: `https://${new URL(env.APP_URL).hostname}:5173`,
+                origin: `https://${new URL(env.APP_URL).hostname}:${port}`,
                 cors: { origin: new URL(env.APP_URL).origin },
                 hmr: { host: new URL(env.APP_URL).hostname, protocol: 'wss' },
             } : {}),

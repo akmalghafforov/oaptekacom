@@ -55,8 +55,9 @@ services:
       - node_modules:/var/www/node_modules
     environment:
       CHOKIDAR_USEPOLLING: "true"
+      VITE_PORT: ${VITE_PORT:-5173}
     ports:
-      - "5173:5173"
+      - "${VITE_PORT:-5173}:${VITE_PORT:-5173}"
     networks: [internal]
 
   nginx:
