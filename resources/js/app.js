@@ -529,3 +529,9 @@ document.querySelectorAll('[data-quote-item]').forEach((link) => link.addEventLi
     select.value = link.dataset.quoteItem;
     select.focus();
 }));
+
+if (document.querySelector('[data-promotion-editor]')) {
+    import('./promotion-editor.js').then(({ initializePromotionEditor }) => {
+        initializePromotionEditor(document.querySelector('[data-promotion-editor]'), document, window);
+    });
+}

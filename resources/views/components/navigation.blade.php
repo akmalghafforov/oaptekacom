@@ -112,7 +112,7 @@
     </nav>
 
 @else
-    <details class="relative md:hidden">
+    <details class="relative lg:hidden">
         <summary class="flex min-h-10 cursor-pointer list-none items-center rounded-control border border-control-border px-3 text-sm font-medium">Меню</summary>
         <nav class="absolute right-0 z-10 mt-2 flex w-60 flex-col gap-1 rounded-panel border border-border bg-surface p-2 shadow-panel" aria-label="Основная навигация">
             @foreach($navigationItems as $item)
@@ -123,7 +123,7 @@
         </nav>
     </details>
 
-    <nav class="hidden items-center gap-1 text-sm md:flex" aria-label="Основная навигация">
+    <nav class="hidden items-center gap-1 text-sm lg:flex" aria-label="Основная навигация">
         @foreach($navigationItems as $item)
             @php($isActive = request()->routeIs(...$item['active']))
             <a class="flex min-h-10 items-center gap-2 rounded-control px-3 {{ $isActive ? 'bg-accent-surface font-semibold text-accent' : 'text-secondary hover:bg-surface-subtle' }}" href="{{ route($item['route']) }}" @if($isActive) aria-current="page" @endif>{{ $item['label'] }}@if($item['route'] === 'cart' && $cartTotal)<span class="rounded-full bg-action px-2 py-0.5 text-xs text-white">{{ $cartTotal }}</span>@endif</a>

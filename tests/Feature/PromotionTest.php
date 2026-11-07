@@ -190,6 +190,122 @@ class PromotionTest extends TestCase
         $this->get(route('promotions.attachments.show', $attachment))->assertOk();
     }
 
+    public function test_supplier_uploads_materials_banners_and_logo_together_and_updates_terms_once(): void
+    {
+        Storage::fake('local');
+        $supplier = User::factory()->wholesaler()->create();
+        $promotion = Promotion::factory()->published()->for($supplier->organization)->create();
+        $termsVersion = $promotion->fresh()->terms_version;
+        $url = route('promotions.edit', $promotion);
+
+        $this->actingAs($supplier)->from($url)->post(route('promotions.attachments.store', $promotion), [
+            'materials' => [UploadedFile::fake()->createWithContent('conditions.pdf', '%PDF-1.7 test'), UploadedFile::fake()->image('product.png')],
+            'banners' => [UploadedFile::fake()->image('banner-one.png'), UploadedFile::fake()->image('banner-two.webp')],
+            'logo' => UploadedFile::fake()->image('logo.png'),
+        ])->assertRedirect($url.'#materials')->assertSessionHas('success', 'Файлы загружены: 5.');
+
+        $this->assertSame(2, $promotion->attachments()->where('role', 'material')->count());
+        $this->assertSame(2, $promotion->attachments()->where('role', 'banner')->count());
+        $this->assertSame(5, count(Storage::disk('local')->allFiles()));
+        foreach ($promotion->attachments as $attachment) {
+            Storage::disk('local')->assertExists($attachment->path);
+        }
+        Storage::disk('local')->assertExists($supplier->organization->fresh()->logo_path);
+        $this->assertSame(PromotionStatus::Draft, $promotion->fresh()->status);
+        $this->assertSame($termsVersion + 1, $promotion->fresh()->terms_version);
+        $this->assertSame(4, AuditEvent::where('event', 'promotion.attachment_created')->count());
+        $this->assertSame(1, AuditEvent::where('event', 'organization.logo_updated')->count());
+    }
+
+    #[TestWith(['materials'])]
+    #[TestWith(['banners'])]
+    #[TestWith(['logo'])]
+    public function test_batch_upload_accepts_any_single_category(string $category): void
+    {
+        Storage::fake('local');
+        $supplier = User::factory()->wholesaler()->create();
+        $promotion = Promotion::factory()->for($supplier->organization)->create();
+        $file = UploadedFile::fake()->image('example.png');
+
+        $this->actingAs($supplier)->post(route('promotions.attachments.store', $promotion), [$category => $category === 'logo' ? $file : [$file]])->assertRedirect();
+
+        $this->assertSame(1, count(Storage::disk('local')->allFiles()));
+        $this->assertSame($category === 'logo' ? 0 : 1, $promotion->attachments()->count());
+        if ($category === 'logo') {
+            Storage::disk('local')->assertExists($supplier->organization->fresh()->logo_path);
+        } else {
+            $this->assertSame($category === 'materials' ? 'material' : 'banner', $promotion->attachments()->sole()->role);
+        }
+    }
+
+    public function test_invalid_file_cancels_the_entire_batch_before_any_file_is_stored(): void
+    {
+        Storage::fake('local');
+        $supplier = User::factory()->wholesaler()->create();
+        $promotion = Promotion::factory()->published()->for($supplier->organization)->create();
+        $termsVersion = $promotion->fresh()->terms_version;
+        $logoPath = $supplier->organization->logo_path;
+
+        $this->actingAs($supplier)->post(route('promotions.attachments.store', $promotion), [
+            'materials' => [UploadedFile::fake()->image('valid.png')],
+            'banners' => [UploadedFile::fake()->createWithContent('conditions.pdf', '%PDF-1.7 test')],
+            'logo' => UploadedFile::fake()->image('logo.png'),
+        ])->assertSessionHasErrors('banners.0');
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertSame(0, $promotion->attachments()->count());
+        $this->assertSame($logoPath, $supplier->organization->fresh()->logo_path);
+        $this->assertSame(PromotionStatus::Published, $promotion->fresh()->status);
+        $this->assertSame($termsVersion, $promotion->fresh()->terms_version);
+        $this->assertSame(0, AuditEvent::whereIn('event', ['promotion.attachment_created', 'organization.logo_updated'])->count());
+    }
+
+    #[TestWith(['materials', 'large.png', 'image/png', 5121, 'materials.0'])]
+    #[TestWith(['banners', 'large.png', 'image/png', 5121, 'banners.0'])]
+    #[TestWith(['logo', 'large.png', 'image/png', 5121, 'logo'])]
+    #[TestWith(['materials', 'large.pdf', 'application/pdf', 20481, 'materials.0'])]
+    #[TestWith(['materials', 'large.mp4', 'video/mp4', 102401, 'materials.0'])]
+    public function test_batch_upload_enforces_per_file_size_limits(string $category, string $filename, string $mime, int $size, string $error): void
+    {
+        Storage::fake('local');
+        $supplier = User::factory()->wholesaler()->create();
+        $promotion = Promotion::factory()->for($supplier->organization)->create();
+        $file = UploadedFile::fake()->create($filename, $size, $mime);
+
+        $this->actingAs($supplier)->post(route('promotions.attachments.store', $promotion), [$category => $category === 'logo' ? $file : [$file]])
+            ->assertSessionHasErrors($error);
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertSame(0, $promotion->attachments()->count());
+    }
+
+    public function test_empty_batch_requires_at_least_one_file(): void
+    {
+        Storage::fake('local');
+        $supplier = User::factory()->wholesaler()->create();
+        $promotion = Promotion::factory()->for($supplier->organization)->create();
+
+        $this->actingAs($supplier)->post(route('promotions.attachments.store', $promotion))
+            ->assertSessionHasErrors(['materials' => 'Выберите хотя бы один материал, баннер или логотип.']);
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertSame(0, $promotion->attachments()->count());
+    }
+
+    public function test_batch_upload_cannot_change_another_company_or_a_supplier_promotion_under_review(): void
+    {
+        Storage::fake('local');
+        $supplier = User::factory()->wholesaler()->create();
+        $other = Promotion::factory()->create();
+        $pending = Promotion::factory()->for($supplier->organization)->create(['status' => PromotionStatus::PendingReview]);
+
+        $this->actingAs($supplier)->post(route('promotions.attachments.store', $other), ['logo' => UploadedFile::fake()->image('logo.png')])->assertForbidden();
+        $this->post(route('promotions.attachments.store', $pending), ['materials' => [UploadedFile::fake()->image('product.png')]])->assertForbidden();
+
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        $this->assertDatabaseCount('promotion_attachments', 0);
+    }
+
     public function test_items_copy_company_price_list_characteristics_but_keep_independent_price(): void
     {
         $supplier = User::factory()->wholesaler()->create();

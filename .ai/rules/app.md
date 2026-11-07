@@ -19,3 +19,6 @@ Subscription monitoring counts records, not accounts or organization entitlement
 
 ## Serialize promotion terms with basket confirmation
 Promotion content and moderation writes take sorted company locks before promotion/item rows, sharing CartMaintenance supplier locks. Keep promotion copies independent of offer imports and soft-delete used items. Any changed promotion terms require the exact current terms token before checkout, sharing, export or archive. Preserve a pending discount proposal across basket refreshes, especially after an agreement is cleared; supplier-default edits alone keep frozen discounts.
+
+## Keep promotion upload batches atomic
+Promotion materials[], banners[] and the optional single logo upload together; logo updates the company profile. Validate every file before storing any, then apply the batch under one PromotionWorkflow lock and increment terms once. Clean stored paths on failure, and retain the legacy role/file request shape for existing clients.

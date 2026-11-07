@@ -28,7 +28,7 @@ class PromotionItemController extends Controller
             $workflow->edited($current, $request->user());
         });
 
-        return back()->with('success', 'Позиция добавлена.');
+        return back()->withFragment('products')->with('success', 'Позиция добавлена.');
     }
 
     public function update(Promotion $promotion, PromotionItem $item, SavePromotionItemRequest $request, PromotionWorkflow $workflow, AuditLogger $audit): RedirectResponse
@@ -45,7 +45,7 @@ class PromotionItemController extends Controller
             $workflow->edited($current, $request->user());
         });
 
-        return back()->with('success', 'Позиция сохранена.');
+        return back()->withFragment('products')->with('success', 'Позиция сохранена.');
     }
 
     public function destroy(Promotion $promotion, PromotionItem $item, Request $request, PromotionWorkflow $workflow, AuditLogger $audit): RedirectResponse
@@ -59,6 +59,6 @@ class PromotionItemController extends Controller
             $workflow->edited($current, $request->user());
         });
 
-        return back()->with('success', 'Позиция удалена.');
+        return back()->withFragment('products')->with('success', 'Позиция удалена.');
     }
 }
