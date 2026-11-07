@@ -7,7 +7,7 @@
         'processing' => 'Обрабатывается', 'preview' => 'Ожидает проверки', 'committing' => 'Активируется',
         'completed' => 'Активен', 'active' => 'Активна', 'blocked' => 'Заблокирована', 'superseded' => 'Заменён', 'failed' => 'Ошибка',
     ];
-    $positive = ['received', 'confirmed', 'received_by_customer', 'approved', 'completed', 'active'];
+    $positive = ['received', 'confirmed', 'received_by_customer', 'approved', 'completed', 'active', 'published'];
     $negative = ['cancelled', 'rejected', 'failed', 'blocked'];
     $style = in_array($status, $negative, true) ? 'bg-danger-surface text-danger ring-danger-border' : (in_array($status, $positive, true) ? 'bg-accent-surface text-accent ring-success-border' : 'bg-warning-surface text-warning ring-warning-border');
 @endphp

@@ -3,6 +3,7 @@
     /** @var \App\Models\User $user */
     $user = auth()->user();
     $navigationItems = [];
+    $navigationItems[] = ['label' => 'Акции', 'route' => 'promotions.index', 'active' => ['promotions.*']];
     $accountInitial = str($user->name)->trim()->substr(0, 1)->upper();
     $accountIsActive = $user->hasActiveSubscription();
     $accountItems = [
@@ -19,6 +20,7 @@
             ['label' => 'Мой тариф', 'description' => 'Безлимитный доступ', 'route' => 'subscription.create', 'active' => ['subscription.*', 'payment-requests.*']],
         ];
         $navigationItems = [
+            ['label' => 'Акции', 'route' => 'promotions.manage', 'active' => ['promotions.*']],
             ['label' => 'Операционный центр', 'route' => 'admin.index', 'active' => ['admin.index']],
             ['label' => 'Gmail', 'route' => 'admin.gmail.index', 'active' => ['admin.gmail.*']],
             ['label' => 'Аптеки', 'route' => 'admin.pharmacies.index', 'active' => ['admin.pharmacies.*']],
@@ -41,6 +43,9 @@
         $navigationItems[] = ['label' => 'Заказы', 'route' => 'orders.index', 'active' => ['orders.*']];
     }
 
+    $accountItems[] = ['label' => 'Акции', 'description' => 'Предложения компаний', 'route' => 'promotions.index', 'active' => ['promotions.*']];
+    $accountItems[] = ['label' => 'Запросы цены', 'description' => 'Вопросы по акциям', 'route' => 'promotion-quotes.index', 'active' => ['promotion-quotes.*']];
+
     if (! $user->isPharmacyMode() && $user->hasUnlimitedSubscriptionAccess()) {
         $navigationItems[] = ['label' => 'Безлимитный доступ', 'route' => 'subscription.create', 'active' => ['subscription.create']];
     }
@@ -61,6 +66,7 @@
             <a href="{{ route('catalog') }}" data-primary-link="catalog" class="flex min-h-10 items-center rounded-control px-3 {{ $isCatalogActive ? 'bg-accent-surface font-semibold text-accent' : 'text-secondary hover:bg-surface-subtle' }}" @if($isCatalogActive) aria-current="page" @endif>Поиск</a>
             <a href="{{ route('cart') }}" data-primary-link="cart" class="flex min-h-10 items-center gap-2 rounded-control px-3 {{ $isCartActive ? 'bg-accent-surface font-semibold text-accent' : 'text-secondary hover:bg-surface-subtle' }}" @if($isCartActive) aria-current="page" @endif>Корзина @if($cartTotal)<span class="rounded-full bg-action px-2 py-0.5 text-xs font-semibold text-white">{{ $cartTotal }}</span>@endif</a>
             <a href="{{ route('partners.index') }}" data-primary-link="partners" class="flex min-h-10 items-center rounded-control px-3 {{ $isPartnersActive ? 'bg-accent-surface font-semibold text-accent' : 'text-secondary hover:bg-surface-subtle' }}" @if($isPartnersActive) aria-current="page" @endif>Партнёры</a>
+            <a href="{{ route('promotions.index') }}" class="flex min-h-10 items-center rounded-control px-3 text-secondary hover:bg-surface-subtle">Акции</a>
             <button type="button" disabled data-primary-placeholder="questions" class="flex min-h-10 items-center rounded-control px-3 text-placeholder" title="Раздел готовится">Вопросы <span class="sr-only">недоступно</span></button>
         </div>
 

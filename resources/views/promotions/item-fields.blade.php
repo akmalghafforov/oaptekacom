@@ -1,0 +1,8 @@
+<x-ui.input name="name" :id="'name-'.$fieldId" label="Название" :value="$item?->name" :required="! $copy" />
+<div class="grid gap-3 sm:grid-cols-3"><x-ui.input name="dosage" :id="'dosage-'.$fieldId" label="Дозировка" :value="$item?->dosage" /><x-ui.input name="form" :id="'form-'.$fieldId" label="Форма" :value="$item?->form" /><x-ui.input name="packaging" :id="'packaging-'.$fieldId" label="Упаковка" :value="$item?->packaging" /></div>
+<div class="grid gap-3 sm:grid-cols-2"><x-ui.input name="price" :id="'price-'.$fieldId" label="Цена, TJS" type="number" step="0.01" min="0" :value="$item?->price" hint="Пустое поле — цена по запросу" />
+<x-ui.select name="price_mode" :id="'price-mode-'.$fieldId" label="Режим цены"><option value="final" @selected($item?->price_mode !== 'pharmacy_discount')>Окончательная цена</option><option value="pharmacy_discount" @selected($item?->price_mode === 'pharmacy_discount')>Применять дополнительную скидку аптеки</option></x-ui.select></div>
+<div class="grid gap-3 sm:grid-cols-3"><x-ui.input name="minimum_quantity" :id="'minimum-'.$fieldId" label="Минимальное количество" type="number" min="1" :value="$item?->minimum_quantity ?? 1" required />
+<x-ui.select name="in_stock" :id="'in-stock-'.$fieldId" label="Наличие"><option value="1" @selected($item?->in_stock !== false)>В наличии</option><option value="0" @selected($item?->in_stock === false)>Нет в наличии</option></x-ui.select>
+<x-ui.input name="stock" :id="'stock-'.$fieldId" label="Остаток" type="number" min="0" :value="$item?->stock" hint="Пустое поле — остаток неизвестен" /></div>
+<x-ui.textarea name="discount_rule" :id="'discount-rule-'.$fieldId" label="Правило скидки" :value="$item?->discount_rule" rows="2" />

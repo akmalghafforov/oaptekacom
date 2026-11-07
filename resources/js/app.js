@@ -1,3 +1,4 @@
+import { initializeDatePicker } from './date-picker.js';
 import { createCartTextShare } from './cart-text-share.js';
 import { updateCartAvailability } from './cart-availability.js';
 import { initializeOtpResend } from './otp-resend.js';
@@ -10,6 +11,7 @@ import { createSupplierFileShare } from './supplier-file-share.js';
 import { initializeCatalogSearch, updateCartBadges } from './catalog-search.js';
 
 document.querySelectorAll('[data-ui-dropdown]').forEach(initializeDropdown);
+document.querySelectorAll('[data-date-picker]').forEach((root) => initializeDatePicker(root, window));
 
 const formatPhone = (value, showCountryCode = false) => {
     let digits = value.replace(/\D/g, '');
@@ -389,13 +391,14 @@ cartQuantityGroups.forEach((group) => {
     const schedule = (input) => {
         const quantity = Number(input.value);
         const maximum = Number(input.max || 999999);
+        const minimum = Number(input.min || 1);
 
-        if (!Number.isInteger(quantity) || quantity < 1 || quantity > maximum) {
+        if (!Number.isInteger(quantity) || quantity < minimum || quantity > maximum) {
             group.error = true;
             group.desired = group.confirmed;
             updateCartSharing();
             setInputs(group.confirmed);
-            setStatus(`Укажите количество от 1 до ${maximum}.`, true);
+            setStatus(`Укажите количество от ${minimum} до ${maximum}.`, true);
 
             return;
         }
@@ -498,3 +501,31 @@ initializeGmailActions(document, window);
 initializeGmailProgress(document, window);
 
 document.querySelectorAll('[data-otp-resend]').forEach((root) => initializeOtpResend(root, document, window));
+
+if (document.querySelector('[data-promotion-pdf]')) {
+    Promise.all([
+        import('pdfjs-dist/build/pdf.mjs'),
+        import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+        import('./promotion-pdf.js'),
+    ]).then(([pdfjs, worker, viewer]) => {
+        pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+        document.querySelectorAll('[data-promotion-pdf]').forEach((root) => viewer.initializePromotionPdf(root, pdfjs, window));
+    }).catch(() => {
+        document.querySelectorAll('[data-pdf-error]').forEach((error) => { error.hidden = false; });
+        document.querySelectorAll('[data-pdf-page]').forEach((output) => { output.textContent = 'Ошибка просмотра'; });
+    });
+}
+
+if (document.querySelector('[data-promotion-share], [data-promotion-order], [data-promotion-terms]')) {
+    import('./promotions.js').then(({ initializePromotionSelection, initializePromotionTerms, sharePromotion }) => {
+        document.querySelectorAll('[data-promotion-order]').forEach((form) => initializePromotionSelection(form, document));
+        document.querySelectorAll('[data-promotion-terms]').forEach(initializePromotionTerms);
+        document.querySelectorAll('[data-promotion-share]').forEach((button) => button.addEventListener('click', () => sharePromotion(button, navigator, document.querySelector('[data-promotion-share-status]'))));
+    });
+}
+
+document.querySelectorAll('[data-quote-item]').forEach((link) => link.addEventListener('click', () => {
+    const select = document.querySelector('#quote-form [name="promotion_item_id"]');
+    select.value = link.dataset.quoteItem;
+    select.focus();
+}));

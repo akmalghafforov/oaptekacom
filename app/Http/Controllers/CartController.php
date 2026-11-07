@@ -9,9 +9,11 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Organization;
 use App\Models\PharmacySupplierDiscount;
+use App\Models\Promotion;
 use App\Models\SupplierRequest;
 use App\Services\AuditLogger;
 use App\Services\CartMaintenance;
+use App\Services\PromotionCart;
 use App\Services\SupplierDiscountPrice;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\JsonResponse;
@@ -38,6 +40,8 @@ class CartController extends Controller
         foreach ($parameters as $parameter) {
             if ($parameter instanceof Offer) {
                 $supplierIds[] = $parameter->organization_id;
+            } elseif ($parameter instanceof Promotion) {
+                $supplierIds[] = $parameter->organization_id;
             } elseif ($parameter instanceof Organization) {
                 $supplierIds[] = $parameter->id;
             }
@@ -45,7 +49,7 @@ class CartController extends Controller
 
         return $this->maintenance->transaction(request()->user(), $supplierIds, function () use ($method, $parameters): mixed {
             foreach ($parameters as $key => $parameter) {
-                if ($parameter instanceof CartItem || $parameter instanceof Offer || $parameter instanceof Organization) {
+                if ($parameter instanceof CartItem || $parameter instanceof Offer || $parameter instanceof Organization || $parameter instanceof Promotion) {
                     $parameters[$key] = $parameter->newQuery()->lockForUpdate()->findOrFail($parameter->id);
                 }
             }
@@ -64,9 +68,9 @@ class CartController extends Controller
         abort_unless($request->user()->canBuy(), 403);
         $cart = $this->cart($request);
 
-        $cart->setRelation('items', $cart->items()->with('offer.medicine', 'offer.organization')->lockForUpdate()->get());
+        $cart->setRelation('items', $cart->items()->with('offer.medicine', 'offer.organization', 'promotionItem.promotion.organization')->lockForUpdate()->get());
         $supplierGroups = $cart->items
-            ->groupBy(fn (CartItem $item): int => $item->offer->organization_id)
+            ->groupBy(fn (CartItem $item): int => $item->supplierId())
             ->map(function ($items): array {
                 $eligible = $this->maintenance->eligible($items);
                 $total = $eligible->reduce(
@@ -74,10 +78,40 @@ class CartController extends Controller
                     '0.00',
                 );
 
-                return ['supplier' => $items->first()->offer->organization, 'items' => $items, 'total' => $total];
+                return ['supplier' => $items->first()->supplier(), 'items' => $items, 'total' => $total];
             });
 
         return view('orders.cart', ['cart' => $cart, 'supplierGroups' => $supplierGroups]);
+    }
+
+    public function addPromotion(Promotion $promotion, Request $request, PromotionCart $promotions): RedirectResponse
+    {
+        $this->authorize('buy', $promotion);
+        $data = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:100'],
+            'items.*.id' => ['required', 'integer', 'distinct'],
+            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:999999'],
+            'open_cart' => ['sometimes', 'boolean'],
+        ]);
+        $cart = $this->cart($request);
+        foreach ($data['items'] as $selection) {
+            $item = $promotion->items()->lockForUpdate()->findOrFail($selection['id']);
+            $promotions->add($cart, $item, $selection['quantity'], $request->user());
+        }
+
+        return $request->boolean('open_cart')
+            ? redirect()->route('cart')->with('success', 'Позиции акции добавлены в корзину.')
+            : back()->with('success', 'Позиции акции добавлены в корзину.');
+    }
+
+    public function acceptPromotionTerms(CartItem $item, Request $request, PromotionCart $promotions): RedirectResponse
+    {
+        $this->authorize('update', $item->cart);
+        abort_unless($item->promotion_item_id !== null, 404);
+        $data = $request->validate(['terms_version' => ['required', 'string', 'size:64']]);
+        $promotions->accept($item, $data['terms_version'], $request->user());
+
+        return redirect()->route('cart')->with('success', 'Актуальные условия акции приняты.');
     }
 
     public function add(Offer $offer, Request $request, SupplierDiscountPrice $supplierDiscountPrice): RedirectResponse|JsonResponse
@@ -136,28 +170,32 @@ class CartController extends Controller
     {
         $this->authorize('update', $item->cart);
         $validated = $request->validate(['quantity' => 'required|integer|min:1|max:999999']);
-        if (! $this->isCurrent($item->offer) || ($item->offer->quantity !== null && $validated['quantity'] > (float) $item->offer->quantity)) {
+        if ($item->promotion_item_id !== null) {
+            if ($item->promotionItem->availabilityReason($validated['quantity']) !== null) {
+                throw ValidationException::withMessages(['quantity' => 'Позиция недоступна, не достигнут минимум или превышен остаток.']);
+            }
+        } elseif (! $this->isCurrent($item->offer) || ($item->offer->quantity !== null && $validated['quantity'] > (float) $item->offer->quantity)) {
             throw ValidationException::withMessages(['quantity' => 'Предложение устарело или нужное количество больше остатка.']);
         }
         $item->update($validated);
-        $this->maintenance->reconcile($item, $item->offer->organization, $request->user());
+        $this->maintenance->reconcile($item, $item->supplier(), $request->user());
 
         if ($request->expectsJson()) {
-            $cartItems = $item->cart->items()->with('offer.organization')->lockForUpdate()->get();
-            $supplierItems = $this->maintenance->eligible($cartItems)->filter(fn (CartItem $cartItem): bool => $cartItem->offer->organization_id === $item->offer->organization_id);
+            $cartItems = $item->cart->items()->with('offer.organization', 'promotionItem.promotion.organization')->lockForUpdate()->get();
+            $supplierItems = $this->maintenance->eligible($cartItems)->filter(fn (CartItem $cartItem): bool => $cartItem->supplierId() === $item->supplierId());
             $supplierTotal = $this->totalFor($supplierItems, $supplierDiscountPrice);
             $sendableItems = $this->maintenance->eligible($cartItems);
             $cartTotal = $this->totalFor($sendableItems, $supplierDiscountPrice);
-            $supplierShareText = "Заявка OAPTEKA\nПоставщик: {$item->offer->organization->name}\n".$supplierItems->map(fn (CartItem $cartItem): string => "{$cartItem->snapshot['medicine']} — {$cartItem->quantity} × {$cartItem->unit_price} TJS")->implode("\n")."\nИтого: {$supplierTotal} TJS";
-            $allShareText = "Заявки OAPTEKA\n".$sendableItems->groupBy(fn (CartItem $cartItem): int => $cartItem->offer->organization_id)->map(function ($items) use ($supplierDiscountPrice): string {
+            $supplierShareText = "Заявка OAPTEKA\nПоставщик: {$item->supplier()->name}\n".$supplierItems->map(fn (CartItem $cartItem): string => "{$cartItem->snapshot['medicine']} — {$cartItem->quantity} × {$cartItem->unit_price} TJS")->implode("\n")."\nИтого: {$supplierTotal} TJS";
+            $allShareText = "Заявки OAPTEKA\n".$sendableItems->groupBy(fn (CartItem $cartItem): int => $cartItem->supplierId())->map(function ($items) use ($supplierDiscountPrice): string {
                 $total = $this->totalFor($items, $supplierDiscountPrice);
 
-                return $items->first()->offer->organization->name."\n".$items->map(fn (CartItem $cartItem): string => "{$cartItem->snapshot['medicine']} — {$cartItem->quantity} × {$cartItem->unit_price} TJS")->implode("\n")."\nИтого: {$total} TJS";
+                return $items->first()->supplier()->name."\n".$items->map(fn (CartItem $cartItem): string => "{$cartItem->snapshot['medicine']} — {$cartItem->quantity} × {$cartItem->unit_price} TJS")->implode("\n")."\nИтого: {$total} TJS";
             })->implode("\n\n")."\nОбщий итог: {$cartTotal} TJS";
 
             return response()->json([
                 'item' => ['id' => $item->id, 'quantity' => (int) $item->quantity, 'line_total' => $supplierDiscountPrice->lineTotal($item->quantity, (string) $item->unit_price)],
-                'supplier' => ['id' => $item->offer->organization_id, 'total' => $supplierTotal, 'share_text' => $supplierShareText],
+                'supplier' => ['id' => $item->supplierId(), 'total' => $supplierTotal, 'share_text' => $supplierShareText],
                 'cart' => ['total' => $cartTotal, 'total_quantity' => (int) $cartItems->sum('quantity'), 'share_text' => $allShareText, 'excluded_count' => $cartItems->count() - $sendableItems->count()],
                 'availability' => $cartItems->map(fn (CartItem $cartItem): array => ['id' => $cartItem->id, 'warning' => $cartItem->availabilityWarning()])->values()->all(),
             ]);
@@ -214,7 +252,7 @@ class CartController extends Controller
         $cart = $this->cart($request);
 
         DB::transaction(function () use ($cart, $supplier, $request, $supplierDiscountPrice): void {
-            $cartItems = $this->supplierItems($cart, $supplier)->with('offer')->lockForUpdate()->get();
+            $cartItems = $this->supplierItems($cart, $supplier)->with('offer', 'promotionItem.promotion.organization')->lockForUpdate()->get();
             abort_if($cartItems->isEmpty(), 404);
             $cartItems = $this->sendableItems($cartItems);
             $total = $this->totalFor($cartItems, $supplierDiscountPrice);
@@ -222,7 +260,7 @@ class CartController extends Controller
             $order = Order::create(['checkout_id' => $checkoutId, 'buyer_organization_id' => $request->user()->activeOrganizationId(), 'supplier_organization_id' => $supplier->id, 'total' => $total]);
 
             foreach ($cartItems as $cartItem) {
-                OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'medicine_id' => $cartItem->offer->medicine_id, 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
+                OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'promotion_item_id' => $cartItem->promotion_item_id, 'promotion_id' => $cartItem->snapshot['promotion_id'] ?? null, 'medicine_id' => $cartItem->medicineId(), 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
             }
 
             $this->maintenance->remove($cart, $cartItems, 'cart.checkout_removed', ['checkout_id' => $checkoutId]);
@@ -254,7 +292,7 @@ class CartController extends Controller
         $cart = $this->cart($request);
 
         DB::transaction(function () use ($cart, $supplier, $request, $supplierDiscountPrice): void {
-            $cartItems = $this->supplierItems($cart, $supplier)->with('offer.medicine')->lockForUpdate()->get();
+            $cartItems = $this->supplierItems($cart, $supplier)->with('offer.medicine', 'promotionItem.promotion.organization')->lockForUpdate()->get();
             abort_if($cartItems->isEmpty(), 404);
             $cartItems = $this->sendableItems($cartItems);
             $supplierRequest = SupplierRequest::create([
@@ -273,8 +311,10 @@ class CartController extends Controller
                 $lineTotal = $supplierDiscountPrice->lineTotal($cartItem->quantity, (string) $cartItem->unit_price);
                 $supplierRequest->items()->create([
                     'offer_id' => $cartItem->offer_id,
-                    'medicine_id' => $cartItem->offer->medicine_id,
-                    'product_name' => $cartItem->snapshot['medicine'] ?? $cartItem->offer->medicine->name,
+                    'promotion_item_id' => $cartItem->promotion_item_id,
+                    'promotion_id' => $cartItem->snapshot['promotion_id'] ?? null,
+                    'medicine_id' => $cartItem->medicineId(),
+                    'product_name' => $cartItem->snapshot['medicine'],
                     'quantity' => $cartItem->quantity,
                     'unit_price' => $cartItem->unit_price,
                     'line_total' => $lineTotal,
@@ -296,19 +336,19 @@ class CartController extends Controller
         }
 
         $cart = $this->cart($request);
-        $cart->setRelation('items', $cart->items()->with('offer.organization')->lockForUpdate()->get());
+        $cart->setRelation('items', $cart->items()->with('offer.organization', 'promotionItem.promotion.organization')->lockForUpdate()->get());
         $cart->setRelation('items', $this->sendableItems($cart->items));
         abort_if($cart->items->isEmpty(), 422);
         DB::transaction(function () use ($cart, $request, $supplierDiscountPrice): void {
             $checkoutId = DB::table('checkouts')->insertGetId(['buyer_organization_id' => $request->user()->activeOrganizationId(), 'user_id' => $request->user()->id, 'created_at' => now(), 'updated_at' => now()]);
-            foreach ($cart->items->groupBy(fn (CartItem $cartItem) => $cartItem->offer->organization_id) as $supplierOrganizationId => $cartItems) {
+            foreach ($cart->items->groupBy(fn (CartItem $cartItem) => $cartItem->supplierId()) as $supplierOrganizationId => $cartItems) {
                 $total = $cartItems->reduce(
                     fn (string $total, CartItem $cartItem): string => bcadd($total, $supplierDiscountPrice->lineTotal($cartItem->quantity, (string) $cartItem->unit_price), 2),
                     '0.00',
                 );
                 $order = Order::create(['checkout_id' => $checkoutId, 'buyer_organization_id' => $request->user()->activeOrganizationId(), 'supplier_organization_id' => $supplierOrganizationId, 'total' => $total]);
                 foreach ($cartItems as $cartItem) {
-                    OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'medicine_id' => $cartItem->offer->medicine_id, 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
+                    OrderItem::create(['order_id' => $order->id, 'offer_id' => $cartItem->offer_id, 'promotion_item_id' => $cartItem->promotion_item_id, 'promotion_id' => $cartItem->snapshot['promotion_id'] ?? null, 'medicine_id' => $cartItem->medicineId(), 'quantity' => $cartItem->quantity, 'unit_price' => $cartItem->unit_price, 'snapshot' => $cartItem->snapshot]);
                 }
             }
             $this->maintenance->remove($cart, $cart->items, 'cart.checkout_removed', ['checkout_id' => $checkoutId]);
@@ -329,7 +369,8 @@ class CartController extends Controller
 
     private function supplierItems(Cart $cart, Organization $supplier): HasMany
     {
-        return $cart->items()->whereHas('offer', fn ($query) => $query->where('organization_id', $supplier->id));
+        return $cart->items()->where(fn ($query) => $query->whereHas('offer', fn ($query) => $query->where('organization_id', $supplier->id))
+            ->orWhereHas('promotionItem.promotion', fn ($query) => $query->where('organization_id', $supplier->id)));
     }
 
     private function sendableItems(Collection $items): Collection
@@ -349,15 +390,15 @@ class CartController extends Controller
     {
         $prices = app(SupplierDiscountPrice::class);
 
-        return "Заявки OAPTEKA\n".$items->groupBy(fn (CartItem $item): int => $item->offer->organization_id)->map(function ($group) use ($prices): string {
-            return $group->first()->offer->organization->name."\n".$group->map(fn (CartItem $item): string => "{$item->snapshot['medicine']} — {$item->quantity} × {$item->unit_price} TJS")->implode("\n")."\nИтого: ".$this->totalFor($group, $prices).' TJS';
+        return "Заявки OAPTEKA\n".$items->groupBy(fn (CartItem $item): int => $item->supplierId())->map(function ($group) use ($prices): string {
+            return $group->first()->supplier()->name."\n".$group->map(fn (CartItem $item): string => "{$item->snapshot['medicine']} — {$item->quantity} × {$item->unit_price} TJS")->implode("\n")."\nИтого: ".$this->totalFor($group, $prices).' TJS';
         })->implode("\n\n")."\nОбщий итог: ".$this->totalFor($items, $prices).' TJS';
     }
 
     public function share(Request $request): JsonResponse
     {
         abort_unless($request->user()->canBuy(), 403);
-        $items = $this->cart($request)->items()->with('offer.organization')->lockForUpdate()->get();
+        $items = $this->cart($request)->items()->with('offer.organization', 'promotionItem.promotion.organization')->lockForUpdate()->get();
 
         return response()->json(['share_text' => $this->shareText($this->sendableItems($items)), 'excluded' => $items->count() - $this->maintenance->eligible($items)->count()]);
     }
@@ -369,7 +410,7 @@ class CartController extends Controller
         $effectivePrice = app(SupplierDiscountPrice::class)->effectivePrice((string) $offer->price, $item->snapshot['supplier_discount_percent'] ?? null);
         $validated = $request->validate(['offer_id' => 'required|integer', 'proposed_unit_price' => 'required|decimal:0,2|min:0']);
         if (bccomp($effectivePrice, (string) $validated['proposed_unit_price'], 2) !== 0
-            || $item->offer->price_list_import_id !== $item->offer->organization->active_price_list_import_id
+            || $item->offer->price_list_import_id !== $item->supplier()->active_price_list_import_id
             || $item->offer->price_list_import_id === null
             || (int) $validated['offer_id'] !== $item->offer_id
             || bccomp((string) ($item->proposed_unit_price ?? $item->unit_price), (string) $validated['proposed_unit_price'], 2) !== 0) {

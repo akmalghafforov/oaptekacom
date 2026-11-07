@@ -8,6 +8,8 @@ use App\Models\CartItem;
 use App\Models\Offer;
 use App\Models\Organization;
 use App\Models\PharmacySupplierDiscount;
+use App\Models\Promotion;
+use App\Models\PromotionItem;
 use App\Models\User;
 use Closure;
 use Illuminate\Support\Collection;
@@ -15,7 +17,7 @@ use Illuminate\Support\Facades\DB;
 
 class CartMaintenance
 {
-    public function __construct(private AuditLogger $audit, private SupplierDiscountPrice $prices) {}
+    public function __construct(private AuditLogger $audit, private SupplierDiscountPrice $prices, private PromotionCart $promotions) {}
 
     /**
      * Serialize customer actions, including first cart creation. Activation locks the
@@ -30,19 +32,26 @@ class CartMaintenance
             $cart = Cart::query()->lockForUpdate()->firstOrCreate(['user_id' => $user->id]);
             $suppliers = Organization::query()->where(function ($query) use ($cart, $supplierIds): void {
                 $query->whereIn('id', Offer::query()->select('organization_id')->whereIn('id', $cart->items()->select('offer_id')))
+                    ->orWhereIn('id', Promotion::query()->select('organization_id')->whereIn('id', PromotionItem::withTrashed()->select('promotion_id')->whereIn('id', $cart->items()->select('promotion_item_id'))))
                     ->orWhereIn('id', $supplierIds);
             })->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-            $items = $cart->items()->with('offer')->orderBy('id')->lockForUpdate()->get();
+            $items = $cart->items()->with('offer', 'promotionItem.promotion.organization')->orderBy('id')->lockForUpdate()->get();
             foreach ($items as $item) {
-                $supplier = $suppliers[$item->offer->organization_id];
-                $this->reconcile($item, $supplier);
+                $supplier = $suppliers[$item->supplierId()];
+                if ($item->promotion_item_id === null) {
+                    $this->reconcile($item, $supplier);
+                }
                 $pharmacyId = $this->pharmacyId($item, $user);
+                $agreement = null;
                 if ($pharmacyId !== null) {
                     $agreement = PharmacySupplierDiscount::query()->where('pharmacy_organization_id', $pharmacyId)
                         ->where('supplier_organization_id', $supplier->id)->value('supplier_discount_percent');
-                    if ($agreement !== null) {
+                    if ($agreement !== null && $item->promotion_item_id === null) {
                         $this->reprice($item, $agreement);
                     }
+                }
+                if ($item->promotion_item_id !== null) {
+                    $this->promotions->reconcile($item, $agreement);
                 }
             }
 
@@ -77,14 +86,19 @@ class CartMaintenance
             }
             $selectedPercent = $this->prices->selectedPercent($percent, $supplier->default_discount_percent);
             $items = CartItem::query()->whereIn('cart_id', $carts->keys())
-                ->whereHas('offer', fn ($query) => $query->where('organization_id', $supplier->id))
-                ->with('offer')->orderBy('id')->lockForUpdate()->get();
+                ->where(fn ($query) => $query->whereHas('offer', fn ($query) => $query->where('organization_id', $supplier->id))
+                    ->orWhereHas('promotionItem.promotion', fn ($query) => $query->where('organization_id', $supplier->id)))
+                ->with('offer', 'promotionItem.promotion.organization')->orderBy('id')->lockForUpdate()->get();
             foreach ($items as $item) {
                 if ($this->pharmacyId($item, $users[$carts[$item->cart_id]->user_id]) !== $pharmacyId) {
                     continue;
                 }
-                $this->reconcile($item, $supplier, $actor);
-                $this->reprice($item, $selectedPercent, $actor);
+                if ($item->promotion_item_id !== null) {
+                    $this->promotions->reconcile($item, $selectedPercent);
+                } else {
+                    $this->reconcile($item, $supplier, $actor);
+                    $this->reprice($item, $selectedPercent, $actor);
+                }
             }
         }, 3);
     }
@@ -138,6 +152,11 @@ class CartMaintenance
     /** Caller holds the supplier and item locks. Never guesses identity from medicine/name. */
     public function reconcile(CartItem $item, Organization $supplier, ?User $actor = null): void
     {
+        if ($item->promotion_item_id !== null) {
+            $this->promotions->reconcile($item);
+
+            return;
+        }
         $offer = $item->offer;
         $reason = null;
         if ($offer->price_list_import_id === null || $offer->price_list_import_id !== $supplier->active_price_list_import_id) {

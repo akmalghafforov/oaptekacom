@@ -11,6 +11,7 @@ use App\Models\CartItem;
 use App\Models\Offer;
 use App\Models\Order;
 use App\Models\Organization;
+use App\Models\PharmacySupplierDiscount;
 use App\Models\PriceListImport;
 use App\Models\PriceListImportRow;
 use App\Models\Subscription;
@@ -145,8 +146,14 @@ class CartConcurrencyTest extends TestCase
             DB::table('checkouts')->where('user_id', $user->id)->delete();
             $user->delete();
             $supplier->update(['active_price_list_import_id' => null]);
-            $supplier->delete();
+            PriceListImportRow::query()->whereIn('price_list_import_id', [$old->id, $next->id])->delete();
+            Offer::query()->whereIn('price_list_import_id', [$old->id, $next->id])->delete();
+            PriceListImport::query()->whereKey([$old->id, $next->id])->delete();
+            $product->aliases()->delete();
+            $product->delete();
             $product->medicine->delete();
+            PharmacySupplierDiscount::query()->where('supplier_organization_id', $supplier->id)->where('pharmacy_organization_id', $buyer->id)->delete();
+            $supplier->delete();
             $buyer->delete();
             foreach (glob($directory.'/*') as $path) {
                 unlink($path);

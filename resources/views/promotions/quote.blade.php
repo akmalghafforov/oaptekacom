@@ -1,0 +1,5 @@
+@extends('layouts.app')
+@section('content')
+<x-ui.page-header :title="'Запрос цены №'.$quoteRequest->id" :description="$quoteRequest->promotion->organization->name"><x-slot:actions><x-ui.button :href="route('promotion-quotes.index')" variant="secondary">Все запросы</x-ui.button></x-slot:actions></x-ui.page-header>
+<x-ui.card class="space-y-4"><h2 class="text-lg font-bold">{{ $quoteRequest->contact_snapshot['promotion_title'] }}</h2><p>{{ $quoteRequest->contact_snapshot['item_name'] ?: 'Вся акция' }}</p><p class="whitespace-pre-line break-words">{{ $quoteRequest->message }}</p><div class="space-y-2"><h3 class="font-bold">Контакты на момент запроса</h3>@foreach(['name' => 'Имя', 'organization' => 'Организация', 'phone' => 'Телефон', 'email' => 'Email', 'organization_phone' => 'Телефон организации'] as $key => $label)<p class="break-words">{{ $label }}: {{ $quoteRequest->contact_snapshot[$key] ?: 'Не указан' }}</p>@endforeach</div><p class="text-sm text-muted">Обсудите цену и условия вне сайта. Запрос не создаёт заказ.</p></x-ui.card>
+@endsection

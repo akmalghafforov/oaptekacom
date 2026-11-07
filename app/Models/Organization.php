@@ -60,6 +60,11 @@ class Organization extends Model
         return $this->hasMany(User::class);
     }
 
+    public function promotions(): HasMany
+    {
+        return $this->hasMany(Promotion::class);
+    }
+
     public function offers(): HasMany
     {
         return $this->hasMany(Offer::class);

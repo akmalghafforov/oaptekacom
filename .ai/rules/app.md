@@ -16,3 +16,6 @@ An individual pharmacy agreement overrides the supplier default, including 0%. A
 
 ## Keep subscription monitoring separate from account access and lifecycle writes
 Subscription monitoring counts records, not accounts or organization entitlements, and uses the account phone rather than the organization contact. Current paid records use inclusive Asia/Dushanbe dates; expiration windows include today and overlap. Overdue active records appear expired in monitoring without mutating storage. Preserve the additional account and organization guards in User::hasActiveSubscription().
+
+## Serialize promotion terms with basket confirmation
+Promotion content and moderation writes take sorted company locks before promotion/item rows, sharing CartMaintenance supplier locks. Keep promotion copies independent of offer imports and soft-delete used items. Any changed promotion terms require the exact current terms token before checkout, sharing, export or archive. Preserve a pending discount proposal across basket refreshes, especially after an agreement is cleared; supplier-default edits alone keep frozen discounts.

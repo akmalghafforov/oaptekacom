@@ -1,0 +1,5 @@
+@extends('layouts.app')
+@section('content')
+<x-ui.page-header title="Запросы цены" description="Контакты и вопросы по акциям"><x-slot:actions><x-ui.button :href="route('promotions.index')" variant="secondary">К акциям</x-ui.button></x-slot:actions></x-ui.page-header>
+<x-ui.card><div class="table-wrap"><table class="data-table"><thead><tr><th>Дата</th><th>Компания / акция</th><th>Покупатель</th><th>Действие</th></tr></thead><tbody>@forelse($quotes as $quote)<tr><td>{{ $quote->created_at->timezone('Asia/Dushanbe')->format('d.m.Y H:i') }}</td><td>{{ $quote->promotion->organization->name }} · {{ $quote->contact_snapshot['promotion_title'] }}</td><td>{{ $quote->contact_snapshot['organization'] }} · {{ $quote->contact_snapshot['name'] }}</td><td><x-ui.button :href="route('promotion-quotes.show', $quote)" variant="secondary">Открыть</x-ui.button></td></tr>@empty<tr><td colspan="4">Запросов пока нет.</td></tr>@endforelse</tbody></table></div><div class="mt-4">{{ $quotes->links() }}</div></x-ui.card>
+@endsection
