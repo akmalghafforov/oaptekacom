@@ -1,0 +1,239 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - link "OAPTEKA — на главную" [ref=f1e4] [cursor=pointer]:
+        - /url: http://127.0.0.1:8787/dashboard
+        - img "OAPTEKA" [ref=f1e5]
+      - group [ref=f1e6]:
+        - generic "Меню" [ref=f1e7] [cursor=pointer]
+  - main [ref=f1e8]:
+    - generic [ref=f1e9]:
+      - generic [ref=f1e10]:
+        - heading "Синхронизация поставщиков" [level=1] [ref=f1e11]
+        - paragraph [ref=f1e12]: Состояние сервисов, справочники и настройка загрузки прайс-листов.
+      - link "Обновить статус" [ref=f1e14] [cursor=pointer]:
+        - /url: http://127.0.0.1:8787/admin/supplier-sync?edit=1
+    - generic [ref=f1e15]:
+      - generic [ref=f1e16]:
+        - generic [ref=f1e17]:
+          - generic [ref=f1e18]:
+            - heading "iCorp" [level=2] [ref=f1e19]
+            - generic [ref=f1e20]: Не проверено
+          - paragraph [ref=f1e21]: "Проверка: Ещё не проверено (Душанбе)"
+          - paragraph [ref=f1e22]: "В справочнике: 1 поставщиков"
+          - generic [ref=f1e23]:
+            - button "Обновить справочник" [ref=f1e25]
+            - button "Подключить" [ref=f1e27]
+          - group [ref=f1e28]:
+            - 'generic "Дополнительно: принудительный вход iCorp" [ref=f1e29] [cursor=pointer]'
+            - option "Выберите" [selected]
+            - option "Подтверждаю принудительный вход"
+        - generic [ref=f1e30]:
+          - generic [ref=f1e31]:
+            - heading "PriceList-TJ" [level=2] [ref=f1e32]
+            - generic [ref=f1e33]: Не проверено
+          - paragraph [ref=f1e34]: "Проверка: Ещё не проверено (Душанбе)"
+          - paragraph [ref=f1e35]: "В справочнике: 2 поставщиков"
+          - generic [ref=f1e36]:
+            - button "Обновить справочник" [ref=f1e38]
+            - button "Подключить" [ref=f1e40]
+      - navigation "Справочники поставщиков" [ref=f1e41]:
+        - link "Внешние поставщики" [ref=f1e42] [cursor=pointer]:
+          - /url: http://127.0.0.1:8787/admin/supplier-sync?edit=1&tab=external
+        - link "Наши поставщики" [ref=f1e43] [cursor=pointer]:
+          - /url: http://127.0.0.1:8787/admin/supplier-sync?edit=1&tab=suppliers
+      - generic [ref=f1e45]:
+        - generic [ref=f1e46]:
+          - generic [ref=f1e47]: Поиск внешнего поставщика
+          - textbox "Поиск внешнего поставщика" [ref=f1e49]
+        - generic [ref=f1e50]:
+          - generic [ref=f1e51]: Сервис
+          - combobox "Сервис" [ref=f1e52]:
+            - option "Все сервисы" [selected]
+            - option "iCorp"
+            - option "PriceList-TJ"
+        - generic [ref=f1e53]:
+          - generic [ref=f1e54]: Сопоставления
+          - combobox "Сопоставления" [ref=f1e55]:
+            - option "Все" [selected]
+            - option "Без сопоставления"
+            - option "Несколько кандидатов"
+            - option "Есть предположения"
+            - option "Подтверждённые"
+        - button "Найти" [ref=f1e56]
+      - table "Сопоставления поставщиков и приоритет источников" [ref=f1e59]:
+        - caption [ref=f1e60]: Сопоставления поставщиков и приоритет источников
+        - rowgroup [ref=f1e61]:
+          - row [ref=f1e62]:
+            - 'cell "iCorp Предположение Аличон — ОсонФарм(Оптовый) Сходство названий: 100%; Совпадает название; Разные города: худжанд / душанбе" [ref=f1e63]':
+              - paragraph [ref=f1e64]: iCorp
+              - generic [ref=f1e65]:
+                - generic [ref=f1e66]: Предположение
+                - paragraph [ref=f1e67]: Аличон — ОсонФарм(Оптовый)
+                - paragraph [ref=f1e68]: "Сходство названий: 100%; Совпадает название; Разные города: худжанд / душанбе"
+            - cell [ref=f1e69]:
+              - paragraph [ref=f1e70]: PriceList-TJ
+              - paragraph [ref=f1e71]: Аличон ОСОН фарм
+              - paragraph [ref=f1e72]: Телефоны не указаны
+              - paragraph [ref=f1e73]: "Город: худжанд"
+            - 'cell "Наш поставщик Предположение Аличон Осонфарм Сходство названий: 100%; Совпадает название; Город неизвестен" [ref=f1e74]':
+              - paragraph [ref=f1e75]: Наш поставщик
+              - generic [ref=f1e76]:
+                - generic [ref=f1e77]: Предположение
+                - paragraph [ref=f1e78]: Аличон Осонфарм
+                - paragraph [ref=f1e79]: "Сходство названий: 100%; Совпадает название; Город неизвестен"
+            - cell [ref=f1e80]:
+              - paragraph [ref=f1e81]: Приоритет
+              - text: Не настроен
+            - cell "Действия Есть предположения Проверить предположение" [ref=f1e82]:
+              - paragraph [ref=f1e83]: Действия
+              - generic [ref=f1e84]:
+                - generic [ref=f1e85]: Есть предположения
+                - link "Проверить предположение" [ref=f1e86] [cursor=pointer]:
+                  - /url: http://127.0.0.1:8787/admin/supplier-sync?edit=2#mapping-2
+          - row [ref=f1e87]:
+            - 'cell "iCorp Предположение Аличон — ОсонФарм(Оптовый) Сходство названий: 100%; Совпадает название; Разные города: худжанд / душанбе" [ref=f1e88]':
+              - paragraph [ref=f1e89]: iCorp
+              - generic [ref=f1e90]:
+                - generic [ref=f1e91]: Предположение
+                - paragraph [ref=f1e92]: Аличон — ОсонФарм(Оптовый)
+                - paragraph [ref=f1e93]: "Сходство названий: 100%; Совпадает название; Разные города: худжанд / душанбе"
+            - cell [ref=f1e94]:
+              - paragraph [ref=f1e95]: PriceList-TJ
+              - paragraph [ref=f1e96]: Аличон ОСОН фарм
+              - paragraph [ref=f1e97]: Телефоны не указаны
+              - paragraph [ref=f1e98]: "Город: худжанд"
+            - 'cell "Наш поставщик Предположение Аличон Осонфарм Сходство названий: 100%; Совпадает название; Город неизвестен" [ref=f1e99]':
+              - paragraph [ref=f1e100]: Наш поставщик
+              - generic [ref=f1e101]:
+                - generic [ref=f1e102]: Предположение
+                - paragraph [ref=f1e103]: Аличон Осонфарм
+                - paragraph [ref=f1e104]: "Сходство названий: 100%; Совпадает название; Город неизвестен"
+            - cell [ref=f1e105]:
+              - paragraph [ref=f1e106]: Приоритет
+              - text: Не настроен
+            - cell "Действия Есть предположения Проверить предположение" [ref=f1e107]:
+              - paragraph [ref=f1e108]: Действия
+              - generic [ref=f1e109]:
+                - generic [ref=f1e110]: Есть предположения
+                - link "Проверить предположение" [ref=f1e111] [cursor=pointer]:
+                  - /url: http://127.0.0.1:8787/admin/supplier-sync?edit=3#mapping-3
+          - row [ref=f1e112]:
+            - cell [ref=f1e113]:
+              - paragraph [ref=f1e114]: iCorp
+              - paragraph [ref=f1e115]: Аличон — ОсонФарм(Оптовый)
+              - paragraph [ref=f1e116]: Телефоны не указаны
+              - paragraph [ref=f1e117]: "Город: душанбе"
+            - 'cell "PriceList-TJ Предположение Аличон ОСОН фарм Сходство названий: 100%; Совпадает название; Разные города: душанбе / худжанд" [ref=f1e118]':
+              - paragraph [ref=f1e119]: PriceList-TJ
+              - generic [ref=f1e120]:
+                - generic [ref=f1e121]: Предположение
+                - paragraph [ref=f1e122]: Аличон ОСОН фарм
+                - paragraph [ref=f1e123]: "Сходство названий: 100%; Совпадает название; Разные города: душанбе / худжанд"
+            - 'cell "Наш поставщик Предположение Аличон Осонфарм Сходство названий: 100%; Совпадает название; Совпадает город: душанбе" [ref=f1e124]':
+              - paragraph [ref=f1e125]: Наш поставщик
+              - generic [ref=f1e126]:
+                - generic [ref=f1e127]: Предположение
+                - paragraph [ref=f1e128]: Аличон Осонфарм
+                - paragraph [ref=f1e129]: "Сходство названий: 100%; Совпадает название; Совпадает город: душанбе"
+            - cell [ref=f1e130]:
+              - paragraph [ref=f1e131]: Приоритет
+              - text: Не настроен
+            - cell "Действия Несколько кандидатов Проверить предположение" [ref=f1e132]:
+              - paragraph [ref=f1e133]: Действия
+              - generic [ref=f1e134]:
+                - generic [ref=f1e135]: Несколько кандидатов
+                - link "Проверить предположение" [ref=f1e136] [cursor=pointer]:
+                  - /url: http://127.0.0.1:8787/admin/supplier-sync?edit=1#mapping-1
+          - row [ref=f1e137]:
+            - cell [ref=f1e138]:
+              - group [ref=f1e139]:
+                - generic "Сопоставить поставщика · iCorp" [ref=f1e140] [cursor=pointer]
+                - generic [ref=f1e141]:
+                  - heading "Проверить предположение" [level=3] [ref=f1e142]
+                  - paragraph [ref=f1e143]: Выберите записи, которые относятся к одному поставщику. Можно подтвердить только часть источников. Баллы определяют порядок кандидатов и не являются вероятностью.
+                  - alert [ref=f1e144]: Есть несколько близких кандидатов. Выберите нужные записи явно.
+                  - generic [ref=f1e145]:
+                    - generic [ref=f1e147]:
+                      - generic [ref=f1e148]: iCorp
+                      - combobox "iCorp" [ref=f1e149]:
+                        - option "Не включать в подтверждение"
+                        - option "Аличон — ОсонФарм(Оптовый) (#1)" [selected]
+                    - generic [ref=f1e150]:
+                      - generic [ref=f1e151]:
+                        - generic [ref=f1e152]: PriceList-TJ
+                        - combobox "PriceList-TJ" [ref=f1e153]:
+                          - option "Не включать в подтверждение" [selected]
+                          - option "Аличон ОСОН фарм (#2)"
+                          - option "Аличон ОСОН фарм (#3)"
+                      - paragraph [ref=f1e154]: "Аличон ОСОН фарм (#2) · Баллы: 80 · Сходство названий: 100%; Совпадает название; Разные города: душанбе / худжанд"
+                      - paragraph [ref=f1e155]: "Аличон ОСОН фарм (#3) · Баллы: 80 · Сходство названий: 100%; Совпадает название; Разные города: душанбе / худжанд"
+                  - generic [ref=f1e156]:
+                    - 'heading "Предположения: наш поставщик" [level=4] [ref=f1e157]'
+                    - paragraph [ref=f1e158]: "Аличон Осонфарм (#3) · Баллы: 110 · Сходство названий: 100%; Совпадает название; Совпадает город: душанбе"
+                    - paragraph [ref=f1e159]: "Аличон Осонфарм (#4) · Баллы: 100 · Сходство названий: 100%; Совпадает название; Город неизвестен"
+                  - generic [ref=f1e160]:
+                    - generic [ref=f1e161]: "Наш поставщик: способ сопоставления"
+                    - 'combobox "Наш поставщик: способ сопоставления" [ref=f1e162]':
+                      - option "Выберите действие" [selected]
+                      - option "Выбрать существующего"
+                      - option "Создать нового"
+                  - generic [ref=f1e163]:
+                    - generic [ref=f1e164]: Подтверждение администратора
+                    - combobox "Подтверждение администратора" [ref=f1e165]:
+                      - option "Проверьте названия, города и телефоны" [selected]
+                      - option "Подтверждаю соответствие выбранных записей"
+                  - button "Подтвердить выбранные связи" [ref=f1e166]
+                - paragraph [ref=f1e167]: Ручное сопоставление
+                - generic [ref=f1e168]:
+                  - heading "iCorp · Аличон — ОсонФарм(Оптовый)" [level=3] [ref=f1e169]
+                  - paragraph [ref=f1e170]: "Обнаружен: 11.11.2026 15:20 · Внешний код: 007678df-f553-311a-ad8f-eb1ca5505704"
+                  - generic [ref=f1e171]:
+                    - heading "Возможные совпадения" [level=3] [ref=f1e172]
+                    - paragraph [ref=f1e173]: "Аличон Осонфарм (#3) — Сходство названий: 100%; Совпадает название; Совпадает город: душанбе"
+                    - paragraph [ref=f1e174]: "Аличон Осонфарм (#4) — Сходство названий: 100%; Совпадает название; Город неизвестен"
+                  - generic [ref=f1e175]:
+                    - generic [ref=f1e176]:
+                      - generic [ref=f1e177]: Способ сопоставления
+                      - combobox "Способ сопоставления" [ref=f1e178]:
+                        - option "Выберите действие" [selected]
+                        - option "Выбрать существующего"
+                        - option "Создать нового"
+                    - generic [ref=f1e179]:
+                      - generic [ref=f1e180]: Подтверждение администратора
+                      - combobox "Подтверждение администратора" [ref=f1e181]:
+                        - option "Проверьте название и телефоны" [selected]
+                        - option "Подтверждаю соответствие"
+                    - generic [ref=f1e182]:
+                      - link "Отмена" [ref=f1e183] [cursor=pointer]:
+                        - /url: http://127.0.0.1:8787/admin/supplier-sync
+                      - button "Сохранить сопоставление" [ref=f1e184]
+  - contentinfo [ref=f1e185]:
+    - generic [ref=f1e186]:
+      - navigation "Правовые документы" [ref=f1e187]:
+        - heading "Правовые документы" [level=2] [ref=f1e188]
+        - generic [ref=f1e189]:
+          - link "Политика конфиденциальности" [ref=f1e190] [cursor=pointer]:
+            - /url: http://127.0.0.1:8787/privacy-policy
+          - link "Условия использования" [ref=f1e191] [cursor=pointer]:
+            - /url: http://127.0.0.1:8787/terms-of-service
+      - navigation "Контакты" [ref=f1e192]:
+        - heading "Контакты" [level=2] [ref=f1e193]
+        - list [ref=f1e194]:
+          - listitem [ref=f1e195]:
+            - link "info@oapteka.app" [ref=f1e196] [cursor=pointer]:
+              - /url: mailto:info@oapteka.app
+          - listitem [ref=f1e201]:
+            - 'link "Телефон: +992989999292" [ref=f1e202] [cursor=pointer]':
+              - /url: tel:+992989999292
+          - listitem [ref=f1e206]:
+            - 'link "WhatsApp: +992989999292" [ref=f1e207] [cursor=pointer]':
+              - /url: https://wa.me/992989999292
+      - region "Приложение для Android" [ref=f1e212]:
+        - heading "Приложение для Android" [level=2] [ref=f1e213]
+        - link "Скачать для Android" [ref=f1e214] [cursor=pointer]:
+          - /url: http://127.0.0.1:8787/downloads/OAPTEKA_1.0.3.apk
+        - paragraph [ref=f1e217]: APK · версия 1.0.3
+  - link "Вопросы — связаться в WhatsApp" [ref=f1e218] [cursor=pointer]:
+    - /url: https://wa.me/992989999292
+    - text: Вопросы

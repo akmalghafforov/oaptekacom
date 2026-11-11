@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\CategoryReviewController;
 use App\Http\Controllers\Admin\GmailController;
 use App\Http\Controllers\Admin\OrganizationDirectoryController;
 use App\Http\Controllers\Admin\SupplierImportProfileController;
+use App\Http\Controllers\Admin\SupplierSynchronizationController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminSubscriptionController;
 use App\Http\Controllers\AuthController;
@@ -151,6 +152,21 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->name('price-list-imports.retry');
     Route::post('/price-list-imports/{import}/replay', [PriceListImportController::class, 'replay'])->name('price-list-imports.replay');
     Route::prefix('admin')->middleware('role:admin')->group(function () {
+        Route::prefix('supplier-sync')->name('admin.supplier-sync.')->controller(SupplierSynchronizationController::class)->group(function (): void {
+            Route::get('/', 'index')->name('index');
+            Route::post('/refresh', 'refresh')->name('refresh');
+            Route::post('/mappings/approve', 'approve')->name('approve');
+            Route::post('/connections/{source}', 'connect')->name('connect');
+            Route::post('/icorp/takeover', 'takeover')->name('takeover');
+            Route::post('/partners/{partner}/mapping', 'map')->name('map');
+            Route::delete('/partners/{partner}/mapping', 'unmap')->name('unmap');
+            Route::put('/partners/{partner}/profile', 'profile')->name('profile');
+            Route::post('/imports/{import}/date', 'confirmDate')->name('date');
+            Route::post('/imports/{import}/reject', 'reject')->name('reject');
+            Route::get('/suppliers/{supplier}', 'show')->name('show');
+            Route::put('/suppliers/{supplier}', 'update')->name('update');
+            Route::post('/suppliers/{supplier}/fetch', 'fetch')->name('fetch');
+        });
         Route::prefix('gmail')->middleware(ProtectGmailResponse::class)->group(function () {
             Route::get('/', [GmailController::class, 'index'])->name('admin.gmail.index');
             Route::post('/connect', [GmailController::class, 'connect'])->block(300, 10)->name('admin.gmail.connect');

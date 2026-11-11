@@ -119,6 +119,7 @@ class PriceListImportController extends Controller
     {
         $importModel = $this->scoped($request, $import);
         $this->authorize('replay', $importModel);
+        abort_if(in_array($importModel->source_type->value, ['icorp', 'pricelist_tj'], true), 422);
         abort_unless(in_array($importModel->status, [PriceListImportStatus::Completed, PriceListImportStatus::Superseded], true), 422);
         if (! $importModel->supplier->importProfile()->where('is_active', true)->exists()) {
             throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);

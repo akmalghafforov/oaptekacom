@@ -2,7 +2,7 @@
 @section('content')
     <x-ui.page-header :title="$import->original_filename" :description="$import->supplier->name.' · загружен '. $import->created_at->format('d.m.Y H:i')">
         <x-slot:actions><div class="flex flex-wrap gap-2"><a href="{{ route('price-list-imports.download', $import) }}"><x-ui.button type="button" variant="secondary">Скачать исходник</x-ui.button></a><a href="{{ route('price-list-imports.categorization-report', $import) }}"><x-ui.button type="button" variant="secondary">CSV категорий</x-ui.button></a>@if($import->status === \App\Enums\PriceListImportStatus::Failed)<form method="post" action="{{ route('price-list-imports.retry', $import) }}">@csrf <x-mode-version /><x-ui.button>Повторить</x-ui.button></form>@endif
-            @if(in_array($import->status, [\App\Enums\PriceListImportStatus::Completed, \App\Enums\PriceListImportStatus::Superseded], true))
+            @if(in_array($import->status, [\App\Enums\PriceListImportStatus::Completed, \App\Enums\PriceListImportStatus::Superseded], true) && in_array($import->source_type->value, ['manual', 'email'], true))
                 @can('replay', $import)
                     <form method="post" action="{{ route('price-list-imports.replay', $import) }}">
                         @csrf
@@ -17,7 +17,11 @@
         @foreach(['total_rows' => 'Всего', 'valid_rows' => 'Корректные', 'warning_rows' => 'С предупреждением', 'error_rows' => 'Ошибки', 'skipped_rows' => 'Пропущены'] as $field => $label)<x-ui.card><p class="text-sm text-muted">{{ $label }}</p><p class="mt-1 text-2xl font-bold">{{ $import->{$field} }}</p></x-ui.card>@endforeach
     </div>
     @if($import->failure_message)<x-ui.alert type="danger" class="mt-6">{{ $import->failure_message }}</x-ui.alert>@endif
+    @if($import->source_metadata && $import->status === \App\Enums\PriceListImportStatus::Preview)
+        <x-ui.alert type="warning" class="mt-6">Публикация ожидает проверки даты, приоритетов и настроек источников. @if(auth()->user()->isAdminMode())<a class="font-semibold underline" href="{{ route('admin.supplier-sync.show', $import->supplier) }}">Открыть синхронизацию поставщика</a>@endif</x-ui.alert>
+    @else
     <x-ui.alert type="success" class="mt-6">Обработка и публикация выполняются автоматически. Товары без назначенной категории также публикуются; категории можно уточнить позже.</x-ui.alert>
+    @endif
     @if($import->duplicate_of_import_id)<x-ui.alert type="warning" class="mt-4">Файл совпадает с успешно обработанным импортом № {{ $import->duplicate_of_import_id }}, но повторная обработка уже поставлена в очередь.</x-ui.alert>@endif
     <x-ui.card class="mt-6"><h2 class="font-bold">Снимок профиля</h2><p class="mt-2 text-sm text-muted">Лист: {{ $import->profile_snapshot['worksheet'] ?? 'первый' }} · начало данных: {{ $import->profile_snapshot['data_row'] }} · сопоставление: {{ $import->profile_snapshot['matching_strategy'] }}</p></x-ui.card>
     <form class="mt-6 flex flex-wrap items-end gap-3" method="get"><x-ui.select name="categorization_status" label="Статус категоризации"><option value="">Все</option><option value="matched" @selected(request('categorization_status') === 'matched')>Одна категория</option><option value="multi_matched" @selected(request('categorization_status') === 'multi_matched')>Несколько категорий</option><option value="attention_needed" @selected(request('categorization_status') === 'attention_needed')>Желательно уточнить</option><option value="uncategorized" @selected(request('categorization_status') === 'uncategorized')>Без категории</option><option value="manual_locked" @selected(request('categorization_status') === 'manual_locked')>Закреплено вручную</option></x-ui.select><x-ui.button type="submit" variant="secondary">Фильтровать</x-ui.button></form>

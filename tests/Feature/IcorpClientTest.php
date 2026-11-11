@@ -18,8 +18,8 @@ class IcorpClientTest extends TestCase
         $partners = (new IcorpClient)->partners();
 
         $this->assertSame([
-            ['source' => 'icorp', 'external_id' => '156', 'name' => 'Осон-Фарм', 'phones' => ['+992927430570']],
-            ['source' => 'icorp', 'external_id' => '157', 'name' => 'Без прайса', 'phones' => []],
+            ['source' => 'icorp', 'external_id' => '156', 'name' => 'Осон-Фарм', 'phones' => ['+992927430570'], 'catalog_id' => 'NDczODY=', 'published_at' => null],
+            ['source' => 'icorp', 'external_id' => '157', 'name' => 'Без прайса', 'phones' => [], 'catalog_id' => null, 'published_at' => null],
         ], $partners);
         $encrypted = Storage::disk('local')->get($this->sessionPath());
         $this->assertStringNotContainsString('private-cookie', $encrypted);
@@ -122,6 +122,23 @@ class IcorpClientTest extends TestCase
         }
 
         Http::assertSent(fn ($request): bool => $request->url() === 'https://icorp.tech/firm-entry' && $request['force_firm_session'] === 0);
+    }
+
+    public function test_extracts_partner_publication_date_separately_from_fetch_time(): void
+    {
+        $this->configure();
+        Http::fake([
+            'icorp.tech/listpartners' => Http::response(str_replace('data-partner-id="156"', 'data-partner-id="156" data-price-date="11.11.2026 09:30"', $this->directory())),
+            'icorp.tech/productsFirmByOverhead?*' => Http::sequence()->push($this->catalog(1, 'one'))->push($this->catalog(2, 'two')),
+        ]);
+        $client = new IcorpClient;
+
+        $partners = $client->partners();
+        $prices = $client->prices('156');
+
+        $this->assertSame('11.11.2026 09:30', $partners[0]['published_at']);
+        $this->assertSame('11.11.2026 09:30', $prices['company']['published_at']);
+        Http::assertSentCount(3);
     }
 
     private function configure(): void

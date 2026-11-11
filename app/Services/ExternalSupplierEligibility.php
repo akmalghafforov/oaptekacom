@@ -17,7 +17,10 @@ class ExternalSupplierEligibility
     {
         Validator::make(['partners' => $partners, 'excluded' => $excludedSuppliers], [
             'partners' => ['present', 'array', 'list'],
-            'partners.*' => ['required', 'array:source,external_id,name,phones'],
+            'partners.*' => ['required', 'array:source,external_id,name,phones,catalog_id,published_at,city'],
+            'partners.*.city' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'partners.*.catalog_id' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'partners.*.published_at' => ['sometimes', 'nullable', 'string', 'max:255'],
             'partners.*.source' => ['required', 'in:icorp,pricelist_tj'],
             'partners.*.external_id' => ['required', 'string', 'max:255'],
             'partners.*.name' => ['required', 'string', 'max:255'],
@@ -81,12 +84,12 @@ class ExternalSupplierEligibility
         return array_intersect($partnerPhones, $supplierPhones) !== [];
     }
 
-    private function normalizeName(string $name): string
+    public function normalizeName(string $name): string
     {
         return preg_replace('/[^\p{L}\p{N}]+/u', '', mb_strtolower($name));
     }
 
-    private function normalizePhone(string $phone): ?string
+    public function normalizePhone(string $phone): ?string
     {
         $digits = preg_replace('/\D+/', '', $phone);
         if (strlen($digits) === 9) {

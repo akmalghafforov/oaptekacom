@@ -13,7 +13,7 @@ class PriceListTjClient
 {
     private const BASE_URL = 'https://pricelist-tj.com';
 
-    /** @return list<array{source: string, external_id: string, name: string, phones: list<string>}> */
+    /** @return list<array{source: string, external_id: string, name: string, phones: list<string>, city: ?string, published_at: ?string}> */
     public function partners(): array
     {
         $partners = [];
@@ -28,6 +28,8 @@ class PriceListTjClient
                 $partners[] = [
                     'source' => 'pricelist_tj', 'external_id' => $company['id'], 'name' => $company['name'],
                     'phones' => array_values(array_filter([$company['phone'] ?? null, $company['extraPhone'] ?? null])),
+                    'published_at' => $company['lastPriceUpdate'] ?? null,
+                    'city' => $company['city'] ?? null,
                 ];
             }
         }
@@ -125,6 +127,12 @@ class PriceListTjClient
         }
 
         return $response->json();
+    }
+
+    public function connect(): void
+    {
+        Storage::disk('local')->delete($this->sessionPath());
+        $this->token();
     }
 
     private function token(): string

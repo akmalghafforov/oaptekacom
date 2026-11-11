@@ -70,7 +70,7 @@ class PriceListImportPolicy
 
     public function replay(User $user, PriceListImport $priceListImport): bool
     {
-        return $this->belongsToUser($user, $priceListImport);
+        return in_array($priceListImport->source_type->value, ['manual', 'email'], true) && $this->belongsToUser($user, $priceListImport);
     }
 
     private function belongsToUser(User $user, PriceListImport $import): bool

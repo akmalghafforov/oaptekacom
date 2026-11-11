@@ -13,6 +13,8 @@ use App\Models\GmailImportReceipt;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierSenderAddress;
+use App\Models\SupplierSynchronization;
+use App\Models\SupplierSyncRun;
 use App\Services\PriceList\ProductCategoryRuleSetResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -92,10 +94,10 @@ class SupplierPriceListIngestor
     private function ingestLocked(Organization $supplier, StoredImportFile $file, IngestionContext $context): PriceListImport
     {
         $profile = $supplier->importProfile()->where('is_active', true)->lockForUpdate()->first();
-        if ($profile === null) {
+        if ($profile === null && $context->profileConfiguration === null) {
             throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
         }
-        $inFlight = PriceListImport::query()->whereBelongsTo($supplier, 'supplier')->where('sha256', $file->sha256)->whereIn('status', [PriceListImportStatus::Pending, PriceListImportStatus::Processing])->first();
+        $inFlight = PriceListImport::query()->whereBelongsTo($supplier, 'supplier')->where('sha256', $file->sha256)->when($context->profileConfiguration !== null, fn ($query) => $query->where('source_type', $context->source))->whereIn('status', [PriceListImportStatus::Pending, PriceListImportStatus::Processing])->first();
         if ($inFlight !== null) {
             if ($inFlight->file_path !== $file->path) {
                 Storage::disk($file->disk)->delete($file->path);
@@ -106,6 +108,10 @@ class SupplierPriceListIngestor
 
         return DB::transaction(function () use ($supplier, $file, $context, $profile): PriceListImport {
             $ruleSet = app(ProductCategoryRuleSetResolver::class)->current();
+            $sourceMetadata = $context->sourceMetadata;
+            if ($context->source === PriceListImportSource::Email && ($sync = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->where('settings_confirmed', true)->first())) {
+                $sourceMetadata = ['configuration_version' => $sync->version, 'trigger' => 'mailbox', 'profile_hash' => SupplierSourcePolicy::profileHash($profile->configuration)];
+            }
             $duplicate = PriceListImport::query()
                 ->whereBelongsTo($supplier, 'supplier')
                 ->where('sha256', $file->sha256)
@@ -113,16 +119,22 @@ class SupplierPriceListIngestor
                 ->latest('id')
                 ->first();
             $import = PriceListImport::create([
-                'supplier_organization_id' => $supplier->id, 'supplier_import_profile_id' => $profile->id,
-                'profile_snapshot' => array_replace($profile->configuration, ['file_type' => strtolower(pathinfo($file->originalFilename, PATHINFO_EXTENSION))]), 'source_type' => $context->source,
+                'supplier_organization_id' => $supplier->id, 'supplier_import_profile_id' => $context->profileConfiguration === null ? $profile?->id : null,
+                'profile_snapshot' => array_replace($context->profileConfiguration ?? $profile->configuration, ['file_type' => strtolower(pathinfo($file->originalFilename, PATHINFO_EXTENSION))]), 'source_type' => $context->source,
                 'file_path' => $file->path, 'original_filename' => $file->originalFilename, 'mime_type' => $file->mimeType,
                 'file_size' => $file->size, 'sha256' => $file->sha256, 'sender_email' => $context->senderEmail,
                 'message_id' => $context->messageId, 'received_at' => $context->receivedAt, 'initiated_by' => $context->actor?->id,
                 'product_category_rule_set_id' => $ruleSet->id, 'product_category_rule_set_checksum' => $ruleSet->checksum,
                 'duplicate_of_import_id' => $duplicate?->id,
                 'status' => PriceListImportStatus::Pending,
-                'summary' => [],
+                'summary' => [], 'source_metadata' => $sourceMetadata, 'source_published_at' => $context->sourcePublishedAt,
+                'source_date_precision' => $context->sourceDatePrecision, 'source_fingerprint' => $context->sourceFingerprint,
             ]);
+            if ($context->source === PriceListImportSource::Email && isset($sync)) {
+                $run = SupplierSyncRun::create(['supplier_organization_id' => $supplier->id, 'trigger' => 'mailbox',
+                    'configuration_snapshot' => $sync->toArray(), 'status' => 'processing']);
+                $run->attempts()->create(['source' => 'email', 'price_list_import_id' => $import->id, 'status' => 'processing']);
+            }
             PreparePriceListImport::dispatch($import)->onQueue(config('price-list-imports.queue'))->afterCommit();
 
             return $import;

@@ -4,11 +4,14 @@ namespace App\Jobs;
 
 use App\Enums\PriceListImportStatus;
 use App\Models\PriceListImport;
+use App\Models\SupplierSyncAttempt;
 use App\Models\User;
 use App\Services\PriceList\ImportActivator;
+use App\Services\SupplierSourcePolicy;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class CommitPriceListImport implements ShouldQueue
@@ -46,7 +49,18 @@ class CommitPriceListImport implements ShouldQueue
             return;
         }
 
-        $result = $activator->commit($import, $this->actorId === null ? null : User::find($this->actorId));
+        try {
+            $result = $activator->commit($import, $this->actorId === null ? null : User::find($this->actorId));
+        } catch (ValidationException $exception) {
+            if ($import->source_type->value === 'manual' || app(SupplierSourcePolicy::class)->configuration($import) === null) {
+                throw $exception;
+            }
+            PriceListImport::whereKey($import->id)->where('status', PriceListImportStatus::Committing)->update(['status' => PriceListImportStatus::Preview]);
+            $reason = app(SupplierSourcePolicy::class)->reason($import->fresh());
+            SupplierSyncAttempt::where('price_list_import_id', $import->id)->update(['status' => 'review', 'reason' => $reason]);
+
+            return;
+        }
         CleanupSupersededPriceListOffers::dispatch($result['import']->id, $result['superseded_import_id'])
             ->onQueue(config('price-list-imports.queue'));
     }

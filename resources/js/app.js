@@ -535,3 +535,10 @@ if (document.querySelector('[data-promotion-editor]')) {
         initializePromotionEditor(document.querySelector('[data-promotion-editor]'), document, window);
     });
 }
+
+if (document.querySelector('[data-sync-submit], [data-mapping-form]')) {
+    import('./supplier-synchronization.js').then(({ initializeMappingForm, initializeSyncSubmit }) => {
+        document.querySelectorAll('[data-mapping-form]').forEach(initializeMappingForm);
+        document.querySelectorAll('[data-sync-submit]').forEach((form) => initializeSyncSubmit(form, window));
+    });
+}

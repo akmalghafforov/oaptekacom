@@ -25,3 +25,9 @@ Promotion materials[], banners[] and the optional single logo upload together; l
 
 ## Capture prize eligibility only at placement under supplier locks
 Capture immutable promotion/order contributions only in the two checkout transactions, after saved discounted lines, for the active pharmacy identity. Never backfill historical orders or archives. Status updates and reconciliation acquire the supplier lock before order/promotion rows and recompute eligibility from captured contributions; retain first qualification when eligibility reverses. First publication locks participation settings/prizes for every promotion and dates for prize promotions; ordinary promotion dates retain existing behavior.
+
+## Keep supplier source policy inside activation cutover
+Configured supplier imports must pass SupplierSourcePolicy again under the Organization lock in ImportActivator::commit. Compare publication dates and precision, never fetch time or import IDs; unchanged fingerprints do not refresh freshness. External workbooks use their fixed source profile and cannot use mailbox replay. Keep mapping/profile/configuration changes serialized with that same supplier lock and use the shared external-prices:{source} account lock, including CLI operations. Automatic renewal never forces iCorp takeover.
+
+## Keep supplier suggestions separate from eligibility and approval
+SupplierSuggestionMatcher computes read-only name/city/phone candidates from stored directory data; never use fuzzy suggestions for ExternalSupplierEligibility or import cutover. Approval must recheck signed evidence and mapping/profile versions under sorted organization then partner locks, audit all links atomically, and preserve automatic loading, source profiles and priorities. Directory and synchronization metadata refreshes preserve known cities when responses omit them.

@@ -14,5 +14,10 @@ final readonly class IngestionContext
         public ?string $senderEmail = null,
         public ?string $messageId = null,
         public ?CarbonImmutable $receivedAt = null,
+        public ?array $profileConfiguration = null,
+        public ?array $sourceMetadata = null,
+        public ?CarbonImmutable $sourcePublishedAt = null,
+        public ?string $sourceDatePrecision = null,
+        public ?string $sourceFingerprint = null,
     ) {}
 }

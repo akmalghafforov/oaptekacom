@@ -73,7 +73,7 @@ class PriceListImport extends Model
             'profile_snapshot' => 'array', 'effective_layout' => 'array', 'summary' => 'array', 'received_at' => 'datetime',
             'inventory_at' => 'datetime', 'processing_started_at' => 'datetime', 'previewed_at' => 'datetime',
             'activated_at' => 'datetime', 'failed_at' => 'datetime', 'superseded_at' => 'datetime',
-            'duplicate_confirmed_at' => 'datetime',
+            'duplicate_confirmed_at' => 'datetime', 'source_published_at' => 'datetime', 'source_metadata' => 'array',
         ];
     }
 }

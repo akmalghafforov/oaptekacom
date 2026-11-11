@@ -15,10 +15,10 @@ use RuntimeException;
 
 class IcorpClient
 {
-    /** @var array<string, array{name: string, catalog: ?string}> */
+    /** @var array<string, array{name: string, catalog: ?string, published_at: ?string}> */
     private array $catalogs = [];
 
-    /** @return list<array{source: string, external_id: string, name: string, phones: list<string>}> */
+    /** @return list<array{source: string, external_id: string, name: string, phones: list<string>, city?: string, catalog_id: ?string, published_at: ?string}> */
     public function partners(): array
     {
         $xpath = $this->document($this->get('/listpartners'));
@@ -42,8 +42,14 @@ class IcorpClient
                 }
                 $catalog = rawurldecode(basename($url['path']));
             }
-            $this->catalogs[$id] = ['name' => $name, 'catalog' => $catalog];
-            $partners[] = ['source' => 'icorp', 'external_id' => $id, 'name' => $name, 'phones' => array_values(array_unique($phones))];
+            $published = $card->getAttribute('data-price-date') ?: $this->text($xpath, './/time/@datetime', $card);
+            if ($published === '') {
+                preg_match('/(?:Дата прайса|Дата прайс-листа|Дата обновления|Обновл[её]н[оа]?|Прайс от)\s*:?\s*(\d{2}\.\d{2}\.\d{4}(?:\s+\d{2}:\d{2}(?::\d{2})?)?)/iu', $card->textContent, $dateMatch);
+                $published = $dateMatch[1] ?? null;
+            }
+            $this->catalogs[$id] = ['name' => $name, 'catalog' => $catalog, 'published_at' => $published];
+            $city = $card->getAttribute('data-city') ?: ($this->text($xpath, './/*[@itemprop="addressLocality"]', $card) ?: null);
+            $partners[] = ['source' => 'icorp', 'external_id' => $id, 'name' => $name, 'phones' => array_values(array_unique($phones)), 'catalog_id' => $catalog, 'published_at' => $published, ...($city !== null ? ['city' => $city] : [])];
         }
         if ($partners === []) {
             throw new RuntimeException('No iCorp partner cards found. The session or page format may have changed.');
@@ -62,7 +68,7 @@ class IcorpClient
         if ($partner === null) {
             throw new RuntimeException('The supplier is not in the authenticated iCorp directory.');
         }
-        $company = ['id' => $externalId, 'name' => $partner['name'], 'catalog_id' => $partner['catalog']];
+        $company = ['id' => $externalId, 'name' => $partner['name'], 'catalog_id' => $partner['catalog'], 'published_at' => $partner['published_at']];
         if ($partner['catalog'] === null) {
             return ['company' => $company, 'items' => [], 'account_discount' => null, 'unavailable' => true];
         }

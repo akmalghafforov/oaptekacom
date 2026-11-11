@@ -13,9 +13,12 @@ use App\Models\PriceListImportRow;
 use App\Models\ProductCategory;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
+use App\Models\SupplierSyncAttempt;
+use App\Models\SupplierSynchronization;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\CartMaintenance;
+use App\Services\SupplierSourcePolicy;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -170,7 +173,11 @@ class ImportActivator
             }
 
             $current = $supplier->active_price_list_import_id === null ? null : $imports[$supplier->active_price_list_import_id];
-            if ($current !== null && $this->isOlderThan($candidate, $current)) {
+            $policy = app(SupplierSourcePolicy::class);
+            if (($reason = $policy->reason($candidate, $supplier)) !== null) {
+                throw ValidationException::withMessages(['import' => 'Синхронизация: '.$reason]);
+            }
+            if ($current !== null && ($policy->configuration($candidate) === null || $candidate->source_type->value === 'manual') && $this->isOlderThan($candidate, $current)) {
                 throw ValidationException::withMessages(['import' => 'Дата остатков старше текущего прайс-листа.']);
             }
 
@@ -192,6 +199,11 @@ class ImportActivator
             $candidate->update(['status' => PriceListImportStatus::Completed, 'activated_by' => $actor?->id,
                 'activated_at' => now(), 'failed_at' => null, 'failure_stage' => null, 'failure_message' => null]);
             $supplier->update(['active_price_list_import_id' => $candidate->id]);
+            foreach (SupplierSyncAttempt::where('price_list_import_id', $candidate->id)->with('run')->get() as $attempt) {
+                $attempt->update(['status' => 'activated', 'reason' => null]);
+                $attempt->run->update(['status' => 'completed', 'reason' => 'activated', 'selected_source' => $candidate->source_type->value, 'active_supplier_id' => null, 'finished_at' => now()]);
+            }
+            SupplierSynchronization::where('supplier_organization_id', $supplier->id)->update(['last_activated_at' => now()]);
             app(CartMaintenance::class)->replaceSupplierOffers($supplier, $actor);
 
             if (! AuditEvent::query()->where('event', 'price_list_import.activated')->where('subject_type', PriceListImport::class)->where('subject_id', $candidate->id)->exists()) {

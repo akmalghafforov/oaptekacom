@@ -6,9 +6,14 @@ enum PriceListImportSource: string
 {
     case Manual = 'manual';
     case Email = 'email';
+    case Icorp = 'icorp';
+    case PriceListTj = 'pricelist_tj';
 
     public function label(): string
     {
-        return $this === self::Manual ? 'Ручная загрузка' : 'Электронная почта';
+        return match ($this) {
+            self::Manual => 'Ручная загрузка', self::Email => 'Электронная почта',
+            self::Icorp => 'iCorp', self::PriceListTj => 'PriceList-TJ',
+        };
     }
 }

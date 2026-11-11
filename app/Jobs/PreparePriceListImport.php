@@ -62,7 +62,11 @@ class PreparePriceListImport implements ShouldQueue
             $import = $import->fresh();
             $start = (int) $import->effective_layout['data_row'];
             $highestDataRow = $reader->highestDataRow($import, $info['highest_row']);
-            $inventoryAt = $this->inventoryAt($import, $reader, $normalizer);
+            $inventoryAt = in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)
+                ? $import->source_published_at : $this->inventoryAt($import, $reader, $normalizer);
+            if ($import->source_type->value === 'email' && $import->source_metadata !== null) {
+                $import->update(['source_published_at' => $inventoryAt, 'source_date_precision' => ($import->profile_snapshot['inventory']['source'] ?? 'upload_time') === 'upload_time' || ($import->received_at && $import->received_at->equalTo($inventoryAt)) ? 'second' : 'day']);
+            }
             $summary = ['worksheets' => $info['worksheets'], 'highest_row' => $highestDataRow, 'highest_column' => $info['highest_column'], 'layout_detection' => ['confidence' => $detection['confidence'], 'warning' => $detection['warning']]];
             $import->update(['status' => PriceListImportStatus::Processing, 'processing_started_at' => now(), 'inventory_at' => $inventoryAt, 'total_rows' => max(0, $highestDataRow - $start + 1), 'summary' => $summary]);
         } else {

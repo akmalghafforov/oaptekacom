@@ -90,6 +90,15 @@ class ExternalSupplierEligibilityTest extends TestCase
         $this->assertSame(['supplier_not_registered', 'supplier_not_registered'], array_column($results, 'reason'));
     }
 
+    public function test_discovery_metadata_remains_compatible_with_cli_supplier_review(): void
+    {
+        $partner = [...$this->partner('Внешняя фирма'), 'catalog_id' => 'catalog', 'published_at' => '11.11.2026 09:30'];
+
+        $result = app(ExternalSupplierEligibility::class)->review([$partner], []);
+
+        $this->assertSame('eligible', $result[0]['outcome']);
+    }
+
     public function test_rejects_unsupported_sources(): void
     {
         $this->expectException(ValidationException::class);

@@ -7,6 +7,7 @@ use App\Enums\PriceListRowDisposition;
 use App\Jobs\CommitPriceListImport;
 use App\Jobs\MaterializePriceListImportChunk;
 use App\Models\PriceListImport;
+use App\Services\SupplierSourcePolicy;
 use Illuminate\Support\Facades\Bus;
 
 class ActivationDispatcher
@@ -17,6 +18,10 @@ class ActivationDispatcher
     {
         $import = $import->fresh();
         if (! in_array($import->status, [PriceListImportStatus::Preview, PriceListImportStatus::Committing], true)) {
+            return;
+        }
+        $policy = app(SupplierSourcePolicy::class);
+        if ($policy->reason($import) !== null) {
             return;
         }
         $this->activator->reconcileStagedOffers($import);

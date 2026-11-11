@@ -5,8 +5,10 @@ namespace App\Jobs;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
 use App\Models\PriceListImport;
+use App\Models\SupplierSyncAttempt;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CategoryCandidateExtractor;
+use App\Services\SupplierSourcePolicy;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -79,6 +81,16 @@ class FinalizePriceListImportPreview implements ShouldQueue
 
         DB::transaction(function () use ($import, $attributes): void {
             $import->update(array_replace($attributes, ['status' => PriceListImportStatus::Preview, 'previewed_at' => now()]));
+            $reason = app(SupplierSourcePolicy::class)->reason($import);
+            foreach (SupplierSyncAttempt::where('price_list_import_id', $import->id)->with('run')->get() as $attempt) {
+                $attempt->update(['status' => $reason === null ? 'validated' : 'review', 'reason' => $reason,
+                    'metadata' => array_replace(['published_at' => $import->source_published_at?->toIso8601String(),
+                        'date_precision' => $import->source_date_precision, 'extracted_at' => $import->processing_started_at?->toIso8601String(),
+                        'fingerprint' => $import->source_fingerprint ?? $import->sha256], $attempt->metadata ?? [])]);
+                if ($attempt->source === 'email') {
+                    $attempt->run->update(['status' => $reason === null ? 'activating' : 'review', 'reason' => $reason]);
+                }
+            }
             app(ActivationDispatcher::class)->dispatch($import);
         });
     }

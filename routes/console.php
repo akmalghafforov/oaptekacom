@@ -8,3 +8,6 @@ Schedule::command('gmail-imports:sync')->everyFiveMinutes()->withoutOverlapping(
 Schedule::command('gmail-imports:cleanup')->daily()->withoutOverlapping();
 
 Schedule::command('telegram:reconcile-reviews')->everyMinute()->withoutOverlapping();
+
+Schedule::command('suppliers:sync')->everyMinute()->withoutOverlapping();
+Schedule::command('suppliers:sync --directories')->daily()->withoutOverlapping();
