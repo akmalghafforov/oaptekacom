@@ -24,12 +24,13 @@ class SupplierImportSettings
             if ((int) $data['expected_version'] !== (int) ($configuration->version ?? 0)) {
                 throw ValidationException::withMessages(['expected_version' => 'Настройки уже изменились. Обновите страницу и повторите сохранение.']);
             }
-            $source = $data['selected_source'];
+            $newest = ($data['selection_mode'] ?? null) === 'newest_available';
+            $source = $data['selected_source'] ?? null;
             $mapped = $source === 'email' || ExternalSupplierPartner::where('supplier_organization_id', $supplier->id)->where('source', $source)->exists();
-            if (! $mapped && $source !== $configuration->selected_source) {
+            if (! $newest && ! $mapped && $source !== $configuration->selected_source) {
                 throw ValidationException::withMessages(['selected_source' => 'Сначала подтвердите сопоставление этого источника с поставщиком.']);
             }
-            if ($data['automatic_enabled'] && (! $data['paused'] || ! $configuration->automatic_enabled)) {
+            if (! $newest && $data['automatic_enabled'] && (! $data['paused'] || ! $configuration->automatic_enabled)) {
                 if ($this->readinessReason($supplier, $source) !== null) {
                     throw ValidationException::withMessages(['selected_source' => 'Сначала подтвердите сопоставление и настройте активный профиль источника.']);
                 }
@@ -38,9 +39,16 @@ class SupplierImportSettings
             $sources = collect(SupplierSynchronization::defaultSources())->map(fn (array $defaults, string $name): array => array_replace($defaults, is_array($configuration->sources[$name] ?? null) ? $configuration->sources[$name] : []))->all();
             foreach ($data['sources'] as $name => $settings) {
                 $sources[$name]['priority'] = (int) $settings['priority'];
+                if ($newest) {
+                    $sources[$name]['enabled'] = (bool) ($settings['enabled'] ?? false);
+                    if ($sources[$name]['enabled'] && $this->readinessReason($supplier, $name) !== null) {
+                        throw ValidationException::withMessages(['sources.'.$name.'.enabled' => 'Сначала подтвердите сопоставление и настройте активный профиль источника.']);
+                    }
+                }
             }
-            $configuration->fill(array_intersect_key($data, array_flip(['selected_source', 'automatic_enabled', 'paused', 'fetch_interval_minutes', 'freshness_hours'])))
-                ->forceFill(['sources' => $sources, 'version' => ($configuration->version ?? 0) + 1, 'next_check_at' => now(), 'settings_confirmed' => true])->save();
+            $configuration->fill(array_intersect_key($data, array_flip(['selection_mode', 'selected_source', 'automatic_enabled', 'paused', 'fetch_interval_minutes', 'freshness_hours'])))
+                ->forceFill(['selection_mode' => $newest ? 'newest_available' : null, 'selected_source' => $newest ? null : $source,
+                    'fetch_interval_minutes' => $newest ? max(60, (int) $data['fetch_interval_minutes']) : (int) $data['fetch_interval_minutes'], 'sources' => $sources, 'version' => ($configuration->version ?? 0) + 1, 'next_check_at' => now(), 'settings_confirmed' => true])->save();
             $this->audit->log('supplier_sync.configured', $configuration, $before, $configuration->toArray());
         }, 3);
     }

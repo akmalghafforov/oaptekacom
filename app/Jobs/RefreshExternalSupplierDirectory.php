@@ -12,7 +12,7 @@ class RefreshExternalSupplierDirectory implements ShouldQueue
 
     public int $timeout = 120;
 
-    public int $tries = 3;
+    public int $tries = 1;
 
     public array $backoff = [60, 300, 900];
 
@@ -20,6 +20,6 @@ class RefreshExternalSupplierDirectory implements ShouldQueue
 
     public function handle(ExternalSupplierDirectory $directory): void
     {
-        $directory->refresh($this->source);
+        $directory->refreshAvailabilityPage($this->source);
     }
 }

@@ -203,7 +203,9 @@ class ImportActivator
                 $attempt->update(['status' => 'activated', 'reason' => null]);
                 $attempt->run->update(['status' => 'completed', 'reason' => 'activated', 'selected_source' => $candidate->source_type->value, 'active_supplier_id' => null, 'finished_at' => now()]);
             }
-            SupplierSynchronization::where('supplier_organization_id', $supplier->id)->update(['last_activated_at' => now()]);
+            SupplierSynchronization::where('supplier_organization_id', $supplier->id)->each(function (SupplierSynchronization $configuration): void {
+                $configuration->update(['last_activated_at' => now(), 'next_check_at' => now()->addMinutes($configuration->fetch_interval_minutes)]);
+            });
             app(CartMaintenance::class)->replaceSupplierOffers($supplier, $actor);
 
             if (! AuditEvent::query()->where('event', 'price_list_import.activated')->where('subject_type', PriceListImport::class)->where('subject_id', $candidate->id)->exists()) {

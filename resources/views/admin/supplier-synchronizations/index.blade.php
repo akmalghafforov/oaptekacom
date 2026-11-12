@@ -96,7 +96,7 @@
                     <td class="block align-top whitespace-normal lg:table-cell"><p class="mb-1 text-xs font-semibold text-muted lg:hidden">Наш поставщик</p>@if($partner->supplier)<a class="inline-flex min-h-10 items-center break-words font-semibold underline" href="{{ route('admin.supplier-sync.show', $partner->supplier) }}">{{ $partner->supplier->name }}</a>@elseif($candidates !== []) @include('admin.supplier-synchronizations.suggestion', ['candidate' => $candidates[0]]) @else<span class="text-muted">Не выбран</span>@endif</td>
                     <td class="block align-top whitespace-normal lg:table-cell">
                         <p class="mb-1 text-xs font-semibold text-muted lg:hidden">Источник</p>
-                        @if($rowConfiguration?->selected_source)<p>{{ $rowConfiguration->selected_source === 'email' ? 'Почта' : $serviceNames[$rowConfiguration->selected_source] }}</p>@else<span class="text-muted">Не выбран</span>@endif
+                        @if($rowConfiguration?->usesNewestAvailable())<p>Самый новый доступный прайс</p>@elseif($rowConfiguration?->selected_source)<p>{{ $rowConfiguration->selected_source === 'email' ? 'Почта' : $serviceNames[$rowConfiguration->selected_source] }}</p>@else<span class="text-muted">Не выбран</span>@endif
                         @if($partner->supplier)<a class="mt-2 inline-flex min-h-10 items-center font-semibold underline" href="{{ route('admin.supplier-import-profiles.edit', $partner->supplier) }}">Профиль импорта</a>@endif
                     </td>
                     <td class="block align-top whitespace-normal lg:table-cell">

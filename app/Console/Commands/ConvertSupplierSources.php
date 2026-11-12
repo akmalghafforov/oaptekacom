@@ -38,7 +38,7 @@ class ConvertSupplierSources extends Command
             return self::SUCCESS;
         }
         if ($this->option('resume')) {
-            $remaining = SupplierSynchronization::whereNull('source_conversion')->whereNull('selected_source')->count();
+            $remaining = SupplierSynchronization::whereNull('source_conversion')->whereNull('selected_source')->whereNull('selection_mode')->count();
             if ($remaining > 0) {
                 $this->error($remaining.' configurations still require conversion. Run the dry run and --apply first.');
 
@@ -96,6 +96,11 @@ class ConvertSupplierSources extends Command
                         $configuration->fill($saved['before'])->forceFill(['version' => $restoredVersion, 'source_conversion' => [...$saved, 'rolled_back_at' => now()->toIso8601String()]])->save();
                         $audit->log('supplier_sync.source_conversion_rolled_back', $configuration, $before, $configuration->toArray());
                         $counts['restored']++;
+
+                        return;
+                    }
+                    if ($configuration->usesNewestAvailable()) {
+                        $counts['unchanged']++;
 
                         return;
                     }

@@ -5,8 +5,8 @@
         @endphp
         <x-ui.card>
             <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="font-bold">{{ $sourceNames[$source] }}</h2><x-ui.status-badge :status="$ready ? 'confirmed' : 'pending'" :label="$ready ? 'Профиль готов' : ($readiness[$source] === 'credentials_unavailable' ? 'Требуется подключение' : 'Требуется настройка')" /></div>
-            <p class="mt-2 text-sm text-muted">{{ $configuration->selected_source === $source ? 'Выбран для загрузки' : 'Не выбран для загрузки' }}</p>
-            @if($configuration->selected_source === $source && !$ready)<x-ui.alert type="warning" class="mt-3">Загрузка заблокирована. {{ $readiness[$source] === 'credentials_unavailable' ? 'Проверьте учётные данные и подключение сервиса на странице синхронизации.' : 'Подтвердите сопоставление и настройте активный профиль выбранного источника.' }} Активный каталог сохранён.</x-ui.alert>@endif
+            <p class="mt-2 text-sm text-muted">{{ in_array($source, $configuration->enabledSources(), true) ? 'Выбран для загрузки' : 'Не выбран для загрузки' }}</p>
+            @if(in_array($source, $configuration->enabledSources(), true) && !$ready)<x-ui.alert type="warning" class="mt-3">Загрузка заблокирована. {{ $readiness[$source] === 'credentials_unavailable' ? 'Проверьте учётные данные и подключение сервиса на странице синхронизации.' : 'Подтвердите сопоставление и настройте активный профиль выбранного источника.' }} Активный каталог сохранён.</x-ui.alert>@endif
             @if($source !== 'email')
                 @if($configuration->selected_source === $source)
                     <form data-sync-submit method="post" action="{{ route('admin.supplier-sync.fetch', $supplier) }}" class="mt-3 space-y-3">
@@ -21,7 +21,7 @@
                         @if($dispatchPaused)<p class="text-sm text-warning">Новые импорты временно приостановлены на время переключения источников.</p>@endif
                     </form>
                 @else
-                    <p class="mt-3 text-sm text-muted">Для импорта выберите этот источник в настройках загрузки и сохраните настройки.</p>
+                    <p class="mt-3 text-sm text-muted">{{ $configuration->usesNewestAvailable() ? 'Загрузка выполняется после сравнения публикаций разрешённых источников.' : 'Для импорта выберите этот источник в настройках загрузки и сохраните настройки.' }}</p>
                 @endif
             @endif
             @if($source === 'email')

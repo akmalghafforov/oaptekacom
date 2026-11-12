@@ -3,9 +3,14 @@
 namespace App\Console\Commands;
 
 use App\Enums\PriceListImportStatus;
+use App\Jobs\DownloadExternalPricePage;
+use App\Jobs\NotifyExternalServiceIncident;
 use App\Jobs\PreparePriceListImport;
 use App\Jobs\RefreshExternalSupplierDirectory;
 use App\Jobs\SynchronizeSupplier;
+use App\Models\ExternalDownload;
+use App\Models\ExternalServiceIncident;
+use App\Models\ExternalServiceState;
 use App\Models\PriceListImport;
 use App\Models\SupplierSyncAttempt;
 use App\Models\SupplierSynchronization;
@@ -35,6 +40,26 @@ class ScheduleSupplierSynchronizations extends Command
 
             return self::SUCCESS;
         }
+        ExternalServiceState::whereIn('source', ['icorp', 'pricelist_tj'])->whereNotNull('directory_progress')
+            ->where(fn ($query) => $query->whereNull('directory_lease_expires_at')->orWhere('directory_lease_expires_at', '<=', now()))
+            ->where(fn ($query) => $query->whereNull('next_check_at')->orWhere('next_check_at', '<=', now()))
+            ->each(fn ($state) => RefreshExternalSupplierDirectory::dispatch($state->source)->onQueue(config('price-list-imports.queue')));
+        ExternalDownload::whereIn('status', ['pending', 'downloading', 'retry', 'cooldown', 'paused'])
+            ->where(fn ($query) => $query->whereNull('worker_expires_at')->orWhere('worker_expires_at', '<=', now()))
+            ->where(fn ($query) => $query->whereNull('next_retry_at')->orWhere('next_retry_at', '<=', now()))
+            ->eachById(function (ExternalDownload $download): void {
+                $state = ExternalServiceState::findOrFail($download->source);
+                if ($state->status === 'paused' || $state->cooldown_until?->isFuture()) {
+                    return;
+                }
+                if (in_array($download->status, ['cooldown', 'paused'], true)) {
+                    $download->update(['status' => 'retry', 'retry_count' => 0]);
+                }
+                DownloadExternalPricePage::dispatch($download->id)->onQueue(config('price-list-imports.queue'));
+            });
+        ExternalServiceIncident::whereNull('notified_at')
+            ->where(fn ($query) => $query->whereNull('notification_attempted_at')->orWhere('notification_attempted_at', '<=', now()->subMinutes(20)))
+            ->eachById(fn ($incident) => NotifyExternalServiceIncident::dispatch($incident->id)->onQueue(config('price-list-imports.queue')));
         SupplierSyncAttempt::whereNotNull('price_list_import_id')->whereNotIn('status', ['activated', 'failed', 'skipped'])
             ->whereHas('import', fn ($query) => $query->whereIn('status', [PriceListImportStatus::Completed, PriceListImportStatus::Superseded, PriceListImportStatus::Failed]))
             ->with(['import', 'run'])->eachById(function (SupplierSyncAttempt $attempt): void {
@@ -64,7 +89,7 @@ class ScheduleSupplierSynchronizations extends Command
                     }
                 }
             });
-        SupplierSyncRun::whereNotNull('active_supplier_id')->where(function ($query): void {
+        SupplierSyncRun::whereNotNull('active_supplier_id')->where(fn ($query) => $query->whereNull('next_retry_at')->orWhere('next_retry_at', '<=', now()))->where(function ($query): void {
             $query->whereNull('lease_expires_at')->orWhere('lease_expires_at', '<=', now());
         })->eachById(fn (SupplierSyncRun $run) => SynchronizeSupplier::dispatch($run->id)->onQueue(config('price-list-imports.queue')));
         SupplierSynchronization::where('automatic_enabled', true)->where('paused', false)

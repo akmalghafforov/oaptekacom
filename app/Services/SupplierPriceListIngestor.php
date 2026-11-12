@@ -113,7 +113,7 @@ class SupplierPriceListIngestor
         return DB::transaction(function () use ($supplier, $file, $context, $profile): PriceListImport {
             $ruleSet = app(ProductCategoryRuleSetResolver::class)->current();
             $sourceMetadata = $context->sourceMetadata;
-            if ($context->source === PriceListImportSource::Email && ($sync = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->first()) && ($sync->settings_confirmed || $sync->usesExclusiveSource())) {
+            if ($context->source === PriceListImportSource::Email && ($sync = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->first()) && ($sync->settings_confirmed || $sync->usesExclusiveSource() || $sync->usesNewestAvailable())) {
                 $sourceMetadata = ['configuration_version' => $sync->version, 'trigger' => 'mailbox', 'profile_hash' => SupplierSourcePolicy::profileHash($profile->configuration)];
             }
             $duplicate = PriceListImport::query()
@@ -134,7 +134,7 @@ class SupplierPriceListIngestor
                 'summary' => [], 'source_metadata' => $sourceMetadata, 'source_published_at' => $context->sourcePublishedAt,
                 'source_date_precision' => $context->sourceDatePrecision, 'source_fingerprint' => $context->sourceFingerprint,
             ]);
-            if ($context->source === PriceListImportSource::Email && isset($sync) && ($sync->settings_confirmed || $sync->usesExclusiveSource())) {
+            if ($context->source === PriceListImportSource::Email && isset($sync) && ($sync->settings_confirmed || $sync->usesExclusiveSource() || $sync->usesNewestAvailable())) {
                 $run = SupplierSyncRun::create(['supplier_organization_id' => $supplier->id, 'trigger' => 'mailbox',
                     'configuration_snapshot' => $sync->toArray(), 'status' => 'processing']);
                 $run->attempts()->create(['source' => 'email', 'price_list_import_id' => $import->id, 'status' => 'processing']);

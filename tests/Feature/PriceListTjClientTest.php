@@ -3,14 +3,24 @@
 namespace Tests\Feature;
 
 use App\Services\PriceListTjClient;
+use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 use RuntimeException;
 use Tests\TestCase;
 
 class PriceListTjClientTest extends TestCase
 {
+    use LazilyRefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Sleep::fake();
+    }
+
     public function test_discovers_all_pages_and_reuses_an_encrypted_account_session_across_clients(): void
     {
         $this->configure();
@@ -23,6 +33,7 @@ class PriceListTjClientTest extends TestCase
                 ->push($this->directory(2, [['id' => 'two', 'name' => 'Вторая', 'verified' => true]])),
         ]);
 
+        (new PriceListTjClient)->connect();
         $partners = (new PriceListTjClient)->partners();
         (new PriceListTjClient)->partners();
 
@@ -34,7 +45,7 @@ class PriceListTjClientTest extends TestCase
         Http::assertSentCount(5);
     }
 
-    public function test_renews_an_expired_token_once(): void
+    public function test_expired_token_pauses_until_administrator_recovery(): void
     {
         $this->configure();
         Storage::disk('local')->put('external-prices/sessions/pricelist-tj-'.hash('sha256', '927430570').'.encrypted', Crypt::encryptString('expired'));
@@ -43,8 +54,15 @@ class PriceListTjClientTest extends TestCase
             'pricelist-tj.com/api/companies?*' => Http::sequence()->push([], 401)->push($this->directory(1, [], total: 0, pages: 0)),
         ]);
 
-        $this->assertSame([], (new PriceListTjClient)->partners());
-        Http::assertSentCount(3);
+        try {
+            (new PriceListTjClient)->partners();
+            $this->fail('Fetching must not renew an expired session.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('HTTP 401', $exception->getMessage());
+        }
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/auth/login'));
+        $this->assertDatabaseHas('external_service_states', ['source' => 'pricelist_tj', 'status' => 'paused']);
     }
 
     public function test_preserves_price_discount_and_quantity_fields_across_all_pages(): void
@@ -119,7 +137,7 @@ class PriceListTjClientTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('PriceList login failed (HTTP 403).');
-        (new PriceListTjClient)->partners();
+        (new PriceListTjClient)->connect();
     }
 
     private function configure(): void
@@ -127,6 +145,7 @@ class PriceListTjClientTest extends TestCase
         Storage::fake('local');
         Http::preventStrayRequests();
         config(['external-prices.pricelist_tj.phone' => '927430570', 'external-prices.pricelist_tj.password' => 'test-password']);
+        Storage::disk('local')->put('external-prices/sessions/pricelist-tj-'.hash('sha256', '927430570').'.encrypted', Crypt::encryptString('private-token'));
     }
 
     /** @param list<array<string, mixed>> $companies

@@ -32,7 +32,12 @@ class SupplierSynchronization extends Model
 
     public function usesExclusiveSource(): bool
     {
-        return $this->selected_source !== null || ($this->source_conversion !== null && ! isset($this->source_conversion['rolled_back_at'])) || config('price-list-imports.exclusive_sources');
+        return ! $this->usesNewestAvailable() && ($this->selected_source !== null || ($this->source_conversion !== null && ! isset($this->source_conversion['rolled_back_at'])) || config('price-list-imports.exclusive_sources'));
+    }
+
+    public function usesNewestAvailable(): bool
+    {
+        return $this->selection_mode === 'newest_available';
     }
 
     /** @return array<string, array{enabled: bool, priority: int}> */

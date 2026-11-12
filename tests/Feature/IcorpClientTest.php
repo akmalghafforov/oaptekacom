@@ -5,14 +5,24 @@ namespace Tests\Feature;
 use App\Services\IcorpClient;
 use App\Services\IcorpCredentials;
 use App\Services\IcorpFailure;
+use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 use Tests\TestCase;
 
 class IcorpClientTest extends TestCase
 {
+    use LazilyRefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Sleep::fake();
+    }
+
     public function test_discovers_partner_identities_and_available_catalogs_from_saved_cookies(): void
     {
         $this->configure();
@@ -91,7 +101,7 @@ class IcorpClientTest extends TestCase
         ]);
 
         $this->expectException(IcorpFailure::class);
-        $this->expectExceptionMessage('HTTP 419');
+        $this->expectExceptionMessage('session_expired');
         (new IcorpClient)->partners();
     }
 
@@ -107,6 +117,7 @@ class IcorpClientTest extends TestCase
             'icorp.tech/listpartners' => Http::response($this->directory()),
         ]);
 
+        (new IcorpClient)->connect();
         $this->assertCount(2, (new IcorpClient)->partners());
         Storage::disk('local')->assertExists($this->sessionPath());
         Http::assertSent(fn ($request): bool => $request->url() === 'https://icorp.tech/authorize' && ($request['password'] ?? null) === 'test-password' && $request['auth_mode'] === 'password');
@@ -213,7 +224,7 @@ class IcorpClientTest extends TestCase
         (new IcorpClient)->connect();
     }
 
-    public function test_expired_catalog_get_is_retried_after_login_and_still_validates_supplier_rows(): void
+    public function test_expired_catalog_pauses_without_attempting_automatic_login(): void
     {
         $this->configure();
         Http::fake([
@@ -224,10 +235,15 @@ class IcorpClientTest extends TestCase
             'icorp.tech/productsFirmByOverhead?*' => Http::sequence()->push('', 302, ['Location' => '/login'])->push($this->catalog(1, 'one'))->push($this->catalog(2, 'two')),
         ]);
 
-        $prices = (new IcorpClient)->prices('156');
-
-        $this->assertSame(['one', 'two'], array_column($prices['items'], 'external_id'));
-        Http::assertSentCount(8);
+        try {
+            (new IcorpClient)->prices('156');
+            $this->fail('Fetching must not renew expired sessions.');
+        } catch (IcorpFailure $exception) {
+            $this->assertSame('authentication', $exception->reason);
+        }
+        Http::assertSentCount(2);
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/login'));
+        $this->assertDatabaseHas('external_service_states', ['source' => 'icorp', 'status' => 'paused']);
     }
 
     public function test_extracts_the_current_catalog_markup_from_a_sanitized_live_row(): void

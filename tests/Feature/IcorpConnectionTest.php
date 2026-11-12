@@ -9,11 +9,18 @@ use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 use Tests\TestCase;
 
 class IcorpConnectionTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Sleep::fake();
+    }
 
     public function test_admin_can_save_encrypted_credentials_and_connect_without_exposing_secrets(): void
     {

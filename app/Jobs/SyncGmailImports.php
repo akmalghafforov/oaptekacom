@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\ExternalServiceState;
 use App\Services\GmailApiException;
 use App\Services\GmailException;
 use App\Services\GmailImportDiscovery;
@@ -36,12 +37,16 @@ class SyncGmailImports implements ShouldQueue
             return;
         }
         try {
+            ExternalServiceState::whereKey('email')->update(['last_checked_at' => now()]);
             $access->connection();
-            if ($discovery->sync()) {
+            $more = $discovery->sync();
+            ExternalServiceState::whereKey('email')->update(['last_success_at' => now(), 'status' => $more ? 'processing' : 'ready', 'reason' => null]);
+            if ($more) {
                 self::dispatch()->delay(2);
             }
 
         } catch (Throwable $exception) {
+            ExternalServiceState::whereKey('email')->update(['status' => 'failed', 'reason' => 'mailbox_failed', 'last_checked_at' => now()]);
 
             if ($exception instanceof GmailException && $exception->getMessage() !== 'token_refresh_failed') {
                 return;

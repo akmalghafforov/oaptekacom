@@ -4,13 +4,21 @@ namespace Tests\Feature;
 
 use App\Models\SupplierImportProfile;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 use Tests\TestCase;
 
 class FetchExternalPricesTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Sleep::fake();
+    }
 
     public function test_requires_the_exclusion_list_before_making_any_external_requests(): void
     {
@@ -34,7 +42,7 @@ class FetchExternalPricesTest extends TestCase
         $files = Storage::disk('local')->allFiles('external-prices/runs');
         $this->assertCount(1, $files);
         $this->assertCount(3, json_decode(Storage::disk('local')->get($files[0]), true));
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_downloads_only_eligible_suppliers_and_stages_them_without_creating_profiles(): void
@@ -58,7 +66,7 @@ class FetchExternalPricesTest extends TestCase
             $this->assertDatabaseCount('organizations', 1);
             $this->assertDatabaseCount('supplier_import_profiles', 1);
             $this->assertDatabaseCount('price_list_imports', 0);
-            Http::assertSentCount(3);
+            Http::assertSentCount(2);
         } finally {
             unlink($excluded);
         }
@@ -106,6 +114,7 @@ class FetchExternalPricesTest extends TestCase
         Storage::fake('local');
         Http::preventStrayRequests();
         config(['external-prices.pricelist_tj.phone' => '927430570', 'external-prices.pricelist_tj.password' => 'test-password']);
+        Storage::disk('local')->put('external-prices/sessions/pricelist-tj-'.hash('sha256', '927430570').'.encrypted', Crypt::encryptString('private-token'));
     }
 
     private function fakeDirectory(bool $failPrices = false): void

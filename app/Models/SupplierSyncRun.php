@@ -27,6 +27,6 @@ class SupplierSyncRun extends Model
 
     protected function casts(): array
     {
-        return ['configuration_snapshot' => 'array', 'lease_expires_at' => 'datetime', 'finished_at' => 'datetime'];
+        return ['decision' => 'array', 'mailbox_wait_started_at' => 'datetime', 'next_retry_at' => 'datetime', 'configuration_snapshot' => 'array', 'lease_expires_at' => 'datetime', 'finished_at' => 'datetime'];
     }
 }

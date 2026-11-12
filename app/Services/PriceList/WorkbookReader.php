@@ -51,6 +51,9 @@ class WorkbookReader
             throw new RuntimeException('Указанный лист не найден.');
         }
         $maximumColumn = max(array_map(fn (string $column): int => Coordinate::columnIndexFromString($column), array_filter($profile['mapping'])));
+        if (($profile['inventory']['source'] ?? null) === 'cell' && preg_match('/^([A-Z]{1,3})(\d+)$/', strtoupper((string) ($profile['inventory']['cell'] ?? '')), $inventoryCell) && (int) $inventoryCell[2] >= $startRow && (int) $inventoryCell[2] <= $endRow) {
+            $maximumColumn = max($maximumColumn, Coordinate::columnIndexFromString($inventoryCell[1]));
+        }
         $rows = [];
         for ($row = $startRow; $row <= $endRow; $row++) {
             $values = [];

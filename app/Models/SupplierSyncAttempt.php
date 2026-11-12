@@ -26,6 +26,6 @@ class SupplierSyncAttempt extends Model
 
     protected function casts(): array
     {
-        return ['metadata' => 'array'];
+        return ['metadata' => 'array', 'next_retry_at' => 'datetime'];
     }
 }

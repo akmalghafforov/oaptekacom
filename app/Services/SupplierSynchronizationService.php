@@ -2,10 +2,10 @@
 
 namespace App\Services;
 
-use App\DataTransferObjects\IngestionContext;
-use App\Enums\PriceListImportSource;
 use App\Enums\PriceListImportStatus;
 use App\Jobs\SynchronizeSupplier;
+use App\Models\ExternalAvailability;
+use App\Models\ExternalServiceState;
 use App\Models\ExternalSupplierPartner;
 use App\Models\Organization;
 use App\Models\PriceListImport;
@@ -16,7 +16,6 @@ use App\Services\PriceList\ActivationDispatcher;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -69,13 +68,13 @@ class SupplierSynchronizationService
             $supplier = Organization::whereKey($import->supplier_organization_id)->lockForUpdate()->firstOrFail();
             $import = PriceListImport::whereKey($import->id)->lockForUpdate()->firstOrFail();
             $configuration = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->first();
-            if (! $configuration?->usesExclusiveSource() || ! in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)
+            if ((! $configuration?->usesExclusiveSource() && ! $configuration?->usesNewestAvailable()) || ! in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)
                 || ! in_array($import->status, [PriceListImportStatus::Pending, PriceListImportStatus::Processing, PriceListImportStatus::Committing], true)
                 || ($import->source_metadata['configuration_version'] ?? null) === $configuration->version) {
                 return false;
             }
             $import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'source_configuration_changed', 'failure_message' => 'configuration_changed', 'failed_at' => now()]);
-            if (app(SupplierImportSettings::class)->readinessReason($supplier, $configuration->selected_source) === null) {
+            if ($configuration->usesNewestAvailable() || app(SupplierImportSettings::class)->readinessReason($supplier, $configuration->selected_source) === null) {
                 $this->request($supplier, ($import->source_metadata['trigger'] ?? 'automatic') === 'manual' ? 'manual' : 'automatic');
             }
 
@@ -136,6 +135,11 @@ class SupplierSynchronizationService
             return;
         }
         $policy = app(SupplierSourcePolicy::class);
+        if ($config->usesNewestAvailable()) {
+            $this->advanceNewest($run, $config);
+
+            return;
+        }
         $review = PriceListImport::where('supplier_organization_id', $run->supplier_organization_id)
             ->where('status', PriceListImportStatus::Preview)->whereNotNull('source_metadata')->get()
             ->first(fn (PriceListImport $candidate): bool => str_starts_with($policy->reason($candidate) ?? '', 'review_'));
@@ -146,6 +150,11 @@ class SupplierSynchronizationService
         }
         foreach ($config->enabledSources() as $source) {
             $attempt = $run->attempts()->where('source', $source)->first();
+            if ($attempt && $attempt->status === 'downloading') {
+                $run->update(['status' => $attempt->status, 'next_retry_at' => $attempt->next_retry_at]);
+
+                return;
+            }
             if ($attempt?->price_list_import_id) {
                 $import = $attempt->import;
                 if ($import->status === PriceListImportStatus::Completed) {
@@ -159,7 +168,7 @@ class SupplierSynchronizationService
 
                     return;
                 }
-                if ($import->status === PriceListImportStatus::Preview && ! in_array($attempt->status, ['skipped', 'failed'], true)) {
+                if ($import->status === PriceListImportStatus::Preview && ! in_array($attempt->status, ['skipped', 'failed', 'retry', 'cooldown', 'paused'], true)) {
                     $reason = $policy->reason($import);
                     if ($reason === null) {
                         $attempt->update(['status' => 'validated', 'reason' => null]);
@@ -182,7 +191,7 @@ class SupplierSynchronizationService
                 } elseif ($import->status === PriceListImportStatus::Failed) {
                     $attempt->update(['status' => 'failed', 'reason' => 'import_failed']);
                 }
-            } elseif ($attempt && in_array($attempt->status, ['skipped', 'failed'], true)) {
+            } elseif ($attempt && in_array($attempt->status, ['skipped', 'failed', 'retry', 'cooldown', 'paused'], true)) {
                 // A failed attempt is retried in the next run, never in an unbounded loop.
             } elseif ($source === 'email') {
                 if ($policy->unresolved($run->supplier_organization_id, ['email'])) {
@@ -206,9 +215,22 @@ class SupplierSynchronizationService
                     $run->update(['status' => 'queued', 'reason' => 'service_busy']);
 
                     return;
+                } catch (ExternalServiceUnavailable $exception) {
+                    if (in_array($exception->reason, ['availability_pending', 'service_retry_pending'], true)) {
+                        $attempt->delete();
+                        $run->update(['status' => 'waiting_availability', 'reason' => $exception->reason, 'next_retry_at' => now()->addMinute()]);
+
+                        return;
+                    }
+                    $attempt->update(['status' => 'failed', 'reason' => $exception->reason, 'metadata' => ['failure' => ['stage' => 'directory', 'code' => $exception->reason, 'http_status' => null]]]);
                 } catch (Throwable $exception) {
                     $attempt->update(['status' => 'failed', 'reason' => ExternalSupplierDirectory::failureReason($exception),
                         'metadata' => array_replace($attempt->metadata ?? [], ['failure' => $exception instanceof IcorpFailure ? $exception->diagnostic() : ['stage' => 'download', 'code' => ExternalSupplierDirectory::failureReason($exception), 'http_status' => null]])]);
+                }
+                if ($attempt->fresh()->status === 'downloading') {
+                    $run->update(['status' => $attempt->status, 'next_retry_at' => $attempt->next_retry_at]);
+
+                    return;
                 }
                 if ($attempt->fresh()->price_list_import_id) {
                     $run->update(['status' => 'processing']);
@@ -235,58 +257,140 @@ class SupplierSynchronizationService
 
             return;
         }
-        $profile = ExternalPriceWorkbook::profile($partner->profile_configuration);
-        $prices = Cache::lock('external-prices:'.$source, 7200)->block(1, function () use ($source, $partner): array {
-            $client = app($source === 'icorp' ? IcorpClient::class : PriceListTjClient::class);
-            if ($source === 'icorp') {
-                $partners = $client->partners();
-                $metadata = collect($partners)->firstWhere('external_id', $partner->external_id);
-                if ($metadata) {
-                    DB::transaction(function () use ($partner, $metadata): void {
-                        $current = ExternalSupplierPartner::whereKey($partner->id)->lockForUpdate()->firstOrFail();
-                        $current->update(['metadata' => $current->directoryMetadata($metadata), 'discovered_at' => now()]);
-                    });
+        $observation = null;
+        if ($source === 'icorp') {
+            app(ExternalSupplierDirectory::class)->availability($source);
+            $observation = ExternalAvailability::where('external_supplier_partner_id', $partner->id)->orderByDesc('last_checked_at')->orderByDesc('id')->first();
+            if (! $observation?->available) {
+                $attempt->update(['status' => 'skipped', 'reason' => 'price_list_unavailable']);
+
+                return;
+            }
+        }
+        app(ExternalPriceDownload::class)->start($attempt, $config, $partner, $observation);
+    }
+
+    private function advanceNewest(SupplierSyncRun $run, SupplierSynchronization $config): void
+    {
+        if ($run->supplier->status !== 'active') {
+            $this->finish($run, 'skipped', 'inactive_supplier');
+
+            return;
+        }
+        $policy = app(SupplierSourcePolicy::class);
+        foreach ($run->attempts()->with('import')->get() as $attempt) {
+            if ($attempt->import?->status === PriceListImportStatus::Completed) {
+                $this->finish($run, 'completed', 'activated', $attempt->source);
+
+                return;
+            }
+            if ($attempt->import && in_array($attempt->import->status, [PriceListImportStatus::Pending, PriceListImportStatus::Processing, PriceListImportStatus::Committing], true)) {
+                $run->update(['status' => 'processing']);
+
+                return;
+            }
+            if ($attempt->status === 'downloading') {
+                $run->update(['status' => $attempt->status, 'next_retry_at' => $attempt->next_retry_at]);
+
+                return;
+            }
+        }
+        if (in_array('email', $config->enabledSources(), true)) {
+            $health = ExternalServiceState::findOrFail('email');
+            $pending = app(NewestSupplierCandidates::class)->mailboxPending($run->supplier_organization_id);
+            if ($pending || $health->status !== 'ready' || ! $health->last_success_at || $health->last_success_at->lt(now()->subMinutes(15))) {
+                if (! $run->mailbox_wait_started_at) {
+                    $run->update(['mailbox_wait_started_at' => now()]);
+                }
+                if ($run->mailbox_wait_started_at->gt(now()->subMinutes(15))) {
+                    $run->update(['status' => 'waiting_mailbox', 'reason' => $pending ? 'mailbox_processing' : 'mailbox_unhealthy', 'next_retry_at' => now()->addMinute()]);
+
+                    return;
                 }
             }
+        }
+        $availabilityPending = false;
+        foreach (array_diff($config->enabledSources(), ['email']) as $source) {
+            try {
+                app(ExternalSupplierDirectory::class)->availability($source);
+            } catch (Throwable $exception) {
+                if ($exception instanceof ExternalServiceUnavailable && in_array($exception->reason, ['availability_pending', 'service_retry_pending'], true)) {
+                    $availabilityPending = true;
+                }
+                $attempt = $run->attempts()->firstOrCreate(['source' => $source]);
+                $attempt->update(['status' => 'skipped', 'reason' => $exception instanceof ExternalServiceUnavailable ? $exception->reason : ExternalSupplierDirectory::failureReason($exception)]);
+            }
+        }
+        $candidates = app(NewestSupplierCandidates::class);
+        $entries = $candidates->ordered($config, $candidates->known($config));
+        $run->update(['decision' => ['mode' => 'newest_available', 'candidates' => array_map(fn (array $entry): array => [
+            'source' => $entry['source'], 'published_at' => $entry['date']?->toIso8601String(), 'precision' => $entry['precision'], 'review' => $entry['review'],
+        ], $entries)], 'next_retry_at' => null]);
+        foreach ($entries as $entry) {
+            $source = $entry['source'];
+            $attempt = $run->attempts()->firstOrCreate(['source' => $source]);
+            if ($entry['review']) {
+                $attempt->update(['status' => 'review', 'reason' => $entry['review'], 'metadata' => array_replace($attempt->metadata ?? [], [
+                    'published_at' => $entry['date']?->toIso8601String(), 'date_precision' => $entry['precision'], 'availability_id' => $entry['availability']->id ?? null])]);
 
-            return $client->prices($partner->external_id);
-        });
-        if (($prices['unavailable'] ?? false) || $prices['items'] === []) {
-            $attempt->update(['status' => 'failed', 'reason' => 'empty_catalog']);
+                continue;
+            }
+            if (isset($entry['import'])) {
+                $import = $entry['import'];
+                if ($run->trigger === 'manual') {
+                    $import = DB::transaction(function () use ($import): PriceListImport {
+                        Organization::whereKey($import->supplier_organization_id)->lockForUpdate()->firstOrFail();
+                        $current = PriceListImport::whereKey($import->id)->lockForUpdate()->firstOrFail();
+                        if ($current->status === PriceListImportStatus::Preview) {
+                            $current->update(['source_metadata' => array_replace($current->source_metadata ?? [], ['trigger' => 'manual'])]);
+                        }
+
+                        return $current;
+                    }, 3);
+                }
+                $reason = $policy->reason($import);
+                $attempt->update(['price_list_import_id' => $import->id, 'status' => $reason === null ? 'validated' : (str_starts_with($reason, 'review_') ? 'review' : 'skipped'), 'reason' => $reason]);
+                if ($reason !== null) {
+                    continue;
+                }
+                $run->update(['status' => 'activating', 'selected_source' => $source, 'reason' => 'newest_publication']);
+                app(ActivationDispatcher::class)->dispatch($import);
+
+                return;
+            }
+            if ($attempt->status === 'review' && ! $attempt->price_list_import_id) {
+                $attempt->update(['status' => 'fetching', 'reason' => null]);
+            }
+            if (in_array($attempt->status, ['failed', 'review'], true)) {
+                continue;
+            }
+            try {
+                app(ExternalServiceControl::class)->assertAvailable($source);
+                $partner = ExternalSupplierPartner::findOrFail($entry['availability']->external_supplier_partner_id);
+                app(ExternalPriceDownload::class)->start($attempt, $config, $partner, $entry['availability']);
+                if (! $run->fresh()->active_supplier_id) {
+                    return;
+                }
+                if (in_array($attempt->fresh()->status, ['downloading', 'processing'], true)) {
+                    $run->update(['status' => 'downloading', 'selected_source' => $source, 'reason' => 'newest_publication']);
+
+                    return;
+                }
+            } catch (Throwable $exception) {
+                $attempt->update(['status' => 'failed', 'reason' => $exception instanceof ExternalServiceUnavailable ? $exception->reason : ExternalSupplierDirectory::failureReason($exception)]);
+            }
+        }
+        if ($availabilityPending) {
+            $run->update(['status' => 'waiting_availability', 'reason' => 'availability_pending', 'next_retry_at' => now()->addMinute()]);
 
             return;
         }
-        $workbook = app(ExternalPriceWorkbook::class);
-        $fingerprint = $workbook->fingerprint($prices['items']);
-        $publication = ExternalPriceWorkbook::publicationDate($prices['company']['published_at'] ?? $prices['company']['lastPriceUpdate'] ?? null);
-        $metadata = ['partner_id' => $partner->id, 'external_id' => $partner->external_id, 'profile_version' => $partner->profile_version,
-            'configuration_version' => $config->version, 'trigger' => $run->fresh()->trigger, 'fingerprint' => $fingerprint,
-            'published_at' => $publication['date']?->toIso8601String(), 'date_precision' => $publication['precision'],
-            'extracted_at' => now()->toIso8601String(), 'company' => $prices['company'], 'account_discount' => $prices['account_discount'] ?? null];
-        $attempt->update(['metadata' => $metadata]);
-        if (PriceListImport::where('supplier_organization_id', $run->supplier_organization_id)->where('source_type', $source)
-            ->where('source_fingerprint', $fingerprint)->whereIn('status', [PriceListImportStatus::Completed, PriceListImportStatus::Superseded])->exists()) {
-            $attempt->update(['status' => 'skipped', 'reason' => 'unchanged_content']);
-
-            return;
-        }
-        $file = $workbook->store($prices['items']);
-        try {
-            DB::transaction(function () use ($run, $attempt, $file, $source, $profile, $metadata, $publication, $fingerprint): void {
-                $import = app(SupplierPriceListIngestor::class)->ingest($run->supplier, $file,
-                    new IngestionContext(PriceListImportSource::from($source), profileConfiguration: $profile, sourceMetadata: $metadata,
-                        sourcePublishedAt: $publication['date'], sourceDatePrecision: $publication['precision'], sourceFingerprint: $fingerprint));
-                $attempt->update(['price_list_import_id' => $import->id, 'status' => 'processing']);
-            });
-        } catch (Throwable $exception) {
-            Storage::disk($file->disk)->delete($file->path);
-            throw $exception;
-        }
+        $this->finish($run, 'unchanged', 'no_eligible_candidate');
     }
 
     private function finish(SupplierSyncRun $run, string $status, string $reason, ?string $source = null): void
     {
-        $run->update(['status' => $status, 'reason' => $reason, 'selected_source' => $source, 'active_supplier_id' => null, 'finished_at' => now()]);
+        $run->update(['status' => $status, 'reason' => $reason, 'selected_source' => $source, 'active_supplier_id' => null, 'finished_at' => now(), 'next_retry_at' => null]);
         $config = SupplierSynchronization::where('supplier_organization_id', $run->supplier_organization_id)->firstOrFail();
         $config->update(['next_check_at' => now()->addMinutes($config->fetch_interval_minutes)]);
     }

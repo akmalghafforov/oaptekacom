@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Storage;
 
 class IcorpClient
 {
+    private bool $recovering = false;
+
     /** @var array<string, array{name: string, catalog: ?string, published_at: ?string}> */
     private array $catalogs = [];
 
@@ -62,7 +64,9 @@ class IcorpClient
     public function prices(string $externalId): array
     {
         if ($this->catalogs === []) {
-            $this->partners();
+            foreach (app(ExternalSupplierDirectory::class)->availability('icorp') as $entry) {
+                $this->catalogs[$entry['external_id']] = ['name' => $entry['name'], 'catalog' => $entry['catalog_id'] ?? null, 'published_at' => $entry['published_at'] ?? null];
+            }
         }
         $partner = $this->catalogs[$externalId] ?? null;
         if ($partner === null) {
@@ -72,49 +76,79 @@ class IcorpClient
         if ($partner['catalog'] === null) {
             return ['company' => $company, 'items' => [], 'account_discount' => null, 'unavailable' => true];
         }
-        $items = [];
-        $total = null;
-        for ($page = 1; $page <= 1000; $page++) {
-            $xpath = $this->document($this->get('/productsFirmByOverhead', [
-                'id' => $partner['catalog'], 'q' => '', 'manufacturer' => '', 'discount_filter' => 'all', 'per_page' => 50, 'page' => $page,
-            ]));
-            $summary = $this->text($xpath, '//*[contains(concat(" ",normalize-space(@class)," ")," catalog-summary ")]');
-            if (! preg_match('/Показано\s+(\d+)-(\d+)\s+из\s+(\d+)/u', $summary, $range)) {
-                throw new IcorpFailure('catalog', 'iCorp returned an invalid catalog summary.');
-            }
-            $total ??= (int) $range[3];
-            if ((int) $range[3] !== $total || (int) $range[1] !== count($items) + 1) {
-                throw new IcorpFailure('catalog', 'The iCorp price list changed during extraction.');
-            }
-            foreach ($xpath->query('//tr[contains(concat(" ",normalize-space(@class)," ")," catalog-cart-source ")]') as $row) {
-                $id = $this->value($xpath, 'catalog-prid', $row);
-                $firm = base64_decode($this->value($xpath, 'catalog-firm', $row), true);
-                $catalog = $this->value($xpath, 'catalog-over', $row);
-                $name = $this->classText($xpath, 'catalog-title', $row);
-                $price = $this->classText($xpath, 'catalog-price-main', $row);
-                $discount = rtrim($this->classText($xpath, 'catalog-discount-badge', $row), '% ');
-                $expiry = $this->classText($xpath, 'catalog-col-expire', $row);
-                if ($id === '' || $firm !== $externalId || $catalog !== $partner['catalog'] || $name === ''
-                    || ! is_numeric($price) || (float) $price < 0 || ! is_numeric($discount) || isset($items[$id])) {
-                    throw new IcorpFailure('catalog', 'iCorp returned an invalid or repeated price row.');
+
+        return app(ExternalDownloadLease::class)->run(function (\Closure $heartbeat) use ($externalId, $partner, $company): array {
+            $items = [];
+            $total = null;
+            for ($number = 1; $number <= 1000; $number++) {
+                $heartbeat();
+                $page = $this->pricePage($externalId, $number, [...$partner, 'received_rows' => count($items)]);
+                if ($total !== null && $total !== $page['total']) {
+                    throw new IcorpFailure('catalog', 'The iCorp price list changed during extraction.');
                 }
-                $items[$id] = [
-                    'external_id' => $id, 'name' => $name, 'price' => $price,
-                    'manufacturer' => $this->classText($xpath, 'catalog-subtitle', $row) ?: null,
-                    'original_price' => $this->classText($xpath, 'catalog-price-old', $row) ?: null,
-                    'discount_percent' => $discount, 'expiry' => $expiry === '-' ? null : $expiry,
-                    'quantity' => null,
-                ];
+                $total = $page['total'];
+                foreach ($page['items'] as $item) {
+                    if (isset($items[$item['external_id']])) {
+                        throw new IcorpFailure('catalog', 'iCorp returned an invalid or repeated price row.');
+                    }
+                    $items[$item['external_id']] = $item;
+                }
+                if ($number >= $page['total_pages']) {
+                    if (count($items) !== $total) {
+                        throw new IcorpFailure('catalog', 'iCorp catalog rows do not match the page summary.');
+                    }
+
+                    return ['company' => $company, 'items' => array_values($items), 'account_discount' => null];
+                }
             }
-            if (count($items) !== (int) $range[2]) {
-                throw new IcorpFailure('catalog', 'iCorp catalog rows do not match the page summary.');
+            throw new IcorpFailure('catalog', 'iCorp pagination exceeded the extraction limit.');
+        });
+    }
+
+    /** @param array<string, mixed> $evidence @return array<string, mixed> */
+    public function pricePage(string $externalId, int $page, array $evidence = []): array
+    {
+        $partner = ['catalog' => $evidence['catalog'] ?? $evidence['catalog_id'] ?? null, 'name' => $evidence['name'] ?? '', 'published_at' => $evidence['published_at'] ?? null];
+        if ($partner['catalog'] === null) {
+            return ['company' => [], 'items' => [], 'total' => 0, 'total_pages' => 0, 'account_discount' => null];
+        }
+        $items = [];
+        $xpath = $this->document($this->get('/productsFirmByOverhead', [
+            'id' => $partner['catalog'], 'q' => '', 'manufacturer' => '', 'discount_filter' => 'all', 'per_page' => 50, 'page' => $page,
+        ]));
+        $summary = $this->text($xpath, '//*[contains(concat(" ",normalize-space(@class)," ")," catalog-summary ")]');
+        if (! preg_match('/Показано\s+(\d+)-(\d+)\s+из\s+(\d+)/u', $summary, $range)) {
+            throw new IcorpFailure('catalog', 'iCorp returned an invalid catalog summary.');
+        }
+        $total = (int) $range[3];
+        if ((int) $range[1] !== (int) ($evidence['received_rows'] ?? (($page - 1) * 50)) + 1) {
+            throw new IcorpFailure('catalog', 'The iCorp price list changed during extraction.');
+        }
+        foreach ($xpath->query('//tr[contains(concat(" ",normalize-space(@class)," ")," catalog-cart-source ")]') as $row) {
+            $id = $this->value($xpath, 'catalog-prid', $row);
+            $firm = base64_decode($this->value($xpath, 'catalog-firm', $row), true);
+            $catalog = $this->value($xpath, 'catalog-over', $row);
+            $name = $this->classText($xpath, 'catalog-title', $row);
+            $price = $this->classText($xpath, 'catalog-price-main', $row);
+            $discount = rtrim($this->classText($xpath, 'catalog-discount-badge', $row), '% ');
+            $expiry = $this->classText($xpath, 'catalog-col-expire', $row);
+            if ($id === '' || $firm !== $externalId || $catalog !== $partner['catalog'] || $name === ''
+                || ! is_numeric($price) || (float) $price < 0 || ! is_numeric($discount) || isset($items[$id])) {
+                throw new IcorpFailure('catalog', 'iCorp returned an invalid or repeated price row.');
             }
-            if (count($items) === $total) {
-                return ['company' => $company, 'items' => array_values($items), 'account_discount' => null];
-            }
+            $items[$id] = [
+                'external_id' => $id, 'name' => $name, 'price' => $price,
+                'manufacturer' => $this->classText($xpath, 'catalog-subtitle', $row) ?: null,
+                'original_price' => $this->classText($xpath, 'catalog-price-old', $row) ?: null,
+                'discount_percent' => $discount, 'expiry' => $expiry === '-' ? null : $expiry,
+                'quantity' => null,
+            ];
+        }
+        if (count($items) !== (int) $range[2] - (int) $range[1] + 1 || count($items) > 50) {
+            throw new IcorpFailure('catalog', 'iCorp catalog rows do not match the page summary.');
         }
 
-        throw new IcorpFailure('catalog', 'iCorp pagination exceeded the extraction limit.');
+        return ['company' => ['id' => $externalId, 'name' => $partner['name'], 'catalog_id' => $partner['catalog'], 'published_at' => $partner['published_at']], 'items' => array_values($items), 'total' => $total, 'total_pages' => (int) $range[2] === $total ? $page : (int) ceil($total / max(1, count($items))), 'account_discount' => null];
     }
 
     /** @param array<string, int|string> $query */
@@ -123,17 +157,12 @@ class IcorpClient
         $disk = Storage::disk('local');
         $sessionPath = app(IcorpCredentials::class)->sessionPath();
         if (! $disk->exists($sessionPath)) {
-            $this->connect();
+            app(ExternalServiceControl::class)->pause('icorp', 'authentication');
+            throw new IcorpFailure('session', 'session_expired', reason: 'authentication');
         }
         $session = json_decode(Crypt::decryptString($disk->get($sessionPath)), true, 512, JSON_THROW_ON_ERROR);
         $jar = new CookieJar(false, $session['cookies']);
-        $response = $this->http($jar, $session['user_agent'])->get('https://icorp.tech'.$path, $query);
-        if ($this->requiresLogin($response)) {
-            $this->connect();
-            $session = json_decode(Crypt::decryptString($disk->get($sessionPath)), true, 512, JSON_THROW_ON_ERROR);
-            $jar = new CookieJar(false, $session['cookies']);
-            $response = $this->http($jar, $session['user_agent'])->get('https://icorp.tech'.$path, $query);
-        }
+        $response = $this->send(fn () => $this->http($jar, $session['user_agent'])->get('https://icorp.tech'.$path, $query));
         $stage = $path === '/listpartners' ? 'directory' : 'catalog';
         if ($this->requiresLogin($response)) {
             throw new IcorpFailure($stage, 'session_expired', $response->status(), 'authentication');
@@ -146,33 +175,44 @@ class IcorpClient
 
     public function connect(bool $takeOver = false): void
     {
-        $credentials = app(IcorpCredentials::class)->current();
-        $firmId = (string) config('external-prices.icorp.firm_id');
-        if ($credentials['phone'] === '' || $credentials['password'] === '' || ! ctype_digit($firmId)) {
-            throw new IcorpFailure('credentials', 'configuration_missing', reason: 'authentication');
-        }
-        $sessionPath = app(IcorpCredentials::class)->sessionPath();
-        $disk = Storage::disk('local');
-        $session = $disk->exists($sessionPath) ? json_decode(Crypt::decryptString($disk->get($sessionPath)), true, 512, JSON_THROW_ON_ERROR) : ['cookies' => [], 'user_agent' => 'Oapteka price-list importer'];
-        for ($attempt = 0; $attempt < 2; $attempt++) {
-            $jar = new CookieJar(false, $attempt === 0 ? $session['cookies'] : []);
-            try {
-                $this->authenticate($jar, $session['user_agent'], $credentials, $firmId, $takeOver);
-                $this->saveSession($sessionPath, $jar, $session['user_agent']);
+        $this->recovering = true;
+        try {
+            $credentials = app(IcorpCredentials::class)->current();
+            $firmId = (string) config('external-prices.icorp.firm_id');
+            if ($credentials['phone'] === '' || $credentials['password'] === '' || ! ctype_digit($firmId)) {
+                throw new IcorpFailure('credentials', 'configuration_missing', reason: 'authentication');
+            }
+            $sessionPath = app(IcorpCredentials::class)->sessionPath();
+            $disk = Storage::disk('local');
+            $session = $disk->exists($sessionPath) ? json_decode(Crypt::decryptString($disk->get($sessionPath)), true, 512, JSON_THROW_ON_ERROR) : ['cookies' => [], 'user_agent' => 'Oapteka price-list importer'];
+            for ($attempt = 0; $attempt < 2; $attempt++) {
+                $jar = new CookieJar(false, $attempt === 0 ? $session['cookies'] : []);
+                try {
+                    $this->authenticate($jar, $session['user_agent'], $credentials, $firmId, $takeOver);
+                    $this->saveSession($sessionPath, $jar, $session['user_agent']);
+                    app(ExternalServiceControl::class)->recovered('icorp');
 
-                return;
-            } catch (IcorpFailure $exception) {
-                if ($exception->httpStatus !== 419 || $attempt === 1) {
-                    throw $exception;
+                    return;
+                } catch (IcorpFailure $exception) {
+                    if ($exception->httpStatus !== 419 || $attempt === 1) {
+                        throw $exception;
+                    }
                 }
             }
+        } catch (IcorpFailure $exception) {
+            if (in_array($exception->reason, ['authentication', 'permission', 'takeover_required'], true)) {
+                app(ExternalServiceControl::class)->pause('icorp', $exception->reason);
+            }
+            throw $exception;
+        } finally {
+            $this->recovering = false;
         }
     }
 
     /** @param array{phone: string, password: string, revision: string} $credentials */
     private function authenticate(CookieJar $jar, string $userAgent, array $credentials, string $firmId, bool $takeOver): void
     {
-        $login = $this->http($jar, $userAgent)->get('https://icorp.tech/login');
+        $login = $this->send(fn () => $this->http($jar, $userAgent)->get('https://icorp.tech/login'));
         if ($login->successful()) {
             $csrf = $this->csrf($login->body());
             $step = $this->post($jar, $userAgent, '/authorize', '/login', $csrf, ['phone' => $credentials['phone'], '_token' => $csrf]);
@@ -188,7 +228,7 @@ class IcorpClient
         } elseif (! $login->redirect()) {
             $this->checkResponse($login, 'login');
         }
-        $choose = $this->http($jar, $userAgent)->get('https://icorp.tech/choose');
+        $choose = $this->send(fn () => $this->http($jar, $userAgent)->get('https://icorp.tech/choose'));
         $this->checkResponse($choose, 'workspace');
         $xpath = $this->document($choose->body());
         if ($xpath->query('//button[@data-firm-id="'.$firmId.'"]')->length !== 1) {
@@ -199,7 +239,7 @@ class IcorpClient
         if (($payload['status'] ?? $payload['success'] ?? false) !== true) {
             throw new IcorpFailure('workspace', 'entry_rejected', $entry->status(), 'permission');
         }
-        $directory = $this->http($jar, $userAgent)->get('https://icorp.tech/listpartners');
+        $directory = $this->send(fn () => $this->http($jar, $userAgent)->get('https://icorp.tech/listpartners'));
         $this->checkResponse($directory, 'directory');
         if ($this->requiresLogin($directory)) {
             throw new IcorpFailure('directory', 'session_expired', $directory->status(), 'authentication');
@@ -212,10 +252,10 @@ class IcorpClient
     /** @param array<string, int|string> $data */
     private function post(CookieJar $jar, string $userAgent, string $path, string $referer, string $csrf, array $data): Response
     {
-        $response = $this->http($jar, $userAgent)->asForm()->acceptJson()->withHeaders([
+        $response = $this->send(fn () => $this->http($jar, $userAgent)->asForm()->acceptJson()->withHeaders([
             'X-CSRF-TOKEN' => $csrf, 'X-Requested-With' => 'XMLHttpRequest',
             'Origin' => 'https://icorp.tech', 'Referer' => 'https://icorp.tech'.$referer,
-        ])->post('https://icorp.tech'.$path, $data);
+        ])->post('https://icorp.tech'.$path, $data));
         $this->checkResponse($response, $path === '/authorize' ? 'login' : 'workspace');
 
         return $response;
@@ -271,6 +311,11 @@ class IcorpClient
         }
 
         return $node->getAttribute('content');
+    }
+
+    private function send(\Closure $request): Response
+    {
+        return app(ExternalServiceControl::class)->request('icorp', $request, $this->recovering);
     }
 
     private function http(CookieJar $jar, string $userAgent): PendingRequest

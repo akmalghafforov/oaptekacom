@@ -17,7 +17,7 @@ class SupplierSourcePolicy
     {
         $configuration = SupplierSynchronization::where('supplier_organization_id', $import->supplier_organization_id)->first();
 
-        return $import->source_type->value === 'email' && ! $configuration?->settings_confirmed && ! $configuration?->usesExclusiveSource() ? null : $configuration;
+        return $import->source_type->value === 'email' && ! $configuration?->settings_confirmed && ! $configuration?->usesExclusiveSource() && ! $configuration?->usesNewestAvailable() ? null : $configuration;
     }
 
     public function validationReason(PriceListImport $import): ?string
@@ -85,6 +85,9 @@ class SupplierSourcePolicy
         }
         if ($reason = $this->validationReason($import)) {
             return $reason;
+        }
+        if ($config->usesNewestAvailable()) {
+            return app(NewestSupplierCandidates::class)->reason($import, $config, $supplier);
         }
         $date = $import->source_published_at;
         if (! $date || ! $import->source_date_precision) {

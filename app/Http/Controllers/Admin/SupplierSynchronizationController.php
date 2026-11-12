@@ -10,12 +10,18 @@ use App\Http\Requests\ApproveSupplierMappingRequest;
 use App\Http\Requests\UpdateExternalSupplierProfileRequest;
 use App\Http\Requests\UpdateSupplierSynchronizationRequest;
 use App\Jobs\RefreshExternalSupplierDirectory;
+use App\Models\ExternalAvailability;
+use App\Models\ExternalDownload;
+use App\Models\ExternalServiceIncident;
+use App\Models\ExternalServiceState;
 use App\Models\ExternalSupplierPartner;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
 use App\Services\AuditLogger;
+use App\Services\ExternalServiceControl;
+use App\Services\ExternalServiceUnavailable;
 use App\Services\ExternalSupplierDirectory;
 use App\Services\IcorpClient;
 use App\Services\IcorpCredentials;
@@ -247,7 +253,12 @@ class SupplierSynchronizationController extends Controller
         $reviewReasons = $previews->mapWithKeys(fn (PriceListImport $preview): array => [$preview->id => $policy->reason($preview) ?? 'review_pending']);
         $sources = collect(SupplierSynchronization::defaultSources())->map(fn (array $settings, string $source): array => array_replace($settings, is_array($configuration->sources[$source] ?? null) ? $configuration->sources[$source] : []))->sortBy('priority');
 
-        return view('admin.supplier-synchronizations.show', compact('supplier', 'configuration', 'partners', 'runs', 'previews', 'tab', 'sources', 'reviewReasons'));
+        $serviceStates = ExternalServiceState::whereIn('source', ['email', ...$partners->pluck('source')->all()])->get();
+        $downloads = ExternalDownload::where('supplier_organization_id', $supplier->id)->latest('id')->limit(20)->get();
+        $observations = ExternalAvailability::whereIn('external_supplier_partner_id', $partners->pluck('id'))->orderByDesc('last_checked_at')->orderByDesc('id')->get()->unique('external_supplier_partner_id');
+        $incidents = ExternalServiceIncident::whereIn('source', $serviceStates->pluck('source'))->whereNull('resolved_at')->get();
+
+        return view('admin.supplier-synchronizations.show', compact('supplier', 'configuration', 'partners', 'runs', 'previews', 'tab', 'sources', 'reviewReasons', 'serviceStates', 'downloads', 'observations', 'incidents'));
     }
 
     public function update(UpdateSupplierSynchronizationRequest $request, Organization $supplier, SupplierImportSettings $settings): RedirectResponse
@@ -281,7 +292,7 @@ class SupplierSynchronizationController extends Controller
     {
         $request->validate([
             'take_over' => ['prohibited'],
-            'phone' => [$source === 'icorp' ? 'sometimes' : 'prohibited', 'required', 'string', 'max:32', 'regex:/^(?:\+?992[ -]?)?\d[\d -]{7,14}\d$/'],
+            'phone' => $source === 'icorp' ? ['sometimes', 'required', 'string', 'max:32', 'regex:/^(?:\+?992[ -]?)?\d[\d -]{7,14}\d$/'] : ['prohibited'],
             'password' => [$source === 'icorp' ? 'nullable' : 'prohibited', 'string', 'max:1024'],
         ], [...$this->validationMessages(), 'phone.regex' => 'Введите телефон iCorp в формате 9 цифр или +992 и 9 цифр.']);
         if ($request->filled('password') && ! $request->filled('phone')) {
@@ -323,7 +334,10 @@ class SupplierSynchronizationController extends Controller
         } catch (ValidationException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
-            $reason = ExternalSupplierDirectory::failureReason($exception);
+            $reason = $exception instanceof ExternalServiceUnavailable ? $exception->reason : ExternalSupplierDirectory::failureReason($exception);
+            if (in_array($reason, ['authentication', 'permission', 'challenge', 'takeover_required'], true)) {
+                app(ExternalServiceControl::class)->pause($source, $reason);
+            }
             Cache::forever('external-prices:status:'.$source, ['status' => $reason, 'checked_at' => now()->toIso8601String()]);
 
             return back()->with('warning', ($credentialsSaved ? 'Данные сохранены, подключение не выполнено: ' : 'Подключение не выполнено: ').$this->connectionFailureLabel($reason));
@@ -352,6 +366,29 @@ class SupplierSynchronizationController extends Controller
         }, 3);
 
         return back()->with('success', 'Дата подтверждена. Перед активацией будут повторно проверены настройки и выбранный источник.');
+    }
+
+    public function confirmAvailabilityDate(Request $request, ExternalAvailability $availability, AuditLogger $audit): RedirectResponse
+    {
+        if (is_string($request->input('published_at')) && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/D', $request->input('published_at'))) {
+            $request->merge(['published_at' => $request->input('published_at').':00']);
+        }
+        $data = $request->validate(['version_key' => ['required', 'string'], 'published_at' => ['required', 'date_format:Y-m-d\TH:i:s', 'before_or_equal:now'], 'evidence' => ['required', 'string', 'max:1000']], $this->validationMessages());
+        $partner = ExternalSupplierPartner::findOrFail($availability->external_supplier_partner_id);
+        $supplierId = $partner->supplier_organization_id;
+        DB::transaction(function () use ($availability, $partner, $supplierId, $request, $data, $audit): void {
+            Organization::whereKey($partner->supplier_organization_id)->lockForUpdate()->firstOrFail();
+            $partner = ExternalSupplierPartner::whereKey($partner->id)->lockForUpdate()->firstOrFail();
+            $current = ExternalAvailability::whereKey($availability->id)->lockForUpdate()->firstOrFail();
+            abort_unless($current->available && $current->version_key === $data['version_key'] && $partner->supplier_organization_id === $supplierId && $current->id === ExternalAvailability::where('external_supplier_partner_id', $partner->id)->orderByDesc('last_checked_at')->orderByDesc('id')->value('id'), 409);
+            $before = $current->toArray();
+            $date = CarbonImmutable::createFromFormat('Y-m-d\TH:i:s', $data['published_at'], config('price-list-imports.timezone'));
+            $current->update(['published_at' => $date, 'date_precision' => 'second', 'evidence' => array_replace($current->evidence, [
+                'confirmed_published_at' => $date->toIso8601String(), 'date_confirmed_by' => $request->user()->id, 'date_evidence' => $data['evidence']])]);
+            $audit->log('supplier_sync.availability_date_confirmed', $current, $before, $current->toArray());
+        }, 3);
+
+        return back()->with('success', 'Дата публикации подтверждена. Запросите загрузку для повторной проверки.');
     }
 
     public function reject(PriceListImport $import, AuditLogger $audit): RedirectResponse

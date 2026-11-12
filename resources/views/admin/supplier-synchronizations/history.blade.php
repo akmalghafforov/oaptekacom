@@ -3,6 +3,7 @@
         <div class="py-4">
             <div class="flex flex-wrap items-center justify-between gap-3"><p class="font-semibold">{{ $formatDate($run->created_at) }} · {{ $labels[$run->trigger] ?? 'Запуск' }}</p><x-ui.status-badge :status="$run->status === 'completed' ? 'confirmed' : $run->status" :label="$labels[$run->status] ?? 'Требуется проверка'" /></div>
             <p class="mt-2 text-sm">{{ $labels[$run->reason] ?? 'Результат ещё не получен' }} · {{ $sourceNames[$run->selected_source] ?? 'Источник не выбран' }}</p>
+            @if($run->decision)<p class="mt-2 text-sm">Сравнение публикаций:</p>@foreach($run->decision['candidates'] ?? [] as $candidate)<p class="text-sm text-muted">{{ $sourceNames[$candidate['source']] }} · {{ $candidate['published_at'] ? $formatDate(\Carbon\CarbonImmutable::parse($candidate['published_at'])) : 'Дата неизвестна' }} · {{ $labels[$candidate['review']] ?? 'Дата допускает сравнение' }}</p>@endforeach @endif
             <details class="mt-2"><summary class="min-h-10 cursor-pointer py-2 font-semibold">Попытки источников · {{ $run->attempts->count() }}</summary>
                 <div class="space-y-3">@foreach($run->attempts as $attempt)
                     <div class="rounded-control border border-border p-3"><p class="font-semibold">{{ $sourceNames[$attempt->source] ?? 'Источник' }} · {{ $labels[$attempt->status] ?? 'Требуется проверка' }}</p><p class="mt-1 text-sm">{{ $labels[$attempt->reason] ?? 'Результат ещё не получен' }}</p>

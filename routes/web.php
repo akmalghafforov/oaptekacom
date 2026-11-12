@@ -162,6 +162,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
             Route::post('/partners/{partner}/mapping', 'map')->name('map');
             Route::delete('/partners/{partner}/mapping', 'unmap')->name('unmap');
             Route::put('/partners/{partner}/profile', 'profile')->name('profile');
+            Route::post('/availability/{availability}/date', 'confirmAvailabilityDate')->name('availability-date');
             Route::post('/imports/{import}/date', 'confirmDate')->name('date');
             Route::post('/imports/{import}/reject', 'reject')->name('reject');
             Route::get('/suppliers/{supplier}', 'show')->name('show');

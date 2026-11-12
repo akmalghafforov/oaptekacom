@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Sleep;
 use Illuminate\Validation\ValidationException;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PHPUnit\Framework\Attributes\TestWith;
@@ -40,6 +41,12 @@ use Tests\TestCase;
 class SupplierSynchronizationTest extends TestCase
 {
     use LazilyRefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Sleep::fake();
+    }
 
     public function test_administrator_sees_searchable_mapping_evidence_without_automatic_merging(): void
     {
@@ -113,7 +120,7 @@ class SupplierSynchronizationTest extends TestCase
         $this->assertNull($import->supplier_import_profile_id);
         $this->assertNotNull($config->fresh()->last_activated_at);
         $this->assertSame('completed', $run->fresh()->status);
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_automatic_queued_run_does_not_fetch_after_pause(): void
@@ -151,7 +158,7 @@ class SupplierSynchronizationTest extends TestCase
 
         $this->assertSame(PriceListImportStatus::Completed, $import->fresh()->status);
         $this->assertDatabaseHas('audit_events', ['event' => 'supplier_sync.date_confirmed', 'subject_id' => $import->id]);
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_validation_failure_does_not_replace_existing_catalog(): void
@@ -168,7 +175,7 @@ class SupplierSynchronizationTest extends TestCase
 
         $this->assertSame($current->id, $config->supplier->fresh()->active_price_list_import_id);
         $this->assertSame('validation_failed', $run->attempts()->firstOrFail()->reason);
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_fresh_preferred_mailbox_blocks_external_fallback_without_renewing_its_date(): void
@@ -211,7 +218,7 @@ class SupplierSynchronizationTest extends TestCase
 
         $this->assertNotSame($mail->id, $config->supplier->fresh()->active_price_list_import_id);
         $this->assertSame('completed', $run->fresh()->status);
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_repeated_content_in_different_order_is_skipped_without_refreshing_publication_date(): void
@@ -252,8 +259,8 @@ class SupplierSynchronizationTest extends TestCase
 
         $this->assertSame(1, SupplierSyncRun::count());
         $this->assertSame(PriceListImportStatus::Completed, PriceListImport::firstOrFail()->status);
-        Queue::assertPushed(SynchronizeSupplier::class, 2);
-        Http::assertSentCount(2);
+        Queue::assertPushed(SynchronizeSupplier::class, 3);
+        Http::assertSentCount(1);
     }
 
     #[TestWith(['paused', 'paused'])]
@@ -315,6 +322,7 @@ class SupplierSynchronizationTest extends TestCase
         Storage::fake('local');
         [$config, $partner] = $this->configured();
         config(['external-prices.pricelist_tj.phone' => '927430570', 'external-prices.pricelist_tj.password' => 'test']);
+        Storage::disk('local')->put('external-prices/sessions/pricelist-tj-'.hash('sha256', '927430570').'.encrypted', Crypt::encryptString('private-token'));
         Http::preventStrayRequests();
         Http::fake([
             'pricelist-tj.com/api/auth/login' => Http::response(['token' => 'secret-token']),
@@ -327,7 +335,7 @@ class SupplierSynchronizationTest extends TestCase
             $this->assertSame('Поставщик', $partner->fresh()->name);
             $this->assertSame($config->supplier_organization_id, $partner->fresh()->supplier_organization_id);
         }
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_guest_cannot_access_supplier_synchronization(): void
@@ -380,7 +388,7 @@ class SupplierSynchronizationTest extends TestCase
         $this->assertSame(PriceListImportStatus::Completed, PriceListImport::firstOrFail()->status);
         $this->assertSame(1, SupplierSyncRun::count());
         $this->assertTrue($config->fresh()->next_check_at->isFuture());
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     #[TestWith([false])]
@@ -410,7 +418,7 @@ class SupplierSynchronizationTest extends TestCase
         $this->assertSame('pricelist_tj', $run->fresh()->selected_source);
         $this->assertSame($validationFailure ? 'validation_failed' : 'transport', $run->attempts()->where('source', 'icorp')->firstOrFail()->reason);
         $this->assertSame('Душанбе', $icorpPartner->fresh()->metadata['city']);
-        Http::assertSentCount(4);
+        Http::assertSentCount(3);
     }
 
     public function test_configured_mailbox_receipt_uses_its_own_profile_and_records_sync_history(): void
@@ -492,8 +500,8 @@ class SupplierSynchronizationTest extends TestCase
         $this->assertSame($automatic->id, $manual->id);
         $this->assertSame('completed', $manual->fresh()->status);
         $this->assertSame(PriceListImportStatus::Completed, PriceListImport::firstOrFail()->status);
-        Queue::assertPushed(SynchronizeSupplier::class, 2);
-        Http::assertSentCount(2);
+        Queue::assertPushed(SynchronizeSupplier::class, 3);
+        Http::assertSentCount(1);
     }
 
     public function test_lower_priority_mailbox_waits_for_an_external_attempt_before_import_exists(): void
@@ -574,7 +582,7 @@ class SupplierSynchronizationTest extends TestCase
         $this->assertSame(PriceListImportStatus::Failed, $import->fresh()->status);
         $this->assertNull($run->fresh()->active_supplier_id);
         $this->assertNull($config->supplier->fresh()->active_price_list_import_id);
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_cutover_policy_change_restores_reviewable_preview_and_preserves_active_catalog(): void
@@ -939,14 +947,14 @@ class SupplierSynchronizationTest extends TestCase
 
         $attempt = $run->attempts()->where('source', 'icorp')->firstOrFail();
         $this->assertSame('authentication', $attempt->reason);
-        $this->assertSame(['stage' => 'login', 'code' => 'http_error', 'http_status' => 419], $attempt->metadata['failure']);
+        $this->assertSame(['stage' => 'directory', 'code' => 'authentication', 'http_status' => null], $attempt->metadata['failure']);
         $this->assertNull($attempt->price_list_import_id);
         $this->assertSame(1, PriceListImport::count());
         $this->assertSame($active->id, $config->supplier->fresh()->active_price_list_import_id);
         $this->assertStringNotContainsString('private-response-token', $attempt->toJson());
         $this->actingAs($this->admin())->get(route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'history']))
-            ->assertSee('HTTP 419')->assertSee('Требуется авторизация')->assertDontSee('private-response-token')->assertDontSee('private-password');
-        Http::assertSentCount(2);
+            ->assertSee('Требуется авторизация')->assertDontSee('private-response-token')->assertDontSee('private-password');
+        Http::assertNothingSent();
     }
 
     private function admin(): User
@@ -991,6 +999,7 @@ class SupplierSynchronizationTest extends TestCase
     private function fakePrices(?string $date, ?array $items = null): void
     {
         config(['external-prices.pricelist_tj.phone' => '927430570', 'external-prices.pricelist_tj.password' => 'test']);
+        Storage::disk('local')->put('external-prices/sessions/pricelist-tj-'.hash('sha256', '927430570').'.encrypted', Crypt::encryptString('private-token'));
         Http::preventStrayRequests();
         $items ??= [$this->item()];
         Http::fake([

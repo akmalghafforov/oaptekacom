@@ -5,7 +5,9 @@ namespace App\Console\Commands;
 use App\Enums\PriceListImportStatus;
 use App\Jobs\PreparePriceListImport;
 use App\Jobs\ProcessGmailImportReceipt;
+use App\Jobs\SyncGmailImports as SyncGmailImportJob;
 use App\Jobs\SyncGmailMessages;
+use App\Models\ExternalServiceState;
 use App\Models\GmailConnection;
 use App\Models\GmailImportReceipt;
 use App\Models\PriceListImport;
@@ -40,6 +42,7 @@ class SyncGmailImports extends Command
         }
         $this->reconcileImports();
         if (! config('gmail-imports.enabled')) {
+            ExternalServiceState::whereKey('email')->update(['status' => 'disabled', 'reason' => 'mailbox_disabled', 'last_checked_at' => now()]);
             $this->info('Automatic Gmail imports are disabled.');
 
             return self::SUCCESS;
@@ -47,6 +50,7 @@ class SyncGmailImports extends Command
         try {
             $connection = app(GmailMailboxAccess::class)->connection();
         } catch (GmailException) {
+            ExternalServiceState::whereKey('email')->update(['status' => 'failed', 'reason' => 'mailbox_failed', 'last_checked_at' => now()]);
             Log::warning('Gmail synchronization suspended: designated connection requires attention', ['connection_id' => config('gmail-imports.connection_id')]);
             $this->error('Designated Gmail connection requires attention.');
 
@@ -55,7 +59,7 @@ class SyncGmailImports extends Command
         if (! $connection->last_synced_at || Carbon::parse($connection->last_synced_at)->lt(now()->subMinutes(15))) {
             Log::warning('Gmail synchronization has not succeeded within 15 minutes', ['connection_id' => $connection->id]);
         }
-        \App\Jobs\SyncGmailImports::dispatch();
+        SyncGmailImportJob::dispatch();
         GmailImportReceipt::where('mailbox_email', strtolower($connection->email))->where('status', 'pending')->where(fn ($query) => $query->whereNull('next_attempt_at')->orWhere('next_attempt_at', '<=', now()))->where('updated_at', '<', now()->subMinutes(2))->chunkById(100, function ($receipts): void {
             foreach ($receipts as $receipt) {
                 ProcessGmailImportReceipt::dispatch($receipt->id);
