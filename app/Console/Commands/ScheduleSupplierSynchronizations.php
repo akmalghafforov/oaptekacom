@@ -23,6 +23,11 @@ class ScheduleSupplierSynchronizations extends Command
 
     public function handle(SupplierSynchronizationService $service): int
     {
+        if (Cache::get('supplier-imports:dispatch-paused', false)) {
+            $this->warn('Supplier import dispatch is paused for source conversion.');
+
+            return self::SUCCESS;
+        }
         if ($this->option('directories')) {
             foreach (['icorp', 'pricelist_tj'] as $source) {
                 RefreshExternalSupplierDirectory::dispatch($source)->onQueue(config('price-list-imports.queue'));
@@ -42,10 +47,13 @@ class ScheduleSupplierSynchronizations extends Command
             });
         PriceListImport::whereIn('source_type', ['icorp', 'pricelist_tj'])
             ->whereIn('status', [PriceListImportStatus::Pending, PriceListImportStatus::Processing, PriceListImportStatus::Committing])
-            ->where('updated_at', '<', now()->subMinutes(15))->eachById(function (PriceListImport $import): void {
+            ->where('updated_at', '<', now()->subMinutes(15))->eachById(function (PriceListImport $import) use ($service): void {
                 $lock = Cache::lock('laravel-queue-overlap:price-list-stage:'.$import->id, 140);
                 if ($lock->get()) {
                     try {
+                        if ($service->recoverStaleImport($import)) {
+                            return;
+                        }
                         if ($import->status === PriceListImportStatus::Committing) {
                             app(ActivationDispatcher::class)->dispatch($import);
                         } else {

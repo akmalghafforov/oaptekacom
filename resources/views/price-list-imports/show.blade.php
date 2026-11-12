@@ -13,12 +13,13 @@
             @endif
         </div></x-slot:actions>
     </x-ui.page-header>
+    @include('price-list-imports.progress')
     <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         @foreach(['total_rows' => 'Всего', 'valid_rows' => 'Корректные', 'warning_rows' => 'С предупреждением', 'error_rows' => 'Ошибки', 'skipped_rows' => 'Пропущены'] as $field => $label)<x-ui.card><p class="text-sm text-muted">{{ $label }}</p><p class="mt-1 text-2xl font-bold">{{ $import->{$field} }}</p></x-ui.card>@endforeach
     </div>
     @if($import->failure_message)<x-ui.alert type="danger" class="mt-6">{{ $import->failure_message }}</x-ui.alert>@endif
     @if($import->source_metadata && $import->status === \App\Enums\PriceListImportStatus::Preview)
-        <x-ui.alert type="warning" class="mt-6">Публикация ожидает проверки даты, приоритетов и настроек источников. @if(auth()->user()->isAdminMode())<a class="font-semibold underline" href="{{ route('admin.supplier-sync.show', $import->supplier) }}">Открыть синхронизацию поставщика</a>@endif</x-ui.alert>
+        <x-ui.alert type="warning" class="mt-6">@if($sourceReason === 'source_not_selected')Источник исключён: в профиле импорта выбран другой источник. Активный каталог сохранён.@elseif(in_array($sourceReason, ['configuration_changed', 'profile_changed', 'mapping_changed'], true))Настройки изменились. Для публикации нужна новая обработка с текущим профилем.@elseПубликация ожидает проверки даты и настроек выбранного источника.@endif @if(auth()->user()->isAdminMode())<a class="font-semibold underline" href="{{ route('admin.supplier-sync.show', $import->supplier) }}">Открыть синхронизацию поставщика</a>@endif</x-ui.alert>
     @else
     <x-ui.alert type="success" class="mt-6">Обработка и публикация выполняются автоматически. Товары без назначенной категории также публикуются; категории можно уточнить позже.</x-ui.alert>
     @endif

@@ -28,7 +28,7 @@ class SyncGmailImports implements ShouldQueue
 
     public function handle(GmailImportDiscovery $discovery, GmailMailboxAccess $access): void
     {
-        if (! config('gmail-imports.enabled')) {
+        if (! config('gmail-imports.enabled') || Cache::get('supplier-imports:dispatch-paused', false)) {
             return;
         }
         $lock = Cache::store(config('session.block_store'))->lock('gmail-discovery:'.config('gmail-imports.connection_id'), 120);

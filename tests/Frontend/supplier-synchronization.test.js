@@ -62,3 +62,23 @@ test('submission blocks duplicates and restores button state after back navigati
     listeners.submit({});
     assert.equal(buttons[0].disabled, true);
 });
+
+test('saving source settings leaves the external profile form available', () => {
+    const setup = () => {
+        const handlers = {};
+        const button = { textContent: 'Сохранить', disabled: false };
+        initializeSyncSubmit({
+            querySelectorAll: () => [button],
+            addEventListener: (name, callback) => { handlers[name] = callback; },
+            setAttribute() {}, removeAttribute() {},
+        }, { addEventListener() {} });
+        return { handlers, button };
+    };
+    const sourceSettings = setup();
+    const externalProfile = setup();
+    sourceSettings.handlers.submit({});
+    assert.equal(sourceSettings.button.disabled, true);
+    assert.equal(externalProfile.button.disabled, false);
+    externalProfile.handlers.submit({});
+    assert.equal(externalProfile.button.disabled, true);
+});

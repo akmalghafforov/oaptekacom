@@ -7,6 +7,7 @@ use App\Enums\PriceListImportStatus;
 use App\Enums\TradeMode;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ApproveSupplierMappingRequest;
+use App\Http\Requests\UpdateExternalSupplierProfileRequest;
 use App\Http\Requests\UpdateSupplierSynchronizationRequest;
 use App\Jobs\RefreshExternalSupplierDirectory;
 use App\Models\ExternalSupplierPartner;
@@ -15,12 +16,12 @@ use App\Models\PriceListImport;
 use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
 use App\Services\AuditLogger;
-use App\Services\ExternalPriceWorkbook;
 use App\Services\ExternalSupplierDirectory;
 use App\Services\IcorpClient;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceListTjClient;
 use App\Services\SupplierDirectoryContext;
+use App\Services\SupplierImportSettings;
 use App\Services\SupplierMappingApproval;
 use App\Services\SupplierSourcePolicy;
 use App\Services\SupplierSuggestionMatcher;
@@ -119,7 +120,7 @@ class SupplierSynchronizationController extends Controller
     {
         $context = SupplierDirectoryContext::valid($request);
         if ($context === null) {
-            return redirect()->route('admin.supplier-sync.show', $supplier)->with('success', $message);
+            return redirect()->route('admin.supplier-import-profiles.edit', $supplier)->with('success', $message);
         }
         $partners = ExternalSupplierPartner::orderBy('name')->orderBy('id')->get();
         $suggestions = app(SupplierSuggestionMatcher::class)->directory($partners, Organization::where('type', OrganizationType::Wholesaler)->get());
@@ -179,7 +180,7 @@ class SupplierSynchronizationController extends Controller
                 }
                 $before = $partner->only('supplier_organization_id');
                 $partner->update(['supplier_organization_id' => $supplier->id, 'profile_version' => $partner->profile_version + 1]);
-                SupplierSynchronization::firstOrCreate(['supplier_organization_id' => $supplier->id], ['sources' => SupplierSynchronization::defaultSources()]);
+                SupplierSynchronization::firstOrCreate(['supplier_organization_id' => $supplier->id], ['sources' => SupplierSynchronization::defaultSources(), 'source_conversion' => ['new_configuration' => true, 'reason' => 'selection_required']]);
                 SupplierSynchronization::whereIn('supplier_organization_id', array_filter([$before['supplier_organization_id'], $supplier->id]))->increment('version');
                 $audit->log($before['supplier_organization_id'] ? 'supplier_mapping.remapped' : 'supplier_mapping.confirmed', $partner, $before, $partner->only('supplier_organization_id'));
 
@@ -216,10 +217,13 @@ class SupplierSynchronizationController extends Controller
         return back()->with('success', 'Сопоставление удалено. Поставщик, справочник и активный каталог сохранены.');
     }
 
-    public function show(Request $request, Organization $supplier, SupplierSourcePolicy $policy): View
+    public function show(Request $request, Organization $supplier, SupplierSourcePolicy $policy): View|RedirectResponse
     {
         abort_unless($supplier->type === OrganizationType::Wholesaler, 404);
         $request->validate(['tab' => ['nullable', 'in:overview,sources,review,history'], 'page' => ['nullable', 'integer', 'min:1']], $this->validationMessages());
+        if ($request->input('tab') === 'sources') {
+            return redirect()->route('admin.supplier-import-profiles.edit', $supplier);
+        }
         $tab = ($request->input('tab') ?: 'overview');
         $supplier->load(['importProfile', 'activePriceListImport']);
         $configuration = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->first()
@@ -227,76 +231,42 @@ class SupplierSynchronizationController extends Controller
         $partners = ExternalSupplierPartner::where('supplier_organization_id', $supplier->id)->orderBy('source')->get();
         $previews = PriceListImport::where('supplier_organization_id', $supplier->id)->where('status', PriceListImportStatus::Preview)->latest('id')->get();
         $submittedForm = (string) old('_sync_form');
-        if ($submittedForm === 'settings-'.$supplier->id || $partners->contains(fn (ExternalSupplierPartner $partner): bool => $submittedForm === 'profile-'.$partner->id)) {
-            $tab = 'sources';
-        } elseif ($previews->contains(fn (PriceListImport $preview): bool => $submittedForm === 'date-'.$preview->id)) {
+        if ($previews->contains(fn (PriceListImport $preview): bool => $submittedForm === 'date-'.$preview->id)) {
             $tab = 'review';
         }
         $runs = SupplierSyncRun::where('supplier_organization_id', $supplier->id)->with('attempts.import')->latest('id')->paginate(20, ['*'], 'page', $tab === 'history' ? max(1, $request->integer('page', 1)) : 1)->withQueryString();
 
         $reviewReasons = $previews->mapWithKeys(fn (PriceListImport $preview): array => [$preview->id => $policy->reason($preview) ?? 'review_pending']);
-        $sources = collect($configuration->sources)->sortBy('priority');
+        $sources = collect(SupplierSynchronization::defaultSources())->map(fn (array $settings, string $source): array => array_replace($settings, is_array($configuration->sources[$source] ?? null) ? $configuration->sources[$source] : []))->sortBy('priority');
 
         return view('admin.supplier-synchronizations.show', compact('supplier', 'configuration', 'partners', 'runs', 'previews', 'tab', 'sources', 'reviewReasons'));
     }
 
-    public function update(UpdateSupplierSynchronizationRequest $request, Organization $supplier, AuditLogger $audit): RedirectResponse
+    public function update(UpdateSupplierSynchronizationRequest $request, Organization $supplier, SupplierImportSettings $settings): RedirectResponse
     {
-        abort_unless($supplier->type === OrganizationType::Wholesaler, 404);
-        DB::transaction(function () use ($request, $supplier, $audit): void {
-            $supplier = Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
-            $data = $request->validated();
-            if ($data['automatic_enabled']) {
-                foreach ($data['sources'] as $source => $settings) {
-                    if (! $settings['enabled']) {
-                        continue;
-                    }
-                    $valid = $source === 'email' ? $supplier->importProfile?->is_active
-                        : ExternalSupplierPartner::where('supplier_organization_id', $supplier->id)->where('source', $source)->where('profile_active', true)->whereNotNull('profile_configuration')->exists();
-                    if (! $valid) {
-                        throw ValidationException::withMessages(['sources.'.$source.'.enabled' => 'Сначала подтвердите сопоставление и настройте активный профиль источника.']);
-                    }
-                }
-            }
-            $config = SupplierSynchronization::firstOrNew(['supplier_organization_id' => $supplier->id]);
-            $before = $config->toArray();
-            $config->fill($data)->forceFill(['version' => ($config->version ?? 0) + 1, 'next_check_at' => now(), 'settings_confirmed' => true])->save();
-            $audit->log('supplier_sync.configured', $config, $before, $config->toArray());
-        }, 3);
+        $settings->update($supplier, $request->validated());
 
         return back()->with('success', 'Настройки синхронизации сохранены.');
     }
 
-    public function profile(Request $request, ExternalSupplierPartner $partner, AuditLogger $audit): RedirectResponse
+    public function profile(UpdateExternalSupplierProfileRequest $request, ExternalSupplierPartner $partner, SupplierImportSettings $settings): RedirectResponse
     {
-        $data = $request->validate([
-            'profile_active' => ['required', 'boolean'], 'matching_strategy' => ['required', 'in:name,sku,sku_then_name'],
-            'date_formats' => ['required', 'string', 'max:500'], 'minimum_valid_rows' => ['required', 'integer', 'min:1'],
-            'maximum_error_rows' => ['required', 'integer', 'min:0'], 'maximum_error_percentage' => ['required', 'numeric', 'min:0', 'max:100'],
-        ], $this->validationMessages());
-        $configuration = ExternalPriceWorkbook::profile(['matching_strategy' => $data['matching_strategy'], 'date_formats' => array_values(array_filter(array_map('trim', explode(',', $data['date_formats'])))), 'automatic' => array_intersect_key($data, array_flip(['minimum_valid_rows', 'maximum_error_rows', 'maximum_error_percentage']))]);
-        DB::transaction(function () use ($partner, $data, $configuration, $audit): void {
-            Organization::whereKey($partner->supplier_organization_id)->lockForUpdate()->firstOrFail();
-            $expectedSupplierId = $partner->supplier_organization_id;
-            $partner = ExternalSupplierPartner::whereKey($partner->id)->lockForUpdate()->firstOrFail();
-            if ($partner->supplier_organization_id !== $expectedSupplierId) {
-                throw ValidationException::withMessages(['supplier_organization_id' => 'Сопоставление уже изменилось. Обновите страницу и проверьте поставщика.']);
-            }
-            $before = $partner->only(['profile_configuration', 'profile_active', 'profile_version']);
-            $partner->update(['profile_configuration' => $configuration, 'profile_active' => $data['profile_active'], 'profile_version' => $partner->profile_version + 1]);
-            $audit->log('supplier_sync.profile_updated', $partner, $before, $partner->only(['profile_configuration', 'profile_active', 'profile_version']));
-        }, 3);
+        $settings->updateProfile((int) $request->validated('expected_supplier_organization_id'), $partner, $request->validated());
 
         return back()->with('success', 'Профиль источника сохранён.');
     }
 
-    public function fetch(Organization $supplier, SupplierSynchronizationService $service, AuditLogger $audit): RedirectResponse
+    public function fetch(Request $request, Organization $supplier, SupplierSynchronizationService $service, AuditLogger $audit): RedirectResponse
     {
         abort_unless($supplier->type === OrganizationType::Wholesaler, 404);
-        $run = $service->request($supplier);
+        $data = $request->validate([
+            'expected_version' => ['required_with:expected_source', 'integer', 'min:1'],
+            'expected_source' => ['required_with:expected_version', 'in:icorp,pricelist_tj'],
+        ], $this->validationMessages());
+        $run = $service->request($supplier, expectedVersion: isset($data['expected_version']) ? (int) $data['expected_version'] : null, expectedSource: $data['expected_source'] ?? null);
         $audit->log('supplier_sync.manual_requested', $run);
 
-        return back()->with('success', 'Загрузка поставлена в очередь. Повторные запросы объединяются.');
+        return back()->with('success', 'Загрузка поставлена в очередь. Повторные запросы объединяются.')->with('supplier_import_requested', $supplier->id);
     }
 
     public function connect(Request $request, string $source, AuditLogger $audit): RedirectResponse
@@ -355,7 +325,7 @@ class SupplierSynchronizationController extends Controller
             app(ActivationDispatcher::class)->dispatch($import, $request->user()->id);
         }, 3);
 
-        return back()->with('success', 'Дата подтверждена. Перед активацией будут повторно проверены настройки и приоритет.');
+        return back()->with('success', 'Дата подтверждена. Перед активацией будут повторно проверены настройки и выбранный источник.');
     }
 
     public function reject(PriceListImport $import, AuditLogger $audit): RedirectResponse
@@ -368,7 +338,7 @@ class SupplierSynchronizationController extends Controller
             $audit->log('supplier_sync.preview_rejected', $import);
         }, 3);
 
-        return back()->with('success', 'Предпросмотр отклонён. Синхронизация продолжит проверку источников.');
+        return back()->with('success', 'Предпросмотр отклонён. Активный каталог сохранён.');
     }
 
     private function connectionFailureLabel(string $reason): string

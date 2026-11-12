@@ -78,7 +78,7 @@ class SupplierMappingApproval
                 $changed = true;
             }
             if ($changed) {
-                SupplierSynchronization::firstOrCreate(['supplier_organization_id' => $supplier->id], ['sources' => SupplierSynchronization::defaultSources()]);
+                SupplierSynchronization::firstOrCreate(['supplier_organization_id' => $supplier->id], ['sources' => SupplierSynchronization::defaultSources(), 'source_conversion' => ['new_configuration' => true, 'reason' => 'selection_required']]);
                 SupplierSynchronization::where('supplier_organization_id', $supplier->id)->increment('version');
             }
 

@@ -209,6 +209,8 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::get('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'edit'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.edit');
         Route::post('/suppliers/{supplier}/import-profile/sample', [SupplierImportProfileController::class, 'storeSample'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.sample.store');
         Route::get('/suppliers/{supplier}/import-profile/sample-preview', [SupplierImportProfileController::class, 'samplePreview'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.sample.preview');
+        Route::put('/suppliers/{supplier}/import-profile/settings', [SupplierImportProfileController::class, 'settings'])->name('admin.supplier-import-profiles.settings');
+        Route::put('/suppliers/{supplier}/import-profile/partners/{partner}', [SupplierImportProfileController::class, 'externalProfile'])->name('admin.supplier-import-profiles.external-profile');
         Route::put('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'update'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.update');
         Route::post('/price-list-imports/{import}/rows/{row}/override', [PriceListImportController::class, 'override'])->name('admin.price-list-imports.override');
         Route::get('/category-reviews', [CategoryReviewController::class, 'index'])->name('admin.category-reviews.index');

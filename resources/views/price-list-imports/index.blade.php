@@ -2,6 +2,8 @@
 @section('content')
     <x-ui.page-header title="Прайс-листы" description="Автоматическая обработка и публикация предложений поставщика." />
 
+    @include('price-list-imports.progress')
+
     @if(auth()->user()->isAdminMode())
         <x-ui.card class="mt-6"><h2 class="font-bold">Новый поставщик</h2><form method="post" action="{{ route('admin.suppliers.store') }}" class="mt-4 grid gap-4 md:grid-cols-4 md:items-end">@csrf <x-mode-version /><x-ui.input name="name" label="Название" required /><x-ui.input name="city" label="Город" /><x-ui.input name="phone" label="Телефон" /><x-ui.button>Создать</x-ui.button></form></x-ui.card>
         <x-ui.card class="mt-4">

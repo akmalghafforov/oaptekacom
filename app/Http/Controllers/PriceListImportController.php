@@ -19,11 +19,15 @@ use App\Models\PriceListImportRow;
 use App\Models\ProductCategory;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
+use App\Models\SupplierSyncRun;
 use App\Services\AuditLogger;
 use App\Services\ImportFileValidator;
+use App\Services\ImportProgress;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CategorizationReportExporter;
 use App\Services\SupplierPriceListIngestor;
+use App\Services\SupplierSourcePolicy;
+use App\Services\SupplierSynchronizationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -37,15 +41,34 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PriceListImportController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, ImportProgress $progress): View|JsonResponse
     {
         $this->authorize('viewAny', PriceListImport::class);
-        $query = PriceListImport::query()->with('supplier')->latest();
+        $query = PriceListImport::query()->with('supplier')->withCount('rows')->latest();
         if (! $request->user()->isAdminMode()) {
             $query->where('supplier_organization_id', $request->user()->activeOrganizationId());
         }
 
-        return view('price-list-imports.index', ['imports' => $query->paginate(20), 'suppliers' => $request->user()->isAdminMode() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
+        $imports = $query->paginate(20);
+        $entries = $imports->getCollection()->filter(fn (PriceListImport $import): bool => in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true))->map(fn (PriceListImport $import): array => $progress->import($import))->values();
+        $runs = SupplierSyncRun::with(['supplier', 'attempts'])->where('trigger', '!=', 'mailbox')
+            ->whereDoesntHave('attempts', fn ($query) => $query->whereNotNull('price_list_import_id'))
+            ->when(! $request->user()->isAdminMode(), fn ($query) => $query->where('supplier_organization_id', $request->user()->activeOrganizationId()))
+            ->latest('id')->limit(10)->get();
+        foreach ($runs as $run) {
+            if (in_array($run->configuration_snapshot['selected_source'] ?? $run->attempts->first()?->source, ['icorp', 'pricelist_tj'], true)) {
+                $entry = $progress->run($run);
+                if (! $request->user()->isAdminMode()) {
+                    $entry['url'] = null;
+                }
+                $entries->push($entry);
+            }
+        }
+        if ($request->expectsJson()) {
+            return response()->json(['entries' => $entries])->header('Cache-Control', 'private, no-store');
+        }
+
+        return view('price-list-imports.index', ['progressEntries' => $entries, 'imports' => $imports, 'suppliers' => $request->user()->isAdminMode() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
     }
 
     public function store(StorePriceListImportRequest $request, SupplierPriceListIngestor $ingestor): RedirectResponse
@@ -71,12 +94,14 @@ class PriceListImportController extends Controller
     {
         $importModel = $this->scoped($request, $import);
         $this->authorize('view', $importModel);
+        $importModel->load(['supplier'])->loadCount('rows');
+        $progressEntries = [app(ImportProgress::class)->import($importModel)];
         if ($request->expectsJson()) {
-            return response()->json(['status' => $importModel->status->value, 'label' => $importModel->status->label(), 'counts' => $importModel->only(['total_rows', 'valid_rows', 'error_rows', 'warning_rows', 'skipped_rows'])]);
+            return response()->json(['entries' => $progressEntries, 'status' => $importModel->status->value, 'label' => $importModel->status->label(), 'counts' => $importModel->only(['total_rows', 'valid_rows', 'error_rows', 'warning_rows', 'skipped_rows'])]);
         }
         $rows = $importModel->rows()->when($request->string('disposition')->isNotEmpty(), fn ($query) => $query->where('disposition', $request->string('disposition')->toString()))->when($request->string('categorization_status')->isNotEmpty(), fn ($query) => $query->where('categorization_status', $request->string('categorization_status')->toString()))->orderBy('source_row')->paginate(50)->withQueryString();
 
-        return view('price-list-imports.show', ['import' => $importModel->load('supplier'), 'rows' => $rows, 'productCategories' => ProductCategory::query()->where('is_active', true)->orderBy('sort_order')->get()]);
+        return view('price-list-imports.show', ['import' => $importModel->load('supplier'), 'progressEntries' => $progressEntries, 'sourceReason' => app(SupplierSourcePolicy::class)->reason($importModel), 'rows' => $rows, 'productCategories' => ProductCategory::query()->where('is_active', true)->orderBy('sort_order')->get()]);
     }
 
     public function categorizationReport(Request $request, int $import, CategorizationReportExporter $exporter): StreamedResponse
@@ -100,6 +125,11 @@ class PriceListImportController extends Controller
         $importModel = $this->scoped($request, $import);
         $this->authorize('retry', $importModel);
         abort_unless($importModel->status === PriceListImportStatus::Failed, 422);
+        if (in_array($importModel->source_type->value, ['icorp', 'pricelist_tj'], true)) {
+            app(SupplierSynchronizationService::class)->request($importModel->supplier);
+
+            return back()->with('success', 'Новая загрузка выбранного источника поставлена в очередь.');
+        }
         $activationFailure = in_array($importModel->failure_stage, ['activation', 'activation_materialization', 'activation_cutover'], true);
         $importModel->update([
             'status' => $activationFailure ? PriceListImportStatus::Preview : PriceListImportStatus::Pending,

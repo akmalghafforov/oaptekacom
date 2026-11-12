@@ -542,3 +542,9 @@ if (document.querySelector('[data-sync-submit], [data-mapping-form]')) {
         document.querySelectorAll('[data-sync-submit]').forEach((form) => initializeSyncSubmit(form, window));
     });
 }
+
+if (document.querySelector('[data-import-progress]')) {
+    import('./import-progress.js').then(({ initializeImportProgress }) => {
+        document.querySelectorAll('[data-import-progress]').forEach(panel => initializeImportProgress(panel, window));
+    });
+}

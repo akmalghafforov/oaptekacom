@@ -18,15 +18,32 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class SupplierSynchronizationService
 {
-    public function request(Organization $supplier, string $trigger = 'manual'): SupplierSyncRun
+    public function request(Organization $supplier, string $trigger = 'manual', ?int $expectedVersion = null, ?string $expectedSource = null): SupplierSyncRun
     {
-        return DB::transaction(function () use ($supplier, $trigger): SupplierSyncRun {
+        if (Cache::get('supplier-imports:dispatch-paused', false)) {
+            throw ValidationException::withMessages(['selected_source' => 'Новые импорты приостановлены на время переключения источников.']);
+        }
+
+        return DB::transaction(function () use ($supplier, $trigger, $expectedVersion, $expectedSource): SupplierSyncRun {
             $supplier = Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
+            if (Cache::get('supplier-imports:dispatch-paused', false)) {
+                throw ValidationException::withMessages(['selected_source' => 'Новые импорты приостановлены на время переключения источников.']);
+            }
             $config = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->firstOrFail();
+            if ($expectedVersion !== null && ($config->version !== $expectedVersion || $config->selected_source !== $expectedSource)) {
+                throw ValidationException::withMessages(['expected_version' => 'Настройки источника изменились. Обновите страницу перед импортом.']);
+            }
+            if ($expectedVersion !== null && ($supplier->status !== 'active' || app(SupplierImportSettings::class)->readinessReason($supplier, $config->selected_source, true) !== null)) {
+                throw ValidationException::withMessages(['expected_source' => 'Импорт недоступен. Проверьте статус поставщика, сопоставление, профиль и подключение источника.']);
+            }
+            if (($config->usesExclusiveSource() || ! $config->settings_confirmed) && $trigger === 'manual' && app(SupplierImportSettings::class)->readinessReason($supplier, $config->selected_source) !== null) {
+                throw ValidationException::withMessages(['selected_source' => 'Настройте выбранный источник в профиле импорта перед ручной загрузкой.']);
+            }
             $run = SupplierSyncRun::where('active_supplier_id', $supplier->id)->first();
             if (! $run) {
                 $run = SupplierSyncRun::create(['supplier_organization_id' => $supplier->id, 'active_supplier_id' => $supplier->id,
@@ -43,6 +60,26 @@ class SupplierSynchronizationService
             SynchronizeSupplier::dispatch($run->id)->onQueue(config('price-list-imports.queue'))->afterCommit();
 
             return $run;
+        }, 3);
+    }
+
+    public function recoverStaleImport(PriceListImport $import): bool
+    {
+        return DB::transaction(function () use ($import): bool {
+            $supplier = Organization::whereKey($import->supplier_organization_id)->lockForUpdate()->firstOrFail();
+            $import = PriceListImport::whereKey($import->id)->lockForUpdate()->firstOrFail();
+            $configuration = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->first();
+            if (! $configuration?->usesExclusiveSource() || ! in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)
+                || ! in_array($import->status, [PriceListImportStatus::Pending, PriceListImportStatus::Processing, PriceListImportStatus::Committing], true)
+                || ($import->source_metadata['configuration_version'] ?? null) === $configuration->version) {
+                return false;
+            }
+            $import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'source_configuration_changed', 'failure_message' => 'configuration_changed', 'failed_at' => now()]);
+            if (app(SupplierImportSettings::class)->readinessReason($supplier, $configuration->selected_source) === null) {
+                $this->request($supplier, ($import->source_metadata['trigger'] ?? 'automatic') === 'manual' ? 'manual' : 'automatic');
+            }
+
+            return true;
         }, 3);
     }
 
@@ -82,6 +119,11 @@ class SupplierSynchronizationService
             if ($run->trigger === 'manual' && $run->configuration_snapshot['version'] !== $config->version) {
                 $this->request($run->supplier, 'manual');
             }
+
+            return;
+        }
+        if ($config->usesExclusiveSource() && ($reason = app(SupplierImportSettings::class)->readinessReason($run->supplier, $config->selected_source)) !== null) {
+            $this->finish($run, 'skipped', $reason, $config->selected_source);
 
             return;
         }
@@ -150,6 +192,11 @@ class SupplierSynchronizationService
                 }
                 $attempt ??= $run->attempts()->create(['source' => $source]);
                 $attempt->update(['status' => 'skipped', 'reason' => 'no_new_mailbox_list']);
+                if ($config->usesExclusiveSource()) {
+                    $this->finish($run, 'unchanged', 'no_new_mailbox_list', 'email');
+
+                    return;
+                }
             } else {
                 $attempt ??= $run->attempts()->create(['source' => $source]);
                 try {
@@ -175,7 +222,7 @@ class SupplierSynchronizationService
                 return;
             }
         }
-        $this->finish($run, 'unchanged', 'no_eligible_candidate');
+        $this->finish($run, 'unchanged', $config->selected_source === 'email' ? 'no_new_mailbox_list' : 'no_eligible_candidate', $config->selected_source);
     }
 
     private function extract(SupplierSyncRun $run, SupplierSyncAttempt $attempt, SupplierSynchronization $config): void

@@ -34,3 +34,6 @@ SupplierSuggestionMatcher computes read-only name/city/phone candidates from sto
 
 ## Preserve supplier directory review context without weakening approval
 Supplier matching popups use signed SupplierMappingApproval snapshots even without suggestions and reopen only the submitted review on failure. Keep list_context restricted to existing directory fields and build return URLs through admin.supplier-sync.index; failed approval or manual mapping must retain the submitted row even when evidence changes remove it from filtered results. Requests without list_context retain the settings redirect.
+
+## Preserve exclusive supplier selection through configuration changes and recovery
+Supplier import settings belong to Import Profile; mapping alone must neither select a source nor enable loading. selected_source is authoritative after selection or conversion, including unconfirmed configurations; legacy enabled flags and reference priorities must never restore fallback. An unselected converted/new configuration is blocked, while suppliers without synchronization configuration retain legacy email behavior. Convert only with dispatch paused and active work drained; rollback keeps versions monotonic and preserves completed catalog history. Stale external retries and recovery create work for the current selection instead of reusing old evidence.

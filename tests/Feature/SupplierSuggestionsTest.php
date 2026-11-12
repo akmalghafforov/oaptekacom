@@ -129,7 +129,7 @@ class SupplierSuggestionsTest extends TestCase
         $config = SupplierSynchronization::factory()->create(['supplier_organization_id' => $supplier->id, 'automatic_enabled' => false]);
         $partners = $this->pair();
         $before = $config->refresh()->only(['sources', 'automatic_enabled', 'settings_confirmed']);
-        $this->actingAs($admin)->post(route('admin.supplier-sync.approve'), $this->approvalData($partners, $supplier))->assertRedirectToRoute('admin.supplier-sync.show', $supplier);
+        $this->actingAs($admin)->post(route('admin.supplier-sync.approve'), $this->approvalData($partners, $supplier))->assertRedirectToRoute('admin.supplier-import-profiles.edit', $supplier);
         foreach ($partners as $partner) {
             $this->assertSame($supplier->id, $partner->refresh()->supplier_organization_id);
             $this->assertSame(2, $partner->profile_version);
@@ -370,7 +370,7 @@ class SupplierSuggestionsTest extends TestCase
 
         $response = $this->post(route('admin.supplier-sync.approve'), $data)->assertRedirectToRoute('admin.supplier-sync.index', $context);
         $this->get($response->headers->get('Location'))->assertSee('Выбранный поставщик')->assertSee('исключена из результатов')
-            ->assertSee(route('admin.supplier-sync.show', $supplier), false)
+            ->assertSee(route('admin.supplier-import-profiles.edit', $supplier), false)
             ->assertViewHas('partners', fn ($rows): bool => $rows->currentPage() === $expectedPage && $rows->total() === $count - 1);
         $this->assertSame($supplier->id, $partner->fresh()->supplier_organization_id);
     }
@@ -422,7 +422,7 @@ class SupplierSuggestionsTest extends TestCase
             'mapping_mode' => 'existing', 'supplier_organization_id' => $supplier->id, 'confirmed' => 1, 'list_context' => $context,
         ])->assertRedirectToRoute('admin.supplier-sync.index', $context);
         $this->get(route('admin.supplier-sync.index', $context))->assertSee($supplier->name)->assertDontSee($supplier->name, false)
-            ->assertSee('Настройки поставщика')->assertDontSee('исключена из результатов');
+            ->assertSee('Профиль импорта')->assertDontSee('исключена из результатов');
         $this->assertSame($supplier->id, $partner->fresh()->supplier_organization_id);
     }
 

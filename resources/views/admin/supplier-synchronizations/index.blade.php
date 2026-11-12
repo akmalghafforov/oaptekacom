@@ -11,7 +11,7 @@
     @if($success = session('mapping_success'))
         <x-ui.alert type="success">
             Сопоставление подтверждено: {{ $success['name'] }}.
-            <a class="font-semibold underline" href="{{ route('admin.supplier-sync.show', $success['id']) }}">Настройки поставщика</a>
+            <a class="font-semibold underline" href="{{ route('admin.supplier-import-profiles.edit', $success['id']) }}">Профиль импорта</a>
             @if($success['removed'])<p class="mt-2">Подтверждённая запись больше не соответствует текущим фильтрам и исключена из результатов.</p>@endif
         </x-ui.alert>
     @endif
@@ -61,8 +61,8 @@
         <x-ui.card>
             <div class="table-wrap">
                 <table class="data-table block w-full table-fixed lg:table lg:min-w-[1000px]">
-                    <caption class="sr-only">Сопоставления поставщиков и приоритет источников</caption>
-                    <thead class="hidden lg:table-header-group"><tr><th scope="col" class="w-1/5">iCorp</th><th scope="col" class="w-1/5">PriceList-TJ</th><th scope="col" class="w-1/5">Наш поставщик</th><th scope="col" class="w-1/5">Приоритет</th><th scope="col" class="w-1/5">Действия</th></tr></thead>
+                    <caption class="sr-only">Сопоставления поставщиков и выбранный источник</caption>
+                    <thead class="hidden lg:table-header-group"><tr><th scope="col" class="w-1/5">iCorp</th><th scope="col" class="w-1/5">PriceList-TJ</th><th scope="col" class="w-1/5">Наш поставщик</th><th scope="col" class="w-1/5">Источник</th><th scope="col" class="w-1/5">Действия</th></tr></thead>
                     <tbody class="block lg:table-row-group">
             @forelse($partners as $partner)
                 @php
@@ -87,9 +87,9 @@
                     @endforeach
                     <td class="block align-top whitespace-normal lg:table-cell"><p class="mb-1 text-xs font-semibold text-muted lg:hidden">Наш поставщик</p>@if($partner->supplier)<a class="inline-flex min-h-10 items-center break-words font-semibold underline" href="{{ route('admin.supplier-sync.show', $partner->supplier) }}">{{ $partner->supplier->name }}</a>@elseif($candidates !== []) @include('admin.supplier-synchronizations.suggestion', ['candidate' => $candidates[0]]) @else<span class="text-muted">Не выбран</span>@endif</td>
                     <td class="block align-top whitespace-normal lg:table-cell">
-                        <p class="mb-1 text-xs font-semibold text-muted lg:hidden">Приоритет</p>
-                        @if($rowConfiguration)<ol class="list-inside list-decimal space-y-1">@foreach(collect($rowConfiguration->sources)->sortBy('priority') as $source => $settings)<li @class(['text-muted' => !$settings['enabled']])>{{ $source === 'email' ? 'Почта' : $serviceNames[$source] }}{{ !$settings['enabled'] ? ' · выключен' : '' }}</li>@endforeach</ol>@else<span class="text-muted">Не настроен</span>@endif
-                        @if($partner->supplier)<a class="mt-2 inline-flex min-h-10 items-center font-semibold underline" href="{{ route('admin.supplier-sync.show', [$partner->supplier, 'tab' => 'sources']).'#synchronization-settings' }}">Изменить приоритет</a>@endif
+                        <p class="mb-1 text-xs font-semibold text-muted lg:hidden">Источник</p>
+                        @if($rowConfiguration?->selected_source)<p>{{ $rowConfiguration->selected_source === 'email' ? 'Почта' : $serviceNames[$rowConfiguration->selected_source] }}</p>@else<span class="text-muted">Не выбран</span>@endif
+                        @if($partner->supplier)<a class="mt-2 inline-flex min-h-10 items-center font-semibold underline" href="{{ route('admin.supplier-import-profiles.edit', $partner->supplier) }}">Профиль импорта</a>@endif
                     </td>
                     <td class="block align-top whitespace-normal lg:table-cell">
                         <p class="mb-1 text-xs font-semibold text-muted lg:hidden">Действия</p>

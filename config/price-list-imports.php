@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'exclusive_sources' => env('SUPPLIER_EXCLUSIVE_SOURCES', false),
     'disk' => env('PRICE_LIST_DISK', 'local'),
     'queue' => env('PRICE_LIST_QUEUE', 'price-list-imports'),
     'max_file_kilobytes' => 20480,

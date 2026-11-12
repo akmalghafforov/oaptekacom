@@ -17,7 +17,7 @@ class SupplierSourcePolicy
     {
         $configuration = SupplierSynchronization::where('supplier_organization_id', $import->supplier_organization_id)->first();
 
-        return $import->source_type->value === 'email' && ! $configuration?->settings_confirmed ? null : $configuration;
+        return $import->source_type->value === 'email' && ! $configuration?->settings_confirmed && ! $configuration?->usesExclusiveSource() ? null : $configuration;
     }
 
     public function validationReason(PriceListImport $import): ?string
@@ -61,7 +61,7 @@ class SupplierSourcePolicy
             return 'inactive_supplier';
         }
         if (! in_array($source, $sources, true)) {
-            return 'source_disabled';
+            return $config->usesExclusiveSource() ? 'source_not_selected' : 'source_disabled';
         }
         if (($metadata['trigger'] ?? 'automatic') !== 'manual' && ($config->paused || ! $config->automatic_enabled)) {
             return 'paused';
@@ -76,7 +76,7 @@ class SupplierSourcePolicy
             }
         } else {
             $partner = ExternalSupplierPartner::find($metadata['partner_id'] ?? null);
-            if (! $partner || $partner->supplier_organization_id !== $supplier->id || $partner->source !== $source) {
+            if (! $partner || $partner->supplier_organization_id !== $supplier->id || $partner->source !== $source || ($metadata['external_id'] ?? $partner->external_id) !== $partner->external_id) {
                 return 'mapping_changed';
             }
             if (! $partner->profile_active || $partner->profile_version !== ($metadata['profile_version'] ?? null)) {

@@ -29,7 +29,7 @@ class ProcessGmailImportReceipt implements ShouldQueue
 
     public function handle(GmailImportIntake $intake): void
     {
-        if (! config('gmail-imports.enabled')) {
+        if (! config('gmail-imports.enabled') || Cache::get('supplier-imports:dispatch-paused', false)) {
             return;
         }
         $lock = Cache::store(config('session.block_store'))->lock('gmail-receipt:'.$this->receiptId, 120);
