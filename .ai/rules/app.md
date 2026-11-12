@@ -31,3 +31,6 @@ Configured supplier imports must pass SupplierSourcePolicy again under the Organ
 
 ## Keep supplier suggestions separate from eligibility and approval
 SupplierSuggestionMatcher computes read-only name/city/phone candidates from stored directory data; never use fuzzy suggestions for ExternalSupplierEligibility or import cutover. Approval must recheck signed evidence and mapping/profile versions under sorted organization then partner locks, audit all links atomically, and preserve automatic loading, source profiles and priorities. Directory and synchronization metadata refreshes preserve known cities when responses omit them.
+
+## Preserve supplier directory review context without weakening approval
+Supplier matching popups use signed SupplierMappingApproval snapshots even without suggestions and reopen only the submitted review on failure. Keep list_context restricted to existing directory fields and build return URLs through admin.supplier-sync.index; failed approval or manual mapping must retain the submitted row even when evidence changes remove it from filtered results. Requests without list_context retain the settings redirect.

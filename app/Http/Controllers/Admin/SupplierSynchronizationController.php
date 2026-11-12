@@ -20,6 +20,7 @@ use App\Services\ExternalSupplierDirectory;
 use App\Services\IcorpClient;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceListTjClient;
+use App\Services\SupplierDirectoryContext;
 use App\Services\SupplierMappingApproval;
 use App\Services\SupplierSourcePolicy;
 use App\Services\SupplierSuggestionMatcher;
@@ -28,6 +29,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -39,39 +41,15 @@ class SupplierSynchronizationController extends Controller
 {
     public function index(Request $request, SupplierSuggestionMatcher $matcher, SupplierMappingApproval $approval): View
     {
-        $request->validate([
-            'q' => ['nullable', 'string', 'max:255'],
-            'supplier_q' => ['nullable', 'string', 'max:255'],
-            'tab' => ['nullable', 'in:external,suppliers'],
-            'service' => ['nullable', 'in:icorp,pricelist_tj'],
-            'edit' => ['nullable', 'integer', 'min:1'],
-            'filter' => ['nullable', 'in:all,unmapped,ambiguous,confirmed,suggested'],
-            'page' => ['nullable', 'integer', 'min:1'],
-            'supplier_page' => ['nullable', 'integer', 'min:1'],
-        ], $this->validationMessages());
+        $request->validate(SupplierDirectoryContext::fields(), $this->validationMessages());
         $tab = (str_starts_with((string) old('_sync_form'), 'mapping-') || str_starts_with((string) old('_sync_form'), 'unmap-') || str_starts_with((string) old('_sync_form'), 'approve-')) ? 'external' : ($request->input('tab') ?: 'external');
         $directoryCounts = ExternalSupplierPartner::query()->selectRaw('source, count(*) as total')->groupBy('source')->pluck('total', 'source');
         $allSuppliers = Organization::where('type', OrganizationType::Wholesaler)->orderBy('name')->get();
         $allPartners = ExternalSupplierPartner::with('supplier')->orderBy('name')->orderBy('id')->get();
         $reviewSuggestions = $matcher->directory($allPartners, $allSuppliers);
         $suggestions = $allPartners->mapWithKeys(fn (ExternalSupplierPartner $partner): array => [$partner->id => $reviewSuggestions[$partner->id]['internal']]);
-        $partners = $allPartners->filter(function (ExternalSupplierPartner $partner) use ($request, $reviewSuggestions): bool {
-            if ($request->filled('q') && ! str_contains(mb_strtolower($partner->name), mb_strtolower($request->input('q')))) {
-                return false;
-            }
-            if ($request->filled('service') && $partner->source !== $request->input('service')) {
-                return false;
-            }
-
-            return match ($request->input('filter')) {
-                'unmapped' => ! $partner->supplier_organization_id,
-                'confirmed' => (bool) $partner->supplier_organization_id,
-                'suggested' => $reviewSuggestions[$partner->id]['has'],
-                'ambiguous' => $reviewSuggestions[$partner->id]['ambiguous'],
-                default => true,
-            };
-        });
-        $restoredReviewId = preg_match('/^approve-(\d+)$/D', (string) old('_sync_form'), $reviewMatch) ? (int) $reviewMatch[1] : null;
+        $partners = $this->filterDirectory($allPartners, $request->all(), $reviewSuggestions);
+        $restoredReviewId = preg_match('/^(?:approve|mapping)-(\d+)$/D', (string) old('_sync_form'), $reviewMatch) ? (int) $reviewMatch[1] : null;
         $restoredReview = $allPartners->firstWhere('id', $restoredReviewId);
         $mappedSupplierIds = $partners->pluck('supplier_organization_id')->push($restoredReview?->supplier_organization_id)->filter()->unique();
         $mappedPartners = ExternalSupplierPartner::whereIn('supplier_organization_id', $mappedSupplierIds)->orderBy('source')->get()->groupBy('supplier_organization_id');
@@ -79,7 +57,7 @@ class SupplierSynchronizationController extends Controller
         $partnerEvidence = $allPartners->mapWithKeys(fn (ExternalSupplierPartner $record): array => [$record->id => $approval->fingerprint($record)]);
         $supplierEvidence = $allSuppliers->mapWithKeys(fn (Organization $record): array => [$record->id => $approval->fingerprint($record, (int) ($configurations->get($record->id)?->version ?? 0))]);
         $partners = $partners->unique(fn (ExternalSupplierPartner $partner): string => $partner->supplier_organization_id ? 'supplier-'.$partner->supplier_organization_id : 'partner-'.$partner->id)->values();
-        $page = max(1, $request->integer('page', 1));
+        $page = min(max(1, $request->integer('page', 1)), max(1, (int) ceil($partners->count() / 25)));
         $partners = new LengthAwarePaginator($partners->forPage($page, 25)->values(), $partners->count(), 25, $page, ['path' => $request->url(), 'query' => $request->query()]);
         if ($restoredReview) {
             $visible = $partners->getCollection();
@@ -99,9 +77,61 @@ class SupplierSynchronizationController extends Controller
 
     public function approve(ApproveSupplierMappingRequest $request, SupplierMappingApproval $approval): RedirectResponse
     {
-        $supplier = $approval->approve($request->validated());
+        try {
+            $supplier = $approval->approve($request->validated());
+        } catch (ValidationException $exception) {
+            if (($context = SupplierDirectoryContext::valid($request)) !== null) {
+                $exception->redirectTo(route('admin.supplier-sync.index', $context));
+            }
+            throw $exception;
+        }
 
-        return redirect()->route('admin.supplier-sync.show', $supplier)->with('success', 'Выбранные сопоставления подтверждены.');
+        return $this->mappingResponse($request, $supplier, 'Выбранные сопоставления подтверждены.');
+    }
+
+    /**
+     * @param  Collection<int, ExternalSupplierPartner>  $partners
+     * @param  array<string, mixed>  $context
+     * @param  array<int, array<string, mixed>>  $suggestions
+     * @return Collection<int, ExternalSupplierPartner>
+     */
+    private function filterDirectory(Collection $partners, array $context, array $suggestions): Collection
+    {
+        return $partners->filter(function (ExternalSupplierPartner $partner) use ($context, $suggestions): bool {
+            if (isset($context['q']) && $context['q'] !== '' && ! str_contains(mb_strtolower($partner->name), mb_strtolower($context['q']))) {
+                return false;
+            }
+            if (! empty($context['service']) && $partner->source !== $context['service']) {
+                return false;
+            }
+
+            return match ($context['filter'] ?? null) {
+                'unmapped' => ! $partner->supplier_organization_id,
+                'confirmed' => (bool) $partner->supplier_organization_id,
+                'suggested' => $suggestions[$partner->id]['has'],
+                'ambiguous' => $suggestions[$partner->id]['ambiguous'],
+                default => true,
+            };
+        });
+    }
+
+    private function mappingResponse(Request $request, Organization $supplier, string $message): RedirectResponse
+    {
+        $context = SupplierDirectoryContext::valid($request);
+        if ($context === null) {
+            return redirect()->route('admin.supplier-sync.show', $supplier)->with('success', $message);
+        }
+        $partners = ExternalSupplierPartner::orderBy('name')->orderBy('id')->get();
+        $suggestions = app(SupplierSuggestionMatcher::class)->directory($partners, Organization::where('type', OrganizationType::Wholesaler)->get());
+        $filtered = $this->filterDirectory($partners, $context, $suggestions);
+        $removed = ! $filtered->contains('supplier_organization_id', $supplier->id);
+        $total = $filtered->unique(fn (ExternalSupplierPartner $partner): string => $partner->supplier_organization_id ? 'supplier-'.$partner->supplier_organization_id : 'partner-'.$partner->id)->count();
+        if (isset($context['page'])) {
+            $context['page'] = min((int) $context['page'], max(1, (int) ceil($total / 25)));
+        }
+
+        return redirect()->route('admin.supplier-sync.index', $context)
+            ->with('mapping_success', ['name' => $supplier->name, 'id' => $supplier->id, 'removed' => $removed]);
     }
 
     public function refresh(Request $request, AuditLogger $audit): RedirectResponse
@@ -119,42 +149,50 @@ class SupplierSynchronizationController extends Controller
 
     public function map(Request $request, ExternalSupplierPartner $partner, AuditLogger $audit): RedirectResponse
     {
-        $mode = $request->input('mapping_mode');
-        $data = $request->validate([
-            'mapping_mode' => ['sometimes', 'required', 'in:existing,new'],
-            'supplier_organization_id' => [Rule::excludeIf($mode === 'new'), Rule::requiredIf($mode === 'existing'), 'nullable', 'integer', Rule::exists('organizations', 'id')->where('type', OrganizationType::Wholesaler->value)],
-            'name' => [Rule::excludeIf($mode === 'existing'), Rule::requiredIf($mode === 'new'), 'required_without:supplier_organization_id', 'nullable', 'string', 'max:255'],
-            'city' => [Rule::excludeIf($mode === 'existing'), 'nullable', 'string', 'max:255'], 'phone' => [Rule::excludeIf($mode === 'existing'), 'nullable', 'string', 'max:32', 'unique:organizations,phone'],
-            'confirmed' => ['required', 'accepted'],
-        ], $this->validationMessages());
-        $supplier = DB::transaction(function () use ($partner, $data, $audit): Organization {
-            $supplierId = $data['supplier_organization_id'] ?? null;
-            Organization::whereIn('id', array_filter([$supplierId, $partner->supplier_organization_id]))->orderBy('id')->lockForUpdate()->get();
-            $expectedSupplierId = $partner->supplier_organization_id;
-            $partner = ExternalSupplierPartner::whereKey($partner->id)->lockForUpdate()->firstOrFail();
-            if ($partner->supplier_organization_id !== $expectedSupplierId) {
-                throw ValidationException::withMessages(['supplier_organization_id' => 'Сопоставление уже изменилось. Обновите страницу и проверьте поставщика.']);
-            }
-            $supplier = $supplierId ? Organization::findOrFail($supplierId) : Organization::create([
-                'name' => $data['name'], 'city' => $data['city'] ?? null, 'phone' => $data['phone'] ?? null,
-                'type' => OrganizationType::Wholesaler, 'status' => 'active', 'supplier_mode' => TradeMode::Supplier->value,
-            ]);
-            if (! $supplierId) {
-                $audit->log('organization.supplier_created', $supplier, [], $supplier->only(['name', 'city', 'phone', 'type', 'status']));
-            }
-            if (ExternalSupplierPartner::where('source', $partner->source)->where('supplier_organization_id', $supplier->id)->whereKeyNot($partner->id)->exists()) {
-                throw ValidationException::withMessages(['supplier_organization_id' => 'У поставщика уже подтверждено сопоставление с этим сервисом.']);
-            }
-            $before = $partner->only('supplier_organization_id');
-            $partner->update(['supplier_organization_id' => $supplier->id, 'profile_version' => $partner->profile_version + 1]);
-            SupplierSynchronization::firstOrCreate(['supplier_organization_id' => $supplier->id], ['sources' => SupplierSynchronization::defaultSources()]);
-            SupplierSynchronization::whereIn('supplier_organization_id', array_filter([$before['supplier_organization_id'], $supplier->id]))->increment('version');
-            $audit->log($before['supplier_organization_id'] ? 'supplier_mapping.remapped' : 'supplier_mapping.confirmed', $partner, $before, $partner->only('supplier_organization_id'));
+        try {
+            $mode = $request->input('mapping_mode');
+            $data = $request->validate([
+                ...SupplierDirectoryContext::rules(),
+                'mapping_mode' => ['sometimes', 'required', 'in:existing,new'],
+                'supplier_organization_id' => [Rule::excludeIf($mode === 'new'), Rule::requiredIf($mode === 'existing'), 'nullable', 'integer', Rule::exists('organizations', 'id')->where('type', OrganizationType::Wholesaler->value)],
+                'name' => [Rule::excludeIf($mode === 'existing'), Rule::requiredIf($mode === 'new'), 'required_without:supplier_organization_id', 'nullable', 'string', 'max:255'],
+                'city' => [Rule::excludeIf($mode === 'existing'), 'nullable', 'string', 'max:255'], 'phone' => [Rule::excludeIf($mode === 'existing'), 'nullable', 'string', 'max:32', 'unique:organizations,phone'],
+                'confirmed' => ['required', 'accepted'],
+            ], $this->validationMessages());
+            $supplier = DB::transaction(function () use ($partner, $data, $audit): Organization {
+                $supplierId = $data['supplier_organization_id'] ?? null;
+                Organization::whereIn('id', array_filter([$supplierId, $partner->supplier_organization_id]))->orderBy('id')->lockForUpdate()->get();
+                $expectedSupplierId = $partner->supplier_organization_id;
+                $partner = ExternalSupplierPartner::whereKey($partner->id)->lockForUpdate()->firstOrFail();
+                if ($partner->supplier_organization_id !== $expectedSupplierId) {
+                    throw ValidationException::withMessages(['supplier_organization_id' => 'Сопоставление уже изменилось. Обновите страницу и проверьте поставщика.']);
+                }
+                $supplier = $supplierId ? Organization::findOrFail($supplierId) : Organization::create([
+                    'name' => $data['name'], 'city' => $data['city'] ?? null, 'phone' => $data['phone'] ?? null,
+                    'type' => OrganizationType::Wholesaler, 'status' => 'active', 'supplier_mode' => TradeMode::Supplier->value,
+                ]);
+                if (! $supplierId) {
+                    $audit->log('organization.supplier_created', $supplier, [], $supplier->only(['name', 'city', 'phone', 'type', 'status']));
+                }
+                if (ExternalSupplierPartner::where('source', $partner->source)->where('supplier_organization_id', $supplier->id)->whereKeyNot($partner->id)->exists()) {
+                    throw ValidationException::withMessages(['supplier_organization_id' => 'У поставщика уже подтверждено сопоставление с этим сервисом.']);
+                }
+                $before = $partner->only('supplier_organization_id');
+                $partner->update(['supplier_organization_id' => $supplier->id, 'profile_version' => $partner->profile_version + 1]);
+                SupplierSynchronization::firstOrCreate(['supplier_organization_id' => $supplier->id], ['sources' => SupplierSynchronization::defaultSources()]);
+                SupplierSynchronization::whereIn('supplier_organization_id', array_filter([$before['supplier_organization_id'], $supplier->id]))->increment('version');
+                $audit->log($before['supplier_organization_id'] ? 'supplier_mapping.remapped' : 'supplier_mapping.confirmed', $partner, $before, $partner->only('supplier_organization_id'));
 
-            return $supplier;
-        }, 3);
+                return $supplier;
+            }, 3);
+        } catch (ValidationException $exception) {
+            if (($context = SupplierDirectoryContext::valid($request)) !== null) {
+                $exception->redirectTo(route('admin.supplier-sync.index', $context));
+            }
+            throw $exception;
+        }
 
-        return redirect()->route('admin.supplier-sync.show', $supplier)->with('success', 'Сопоставление подтверждено. Автоматическую загрузку можно включить после настройки профилей.');
+        return $this->mappingResponse($request, $supplier, 'Сопоставление подтверждено. Автоматическую загрузку можно включить после настройки профилей.');
     }
 
     public function unmap(Request $request, ExternalSupplierPartner $partner, AuditLogger $audit): RedirectResponse

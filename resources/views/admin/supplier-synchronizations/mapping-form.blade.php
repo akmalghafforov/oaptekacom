@@ -3,6 +3,7 @@
     <p class="text-sm text-muted">Обнаружен: {{ $partner->discovered_at->timezone('Asia/Dushanbe')->format('d.m.Y H:i') }} · Внешний код: {{ $partner->external_id }}</p>
     <div class="my-4 space-y-2"><h3 class="font-semibold">Возможные совпадения</h3>@forelse($candidates as $candidate)<p class="break-words text-sm">{{ $candidate['name'] }} (#{{ $candidate['id'] }}) — {{ implode('; ', $candidate['evidence']) }}</p>@empty<p class="text-sm text-muted">Совпадений по названию и телефонам нет. Выберите поставщика вручную или создайте нового.</p>@endforelse</div>
     <form method="post" data-sync-submit data-mapping-form action="{{ route('admin.supplier-sync.map', $partner) }}" class="space-y-4">@csrf <x-mode-version />
+        @include('admin.supplier-synchronizations.list-context')
         <input type="hidden" name="_sync_form" value="mapping-{{ $partner->id }}">
         @include('admin.supplier-synchronizations.form-errors')
         <x-ui.select name="mapping_mode" :id="'mapping-'.$partner->id.'-mode'" :restore="$restoring" label="Способ сопоставления" data-mapping-mode required><option value="">Выберите действие</option><option value="existing" @selected($value('mapping_mode') === 'existing')>Выбрать существующего</option><option value="new" @selected($value('mapping_mode') === 'new')>Создать нового</option></x-ui.select>

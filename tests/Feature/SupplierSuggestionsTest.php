@@ -82,7 +82,7 @@ class SupplierSuggestionsTest extends TestCase
         $right = ExternalSupplierPartner::factory()->create(['source' => 'pricelist_tj', 'name' => 'Аличон ОСОН фарм', 'phones' => []]);
         $before = [$left->fresh()->toArray(), $right->fresh()->toArray(), Organization::count(), AuditEvent::count()];
         $this->actingAs($admin)->get(route('admin.supplier-sync.index', ['filter' => 'suggested', 'edit' => $left->id]))
-            ->assertOk()->assertSee('Предположение')->assertSee('Проверить предположение')->assertSee('Город неизвестен')
+            ->assertOk()->assertSee('Предположение')->assertSee('Подтвердить сопоставление')->assertSee('Город неизвестен')
             ->assertViewHas('partners', fn ($rows): bool => $rows->total() === 2)
             ->assertSee('Аличон ОСОН фарм')->assertSee('Аличон Осонфарм');
         $this->get(route('admin.supplier-sync.index', ['service' => 'icorp', 'q' => 'Аличон', 'filter' => 'suggested']))
@@ -100,7 +100,7 @@ class SupplierSuggestionsTest extends TestCase
         $first = ExternalSupplierPartner::factory()->create(['source' => 'pricelist_tj', 'name' => 'Осонфарм']);
         $second = ExternalSupplierPartner::factory()->create(['source' => 'pricelist_tj', 'name' => 'Осонфарм']);
         $response = $this->actingAs($admin)->get(route('admin.supplier-sync.index', ['filter' => 'ambiguous', 'edit' => $left->id]));
-        $response->assertOk()->assertSee('Утвержденный поставщик')->assertSee('Есть несколько близких кандидатов')
+        $response->assertOk()->assertSee('Утвержденный поставщик')->assertSee('Подтверждено')->assertSee('Несколько кандидатов')->assertSee('Подтвердить сопоставление')->assertSee('Есть несколько близких кандидатов')
             ->assertViewHas('partners', fn ($rows): bool => $rows->total() === 1);
         $document = new \DOMDocument;
         @$document->loadHTML($response->getContent());
@@ -252,6 +252,11 @@ class SupplierSuggestionsTest extends TestCase
             ->assertDontSee('id="mapping-'.$partners[0]->id.'-confirmed-error"', false)
             ->assertSee('name="service"', false)->assertSee('name="filter"', false);
         $this->assertMatchesRegularExpression('/id="mapping-'.$partners[0]->id.'"\s+open/', $response->getContent());
+        $document = new \DOMDocument;
+        @$document->loadHTML($response->getContent());
+        $xpath = new \DOMXPath($document);
+        $this->assertSame(1, $xpath->query('//dialog[@data-dialog-auto-open]')->length);
+        $this->assertSame('supplier-matching-'.$partners[0]->id, $xpath->evaluate('string(//dialog[@data-dialog-auto-open]/@id)'));
         $this->assertMatchesRegularExpression('/value="'.$partners[1]->id.'"\s+selected/', $response->getContent());
     }
 
@@ -261,12 +266,18 @@ class SupplierSuggestionsTest extends TestCase
         $partners = $this->pair();
         $data = $this->approvalData($partners);
         $data['_sync_form'] = 'approve-'.$partners[0]->id;
-        $url = route('admin.supplier-sync.index', ['filter' => 'suggested', 'service' => 'icorp']);
+        $data['list_context'] = ['filter' => 'suggested', 'service' => 'icorp'];
+        $url = route('admin.supplier-sync.index', $data['list_context']);
         $partners[1]->update(['name' => 'Теперь совершенно другое название']);
-        $this->from($url)->post(route('admin.supplier-sync.approve'), $data)->assertRedirect($url);
+        $this->post(route('admin.supplier-sync.approve'), $data)->assertRedirect($url);
         $response = $this->get($url)->assertOk()->assertSee('Данные изменились после проверки')
             ->assertSee('Теперь совершенно другое название');
         $this->assertMatchesRegularExpression('/id="mapping-'.$partners[0]->id.'"\s+open/', $response->getContent());
+        $document = new \DOMDocument;
+        @$document->loadHTML($response->getContent());
+        $xpath = new \DOMXPath($document);
+        $this->assertSame(1, $xpath->query('//dialog[@data-dialog-auto-open]')->length);
+        $this->assertSame('supplier-matching-'.$partners[0]->id, $xpath->evaluate('string(//dialog[@data-dialog-auto-open]/@id)'));
         $this->assertMatchesRegularExpression('/value="'.$partners[1]->id.'"\s+selected/', $response->getContent());
         $this->assertNull($partners[0]->fresh()->supplier_organization_id);
     }
@@ -312,12 +323,107 @@ class SupplierSuggestionsTest extends TestCase
         $this->assertSame(0, $xpath->query('.//select[@name="partner_ids[pricelist_tj]"]/option[@selected]', $form)->length);
         $data = [];
         foreach ($xpath->query('.//input[@type="hidden"]', $form) as $field) {
-            $data[$field->getAttribute('name')] = $field->getAttribute('value');
+            parse_str(http_build_query([$field->getAttribute('name') => $field->getAttribute('value')]), $input);
+            $data = array_replace_recursive($data, $input);
         }
         $data += ['partner_ids' => ['icorp' => $left->id, 'pricelist_tj' => $right->id], 'mapping_mode' => 'existing', 'supplier_organization_id' => $supplier->id, 'confirmed' => 1];
-        $this->post(route('admin.supplier-sync.approve'), $data)->assertRedirectToRoute('admin.supplier-sync.show', $supplier);
+        $this->post(route('admin.supplier-sync.approve'), $data)->assertRedirectToRoute('admin.supplier-sync.index', ['tab' => 'external', 'edit' => $left->id]);
         $this->assertSame($supplier->id, $left->fresh()->supplier_organization_id);
         $this->assertSame($supplier->id, $right->fresh()->supplier_organization_id);
+    }
+
+    public function test_unmatched_records_offer_signed_approval_in_a_closed_popup_with_existing_mode_and_blank_supplier(): void
+    {
+        $this->actingAs($this->admin());
+        $supplier = Organization::factory()->wholesaler()->create(['name' => 'Совсем другая организация']);
+        $partner = ExternalSupplierPartner::factory()->create(['name' => 'Уникальное название без совпадений', 'phones' => []]);
+        $response = $this->get(route('admin.supplier-sync.index'))->assertSee('Без сопоставления')->assertSee('Подтвердить сопоставление');
+        $document = new \DOMDocument;
+        @$document->loadHTML($response->getContent());
+        $xpath = new \DOMXPath($document);
+        $form = $xpath->query('//form[input[@value="approve-'.$partner->id.'"]]')->item(0);
+        $this->assertNotNull($form);
+        $this->assertSame(0, $xpath->query('ancestor::*[@hidden or self::details]', $form)->length);
+        $this->assertSame(1, $xpath->query('ancestor::dialog[@id="supplier-matching-'.$partner->id.'" and not(@open) and not(@data-dialog-auto-open)]', $form)->length);
+        $this->assertSame(1, $xpath->query('//button[@data-dialog-open and @aria-controls="supplier-matching-'.$partner->id.'" and @aria-haspopup="dialog"]')->length);
+        $this->assertSame('existing', $xpath->evaluate('string(.//select[@name="mapping_mode"]/option[@selected]/@value)', $form));
+        $this->assertSame(0, $xpath->query('.//select[@name="supplier_organization_id"]/option[@selected]', $form)->length);
+        $this->assertSame(1, $xpath->query('.//input[@name="review_snapshot"]', $form)->length);
+        $data = ['review_snapshot' => $xpath->evaluate('string(.//input[@name="review_snapshot"]/@value)', $form),
+            'partner_ids' => [$partner->source => $partner->id], 'mapping_mode' => 'existing',
+            'supplier_organization_id' => $supplier->id, 'confirmed' => 1, 'list_context' => ['tab' => 'external']];
+        $this->post(route('admin.supplier-sync.approve'), $data)->assertRedirectToRoute('admin.supplier-sync.index', ['tab' => 'external']);
+        $this->assertSame($supplier->id, $partner->fresh()->supplier_organization_id);
+    }
+
+    #[TestWith([51, 2])]
+    #[TestWith([52, 3])]
+    public function test_list_approval_preserves_context_explains_filter_removal_and_clamps_pagination(int $count, int $expectedPage): void
+    {
+        $this->actingAs($this->admin());
+        $supplier = Organization::factory()->wholesaler()->create(['name' => 'Выбранный поставщик']);
+        $partners = ExternalSupplierPartner::factory()->count($count)->create(['source' => 'icorp', 'name' => 'Проверяемая запись', 'phones' => []]);
+        $partner = $partners->last();
+        $context = ['tab' => 'external', 'q' => 'Проверяемая', 'service' => 'icorp', 'filter' => 'unmapped', 'page' => 3, 'supplier_q' => 'Наш', 'supplier_page' => 2];
+        $data = $this->approvalData([$partner], $supplier) + ['list_context' => $context];
+        $context['page'] = $expectedPage;
+
+        $response = $this->post(route('admin.supplier-sync.approve'), $data)->assertRedirectToRoute('admin.supplier-sync.index', $context);
+        $this->get($response->headers->get('Location'))->assertSee('Выбранный поставщик')->assertSee('исключена из результатов')
+            ->assertSee(route('admin.supplier-sync.show', $supplier), false)
+            ->assertViewHas('partners', fn ($rows): bool => $rows->currentPage() === $expectedPage && $rows->total() === $count - 1);
+        $this->assertSame($supplier->id, $partner->fresh()->supplier_organization_id);
+    }
+
+    #[TestWith(['approve'])]
+    #[TestWith(['map'])]
+    public function test_list_validation_returns_to_context_without_referer_and_restores_only_failed_form(string $action): void
+    {
+        $this->actingAs($this->admin());
+        $supplier = Organization::factory()->wholesaler()->create();
+        $partner = ExternalSupplierPartner::factory()->create(['name' => 'Искомый поставщик']);
+        $other = ExternalSupplierPartner::factory()->create(['name' => 'Другая запись']);
+        $formKey = ($action === 'approve' ? 'approve-' : 'mapping-').$partner->id;
+        $context = ['filter' => 'unmapped', 'q' => 'Искомый', 'page' => 3];
+        $data = $this->approvalData([$partner], $supplier) + ['list_context' => $context, '_sync_form' => $formKey];
+        $data['confirmed'] = '';
+        $partner->update(['name' => 'Больше не подходит под поиск']);
+        $url = route('admin.supplier-sync.index', $context);
+        $this->post(route('admin.supplier-sync.'.$action, $action === 'map' ? $partner : []), $data)->assertRedirect($url);
+        $prefix = $action === 'approve' ? 'approve-' : 'mapping-';
+        $this->get($url)->assertSee('Больше не подходит под поиск')->assertSee('id="'.$prefix.$partner->id.'-confirmed-error"', false)
+            ->assertDontSee('id="'.$prefix.$other->id.'-confirmed-error"', false);
+        $this->assertNull($partner->fresh()->supplier_organization_id);
+    }
+
+    #[TestWith(['approve'])]
+    #[TestWith(['map'])]
+    public function test_manual_and_review_submissions_reject_invalid_list_context_before_writing(string $action): void
+    {
+        $this->actingAs($this->admin());
+        $supplier = Organization::factory()->wholesaler()->create();
+        $partner = ExternalSupplierPartner::factory()->create();
+        $data = $this->approvalData([$partner], $supplier);
+        foreach ([['redirect' => 'https://example.com'], ['page' => 0], ['filter' => 'unknown'], 'https://example.com'] as $context) {
+            $data['list_context'] = $context;
+            $this->postJson(route('admin.supplier-sync.'.$action, $action === 'map' ? $partner : []), $data)
+                ->assertUnprocessable()->assertJsonValidationErrors(is_array($context) && isset($context['page']) ? 'list_context.page' : (is_array($context) && isset($context['filter']) ? 'list_context.filter' : 'list_context'));
+        }
+        $this->assertNull($partner->fresh()->supplier_organization_id);
+    }
+
+    public function test_manual_mapping_returns_to_directory_with_supplier_settings_link(): void
+    {
+        $this->actingAs($this->admin());
+        $supplier = Organization::factory()->wholesaler()->create(['name' => '<script>Supplier</script>']);
+        $partner = ExternalSupplierPartner::factory()->create();
+        $context = ['tab' => 'external', 'filter' => 'all'];
+        $this->post(route('admin.supplier-sync.map', $partner), [
+            'mapping_mode' => 'existing', 'supplier_organization_id' => $supplier->id, 'confirmed' => 1, 'list_context' => $context,
+        ])->assertRedirectToRoute('admin.supplier-sync.index', $context);
+        $this->get(route('admin.supplier-sync.index', $context))->assertSee($supplier->name)->assertDontSee($supplier->name, false)
+            ->assertSee('Настройки поставщика')->assertDontSee('исключена из результатов');
+        $this->assertSame($supplier->id, $partner->fresh()->supplier_organization_id);
     }
 
     private function admin(): User

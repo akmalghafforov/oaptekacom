@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\OrganizationType;
+use App\Services\SupplierDirectoryContext;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -30,6 +31,7 @@ class ApproveSupplierMappingRequest extends FormRequest
     public function rules(): array
     {
         return [
+            ...SupplierDirectoryContext::rules(),
             'review_snapshot' => ['sometimes', 'string', 'json', 'max:2097152'],
             'partner_ids' => ['required', 'array', 'min:1', 'max:2'],
             'partner_ids.*' => ['required', 'integer', 'distinct', 'exists:external_supplier_partners,id'],
@@ -48,6 +50,13 @@ class ApproveSupplierMappingRequest extends FormRequest
             'phone' => ['exclude_unless:mapping_mode,new', 'nullable', 'string', 'max:32', 'unique:organizations,phone'],
             'confirmed' => ['required', 'accepted'],
         ];
+    }
+
+    protected function getRedirectUrl(): string
+    {
+        $context = SupplierDirectoryContext::valid($this);
+
+        return $context !== null ? route('admin.supplier-sync.index', $context) : parent::getRedirectUrl();
     }
 
     /** @return array<string, string> */
