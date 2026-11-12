@@ -21,6 +21,14 @@
                 <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-bold">{{ $serviceNames[$source] }}</h2><x-ui.status-badge :status="$status['status'] === 'connected' ? 'confirmed' : 'pending'" :label="$statusLabels[$status['status']] ?? 'Требуется проверка'" /></div>
                 <p class="mt-3 text-sm text-muted">Проверка: {{ isset($status['checked_at']) ? \Carbon\CarbonImmutable::parse($status['checked_at'])->timezone('Asia/Dushanbe')->format('d.m.Y H:i') : 'Ещё не проверено' }} (Душанбе)</p>
                 <p class="mt-1 text-sm">В справочнике: {{ $directoryCounts[$source] ?? 0 }} поставщиков</p>
+                @if($source === 'icorp')
+                    <form method="post" data-sync-submit action="{{ route('admin.supplier-sync.connect', 'icorp') }}" class="mt-4 space-y-3">
+                        @csrf <x-mode-version />
+                        <x-ui.input name="phone" id="icorp-phone" type="tel" label="Телефон / логин iCorp" :value="$icorpLogin" autocomplete="username" required />
+                        <x-ui.input name="password" id="icorp-password" type="password" label="Пароль iCorp" autocomplete="new-password" hint="Оставьте пустым, чтобы сохранить пароль для того же телефона." />
+                        <x-ui.button>Сохранить и подключить</x-ui.button>
+                    </form>
+                @endif
                 <div class="mt-4 flex flex-wrap gap-3">
                     <form method="post" data-sync-submit action="{{ route('admin.supplier-sync.refresh') }}">@csrf <x-mode-version /><input type="hidden" name="source" value="{{ $source }}"><x-ui.button variant="secondary">Обновить справочник</x-ui.button></form>
                     <form method="post" data-sync-submit action="{{ route('admin.supplier-sync.connect', $source) }}">@csrf <x-mode-version /><x-ui.button variant="secondary">{{ $status['status'] === 'unknown' ? 'Подключить' : 'Повторить подключение' }}</x-ui.button></form>

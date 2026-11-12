@@ -8,7 +8,10 @@
                     <div class="rounded-control border border-border p-3"><p class="font-semibold">{{ $sourceNames[$attempt->source] ?? 'Источник' }} · {{ $labels[$attempt->status] ?? 'Требуется проверка' }}</p><p class="mt-1 text-sm">{{ $labels[$attempt->reason] ?? 'Результат ещё не получен' }}</p>
                         <p class="mt-2 text-sm text-muted">Публикация: {{ isset($attempt->metadata['published_at']) ? $formatDate(\Carbon\CarbonImmutable::parse($attempt->metadata['published_at'])) : 'Не определена' }} · {{ $precisionLabels[$attempt->metadata['date_precision'] ?? ''] ?? 'Точность не определена' }}</p>
                         @if($attempt->import)<a class="inline-flex min-h-10 items-center font-semibold underline" href="{{ route('price-list-imports.show', $attempt->import) }}">Просмотреть импорт</a>@endif
-                        <details><summary class="min-h-10 cursor-pointer py-2 text-sm">Технические сведения</summary><p class="text-xs">Запуск #{{ $run->id }} · Попытка #{{ $attempt->id }} @if($attempt->import) · Импорт #{{ $attempt->import->id }}@endif</p>@if($attempt->metadata['fingerprint'] ?? null)<p class="mt-2 text-xs">Отпечаток содержимого</p><code class="block break-all text-xs">{{ $attempt->metadata['fingerprint'] }}</code>@endif</details>
+                        <details><summary class="min-h-10 cursor-pointer py-2 text-sm">Технические сведения</summary>
+                            @if(isset($attempt->metadata['failure']))
+                                <p class="text-xs text-muted">Этап: {{ $attempt->metadata['failure']['stage'] }} · Код: {{ $attempt->metadata['failure']['code'] }}@if($attempt->metadata['failure']['http_status'] ?? null) · HTTP {{ $attempt->metadata['failure']['http_status'] }}@endif</p>
+                            @endif<p class="text-xs">Запуск #{{ $run->id }} · Попытка #{{ $attempt->id }} @if($attempt->import) · Импорт #{{ $attempt->import->id }}@endif</p>@if($attempt->metadata['fingerprint'] ?? null)<p class="mt-2 text-xs">Отпечаток содержимого</p><code class="block break-all text-xs">{{ $attempt->metadata['fingerprint'] }}</code>@endif</details>
                     </div>
                 @endforeach</div>
             </details>

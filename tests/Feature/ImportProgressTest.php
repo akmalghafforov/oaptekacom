@@ -19,8 +19,8 @@ class ImportProgressTest extends TestCase
     {
         $run = SupplierSyncRun::factory()->create(['active_supplier_id' => Organization::factory()->wholesaler(), 'status' => 'queued', 'configuration_snapshot' => ['selected_source' => 'icorp']]);
         $this->actingAs(User::factory()->admin()->create(['two_factor_confirmed_at' => now()]));
-        $this->get(route('price-list-imports.index'))->assertOk()->assertSee('Ход импорта')->assertSee('В очереди на загрузку')->assertSee('iCorp');
-        $this->getJson(route('price-list-imports.index'))->assertJsonPath('entries.0.id', 'run-'.$run->id)->assertJsonPath('entries.0.active', true);
+        $this->get(route('price-list-imports.index', ['tab' => 'services']))->assertOk()->assertDontSee('Ход импорта')->assertSee('Файл ещё не получен')->assertSee('В очереди на загрузку')->assertSee('iCorp');
+        $this->getJson(route('price-list-imports.index', ['tab' => 'services']))->assertJsonPath('entries.0.id', 'run-'.$run->id)->assertJsonPath('entries.0.active', true);
     }
 
     public function test_detail_and_list_show_external_processing_and_terminal_state(): void
@@ -29,7 +29,7 @@ class ImportProgressTest extends TestCase
         $this->actingAs(User::factory()->admin()->create(['two_factor_confirmed_at' => now()]));
         $this->get(route('price-list-imports.show', $import))->assertOk()->assertSee('Обработано строк: 0 / 100')->assertSee('PriceList-TJ');
         $this->getJson(route('price-list-imports.show', $import))->assertJsonPath('entries.0.active', true)->assertJsonPath('entries.0.total', 100);
-        $this->getJson(route('price-list-imports.index'))->assertJsonPath('entries.0.import_id', $import->id);
+        $this->getJson(route('price-list-imports.index', ['tab' => 'services']))->assertJsonPath('entries.0.import_id', $import->id);
         $import->update(['status' => PriceListImportStatus::Completed]);
         $this->getJson(route('price-list-imports.show', $import))->assertJsonPath('entries.0.active', false)->assertJsonPath('entries.0.detail', 'Каталог опубликован.');
     }
@@ -40,7 +40,7 @@ class ImportProgressTest extends TestCase
         $other = PriceListImport::factory()->create(['source_type' => 'icorp']);
         SupplierSyncRun::factory()->create(['configuration_snapshot' => ['selected_source' => 'icorp']]);
         $user = User::factory()->wholesaler($supplier)->create();
-        $this->actingAs($user)->getJson(route('price-list-imports.index'))->assertJsonCount(0, 'entries');
+        $this->actingAs($user)->getJson(route('price-list-imports.index', ['tab' => 'services']))->assertJsonCount(0, 'entries');
         $this->getJson(route('price-list-imports.show', $other))->assertNotFound();
     }
 }

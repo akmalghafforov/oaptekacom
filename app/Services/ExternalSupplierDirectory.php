@@ -66,12 +66,15 @@ class ExternalSupplierDirectory
 
     public static function failureReason(Throwable $exception): string
     {
+        if ($exception instanceof IcorpFailure) {
+            return $exception->reason;
+        }
         $message = strtolower($exception->getMessage());
 
         return match (true) {
             str_contains($message, 'another device'), str_contains($message, '409') => 'takeover_required',
             str_contains($message, '403'), str_contains($message, 'permit'), str_contains($message, 'not available') => 'permission',
-            str_contains($message, '401'), str_contains($message, 'login'), str_contains($message, 'authentication'), str_contains($message, 'configure ') => 'authentication',
+            str_contains($message, '401'), str_contains($message, '419'), str_contains($message, 'login'), str_contains($message, 'authentication'), str_contains($message, 'configure ') => 'authentication',
             $exception instanceof ConnectionException, str_contains($message, 'http 5'), str_contains($message, 'http 429') => 'transport',
             default => 'extraction',
         };

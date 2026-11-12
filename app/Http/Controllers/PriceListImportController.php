@@ -32,6 +32,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -44,31 +45,47 @@ class PriceListImportController extends Controller
     public function index(Request $request, ImportProgress $progress): View|JsonResponse
     {
         $this->authorize('viewAny', PriceListImport::class);
-        $query = PriceListImport::query()->with('supplier')->withCount('rows')->latest();
-        if (! $request->user()->isAdminMode()) {
-            $query->where('supplier_organization_id', $request->user()->activeOrganizationId());
-        }
-
-        $imports = $query->paginate(20);
-        $entries = $imports->getCollection()->filter(fn (PriceListImport $import): bool => in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true))->map(fn (PriceListImport $import): array => $progress->import($import))->values();
-        $runs = SupplierSyncRun::with(['supplier', 'attempts'])->where('trigger', '!=', 'mailbox')
-            ->whereDoesntHave('attempts', fn ($query) => $query->whereNotNull('price_list_import_id'))
+        $tab = $request->query('tab') === 'services' ? 'services' : 'files';
+        $sources = $tab === 'services'
+            ? [PriceListImportSource::Icorp, PriceListImportSource::PriceListTj]
+            : [PriceListImportSource::Manual, PriceListImportSource::Email];
+        $query = PriceListImport::query()->whereIn('source_type', $sources)
             ->when(! $request->user()->isAdminMode(), fn ($query) => $query->where('supplier_organization_id', $request->user()->activeOrganizationId()))
-            ->latest('id')->limit(10)->get();
-        foreach ($runs as $run) {
-            if (in_array($run->configuration_snapshot['selected_source'] ?? $run->attempts->first()?->source, ['icorp', 'pricelist_tj'], true)) {
-                $entry = $progress->run($run);
-                if (! $request->user()->isAdminMode()) {
-                    $entry['url'] = null;
-                }
-                $entries->push($entry);
-            }
-        }
-        if ($request->expectsJson()) {
-            return response()->json(['entries' => $entries])->header('Cache-Control', 'private, no-store');
+            ->select(['id', 'created_at'])->selectRaw("'import' as kind")->toBase();
+
+        if ($tab === 'services') {
+            $runs = SupplierSyncRun::query()->where('trigger', '!=', 'mailbox')
+                ->whereDoesntHave('attempts', fn ($query) => $query->whereNotNull('price_list_import_id'))
+                ->where(function ($query) use ($sources): void {
+                    $query->whereIn('configuration_snapshot->selected_source', $sources)
+                        ->orWhere(function ($query) use ($sources): void {
+                            $query->whereNull('configuration_snapshot->selected_source')
+                                ->whereHas('attempts', fn ($query) => $query->whereIn('source', $sources));
+                        });
+                })
+                ->when(! $request->user()->isAdminMode(), fn ($query) => $query->where('supplier_organization_id', $request->user()->activeOrganizationId()))
+                ->select(['id', 'created_at'])->selectRaw("'run' as kind");
+            $query->unionAll($runs->toBase());
         }
 
-        return view('price-list-imports.index', ['progressEntries' => $entries, 'imports' => $imports, 'suppliers' => $request->user()->isAdminMode() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
+        $history = DB::query()->fromSub($query, 'history')->orderByDesc('created_at')->orderByDesc('id')->orderBy('kind')
+            ->paginate(20)->appends(['tab' => $tab]);
+        $items = $history->getCollection();
+        $imports = PriceListImport::with('supplier')->withCount('rows')->findMany($items->where('kind', 'import')->pluck('id'))->keyBy('id');
+        $runs = SupplierSyncRun::with(['supplier', 'attempts'])->findMany($items->where('kind', 'run')->pluck('id'))->keyBy('id');
+        $history->setCollection($items->map(function ($item) use ($imports, $runs, $progress, $request): array {
+            $entry = $item->kind === 'import' ? $progress->import($imports[$item->id]) : $progress->run($runs[$item->id]);
+            if ($item->kind === 'run' && ! $request->user()->isAdminMode()) {
+                $entry['url'] = null;
+            }
+
+            return $entry;
+        }));
+        if ($request->expectsJson()) {
+            return response()->json(['entries' => $history->items()])->header('Cache-Control', 'private, no-store');
+        }
+
+        return view('price-list-imports.index', ['tab' => $tab, 'history' => $history, 'suppliers' => $request->user()->isAdminMode() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
     }
 
     public function store(StorePriceListImportRequest $request, SupplierPriceListIngestor $ingestor): RedirectResponse

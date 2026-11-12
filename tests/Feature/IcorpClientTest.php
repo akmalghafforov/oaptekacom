@@ -3,6 +3,9 @@
 namespace Tests\Feature;
 
 use App\Services\IcorpClient;
+use App\Services\IcorpCredentials;
+use App\Services\IcorpFailure;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -82,9 +85,13 @@ class IcorpClientTest extends TestCase
     public function test_does_not_treat_an_expired_login_page_as_an_empty_directory(): void
     {
         $this->configure();
-        Http::fake(['icorp.tech/listpartners' => Http::response('<form action="/authorize">Login</form>')]);
+        Http::fake([
+            'icorp.tech/listpartners' => Http::response('<form action="/authorize">Login</form>'),
+            'icorp.tech/login' => Http::response('Expired', 419),
+        ]);
 
-        $this->expectExceptionMessage('No iCorp partner cards found');
+        $this->expectException(IcorpFailure::class);
+        $this->expectExceptionMessage('HTTP 419');
         (new IcorpClient)->partners();
     }
 
@@ -141,6 +148,108 @@ class IcorpClientTest extends TestCase
         Http::assertSentCount(3);
     }
 
+    public function test_workspace_csrf_failure_restarts_with_fresh_cookies_and_current_tokens_once(): void
+    {
+        $this->configure();
+        Http::fake([
+            'icorp.tech/login' => Http::sequence()
+                ->push('', 302, ['Location' => '/choose'])
+                ->push('<meta name="csrf-token" content="fresh-login">', 200, ['Set-Cookie' => 'session=fresh-cookie; Path=/; Secure']),
+            'icorp.tech/authorize' => Http::sequence()
+                ->push(['result' => 5, 'input' => '<input value="password">', 'csrf_token' => 'rotated-login'])
+                ->push(['result' => 2]),
+            'icorp.tech/choose' => Http::sequence()
+                ->push('<meta name="csrf-token" content="stale-workspace"><button data-firm-id="303"></button>')
+                ->push(file_get_contents(__DIR__.'/Fixtures/icorp-choose.html')),
+            'icorp.tech/firm-entry' => Http::sequence()->push('Expired', 419)->push(['status' => true, 'redirect_url' => '/listpartners']),
+            'icorp.tech/listpartners' => Http::response($this->directory()),
+        ]);
+
+        (new IcorpClient)->connect();
+
+        Http::assertSent(fn (Request $request): bool => $request->url() === 'https://icorp.tech/firm-entry'
+            && $request->hasHeader('X-CSRF-TOKEN', 'fixture-workspace-token')
+            && $request->hasHeader('Origin', 'https://icorp.tech')
+            && $request->hasHeader('Referer', 'https://icorp.tech/choose')
+            && $request['force_firm_session'] === 0);
+        Http::assertSent(fn (Request $request): bool => ($request['auth_mode'] ?? null) === 'password' && $request->hasHeader('X-CSRF-TOKEN', 'rotated-login'));
+        $session = json_decode(Crypt::decryptString(Storage::disk('local')->get($this->sessionPath())), true);
+        $this->assertNotContains('private-cookie', array_column($session['cookies'], 'Value'));
+        $this->assertContains('fresh-cookie', array_column($session['cookies'], 'Value'));
+        Http::assertSentCount(9);
+    }
+
+    public function test_repeated_csrf_failure_is_authentication_and_does_not_save_a_session(): void
+    {
+        $this->configure();
+        Storage::disk('local')->delete($this->sessionPath());
+        Http::fake([
+            'icorp.tech/login' => Http::response('', 302, ['Location' => '/choose']),
+            'icorp.tech/choose' => Http::response('<meta name="csrf-token" content="token"><button data-firm-id="303"></button>'),
+            'icorp.tech/firm-entry' => Http::response('Expired', 419),
+        ]);
+
+        try {
+            (new IcorpClient)->connect();
+            $this->fail('Repeated CSRF failure must stop authentication.');
+        } catch (IcorpFailure $exception) {
+            $this->assertSame('authentication', $exception->reason);
+            $this->assertSame(['stage' => 'workspace', 'code' => 'http_error', 'http_status' => 419], $exception->diagnostic());
+        }
+        Storage::disk('local')->assertMissing($this->sessionPath());
+        Http::assertSentCount(6);
+    }
+
+    public function test_successful_workspace_http_response_must_confirm_entry(): void
+    {
+        $this->configure();
+        Http::fake([
+            'icorp.tech/login' => Http::response('', 302, ['Location' => '/choose']),
+            'icorp.tech/choose' => Http::response('<meta name="csrf-token" content="token"><button data-firm-id="303"></button>'),
+            'icorp.tech/firm-entry' => Http::response(['status' => false]),
+        ]);
+
+        $this->expectExceptionMessage('entry_rejected');
+        (new IcorpClient)->connect();
+    }
+
+    public function test_expired_catalog_get_is_retried_after_login_and_still_validates_supplier_rows(): void
+    {
+        $this->configure();
+        Http::fake([
+            'icorp.tech/login' => Http::response('', 302, ['Location' => '/choose']),
+            'icorp.tech/choose' => Http::response('<meta name="csrf-token" content="token"><button data-firm-id="303"></button>'),
+            'icorp.tech/firm-entry' => Http::response(['status' => true]),
+            'icorp.tech/listpartners' => Http::response($this->directory()),
+            'icorp.tech/productsFirmByOverhead?*' => Http::sequence()->push('', 302, ['Location' => '/login'])->push($this->catalog(1, 'one'))->push($this->catalog(2, 'two')),
+        ]);
+
+        $prices = (new IcorpClient)->prices('156');
+
+        $this->assertSame(['one', 'two'], array_column($prices['items'], 'external_id'));
+        Http::assertSentCount(8);
+    }
+
+    public function test_extracts_the_current_catalog_markup_from_a_sanitized_live_row(): void
+    {
+        $this->configure();
+        Http::fake([
+            'icorp.tech/listpartners' => Http::response('<article data-partner-id="156" data-price-date="12.11.2026 09:00"><h3>Поставщик</h3><a href="/priceview/sample-catalog">Прайс</a></article>'),
+            'icorp.tech/productsFirmByOverhead?*' => Http::response(file_get_contents(__DIR__.'/Fixtures/icorp-catalog.html')),
+        ]);
+
+        $prices = (new IcorpClient)->prices('156');
+
+        $this->assertCount(1, $prices['items']);
+        $this->assertSame('sample-row', $prices['items'][0]['external_id']);
+        $this->assertSame('Лекарство', $prices['items'][0]['name']);
+        $this->assertSame('12.50', $prices['items'][0]['price']);
+        $this->assertSame('0', $prices['items'][0]['discount_percent']);
+        $this->assertNull($prices['items'][0]['quantity']);
+        $this->assertSame('12.11.2026 09:00', $prices['company']['published_at']);
+        Http::assertSentCount(2);
+    }
+
     private function configure(): void
     {
         Storage::fake('local');
@@ -153,7 +262,7 @@ class IcorpClientTest extends TestCase
 
     private function sessionPath(): string
     {
-        return 'external-prices/sessions/icorp-'.hash('sha256', '927430570').'.encrypted';
+        return app(IcorpCredentials::class)->sessionPath();
     }
 
     private function directory(): string

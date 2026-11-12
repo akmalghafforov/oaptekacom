@@ -8,10 +8,10 @@ use DOMNode;
 use DOMXPath;
 use GuzzleHttp\Cookie\CookieJar;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
-use RuntimeException;
 
 class IcorpClient
 {
@@ -28,7 +28,7 @@ class IcorpClient
             $id = $card->getAttribute('data-partner-id');
             $name = $this->text($xpath, './/h3', $card);
             if ($id === '' || $name === '') {
-                throw new RuntimeException('iCorp returned an invalid partner card.');
+                throw new IcorpFailure('directory', 'iCorp returned an invalid partner card.');
             }
             $phones = [];
             foreach ($xpath->query('.//a[starts-with(@href,"tel:")]', $card) as $link) {
@@ -38,7 +38,7 @@ class IcorpClient
             foreach ($xpath->query('.//a[contains(@href,"/priceview/")]', $card) as $link) {
                 $url = parse_url($link->getAttribute('href'));
                 if (isset($url['host']) && $url['host'] !== 'icorp.tech') {
-                    throw new RuntimeException('iCorp returned an unexpected price-list host.');
+                    throw new IcorpFailure('directory', 'iCorp returned an unexpected price-list host.');
                 }
                 $catalog = rawurldecode(basename($url['path']));
             }
@@ -52,7 +52,7 @@ class IcorpClient
             $partners[] = ['source' => 'icorp', 'external_id' => $id, 'name' => $name, 'phones' => array_values(array_unique($phones)), 'catalog_id' => $catalog, 'published_at' => $published, ...($city !== null ? ['city' => $city] : [])];
         }
         if ($partners === []) {
-            throw new RuntimeException('No iCorp partner cards found. The session or page format may have changed.');
+            throw new IcorpFailure('directory', 'No iCorp partner cards found. The session or page format may have changed.');
         }
 
         return $partners;
@@ -66,7 +66,7 @@ class IcorpClient
         }
         $partner = $this->catalogs[$externalId] ?? null;
         if ($partner === null) {
-            throw new RuntimeException('The supplier is not in the authenticated iCorp directory.');
+            throw new IcorpFailure('directory', 'The supplier is not in the authenticated iCorp directory.');
         }
         $company = ['id' => $externalId, 'name' => $partner['name'], 'catalog_id' => $partner['catalog'], 'published_at' => $partner['published_at']];
         if ($partner['catalog'] === null) {
@@ -80,11 +80,11 @@ class IcorpClient
             ]));
             $summary = $this->text($xpath, '//*[contains(concat(" ",normalize-space(@class)," ")," catalog-summary ")]');
             if (! preg_match('/Показано\s+(\d+)-(\d+)\s+из\s+(\d+)/u', $summary, $range)) {
-                throw new RuntimeException('iCorp returned an invalid catalog summary.');
+                throw new IcorpFailure('catalog', 'iCorp returned an invalid catalog summary.');
             }
             $total ??= (int) $range[3];
             if ((int) $range[3] !== $total || (int) $range[1] !== count($items) + 1) {
-                throw new RuntimeException('The iCorp price list changed during extraction.');
+                throw new IcorpFailure('catalog', 'The iCorp price list changed during extraction.');
             }
             foreach ($xpath->query('//tr[contains(concat(" ",normalize-space(@class)," ")," catalog-cart-source ")]') as $row) {
                 $id = $this->value($xpath, 'catalog-prid', $row);
@@ -96,7 +96,7 @@ class IcorpClient
                 $expiry = $this->classText($xpath, 'catalog-col-expire', $row);
                 if ($id === '' || $firm !== $externalId || $catalog !== $partner['catalog'] || $name === ''
                     || ! is_numeric($price) || (float) $price < 0 || ! is_numeric($discount) || isset($items[$id])) {
-                    throw new RuntimeException('iCorp returned an invalid or repeated price row.');
+                    throw new IcorpFailure('catalog', 'iCorp returned an invalid or repeated price row.');
                 }
                 $items[$id] = [
                     'external_id' => $id, 'name' => $name, 'price' => $price,
@@ -107,99 +107,159 @@ class IcorpClient
                 ];
             }
             if (count($items) !== (int) $range[2]) {
-                throw new RuntimeException('iCorp catalog rows do not match the page summary.');
+                throw new IcorpFailure('catalog', 'iCorp catalog rows do not match the page summary.');
             }
             if (count($items) === $total) {
                 return ['company' => $company, 'items' => array_values($items), 'account_discount' => null];
             }
         }
 
-        throw new RuntimeException('iCorp pagination exceeded the extraction limit.');
+        throw new IcorpFailure('catalog', 'iCorp pagination exceeded the extraction limit.');
     }
 
     /** @param array<string, int|string> $query */
     private function get(string $path, array $query = []): string
     {
         $disk = Storage::disk('local');
-        $sessionPath = 'external-prices/sessions/icorp-'.hash('sha256', (string) config('external-prices.icorp.phone')).'.encrypted';
+        $sessionPath = app(IcorpCredentials::class)->sessionPath();
         if (! $disk->exists($sessionPath)) {
             $this->connect();
         }
         $session = json_decode(Crypt::decryptString($disk->get($sessionPath)), true, 512, JSON_THROW_ON_ERROR);
         $jar = new CookieJar(false, $session['cookies']);
-        $response = Http::connectTimeout(10)->timeout(40)->withoutRedirecting()
-            ->withUserAgent($session['user_agent'])->withOptions(['cookies' => $jar])
-            ->get('https://icorp.tech'.$path, $query);
-        if (in_array($response->status(), [301, 302, 401], true)) {
+        $response = $this->http($jar, $session['user_agent'])->get('https://icorp.tech'.$path, $query);
+        if ($this->requiresLogin($response)) {
             $this->connect();
             $session = json_decode(Crypt::decryptString($disk->get($sessionPath)), true, 512, JSON_THROW_ON_ERROR);
             $jar = new CookieJar(false, $session['cookies']);
             $response = $this->http($jar, $session['user_agent'])->get('https://icorp.tech'.$path, $query);
         }
-        if (! $response->successful()) {
-            throw new RuntimeException('iCorp workspace access failed (HTTP '.$response->status().'). Reconnect the account if its session expired.');
+        $stage = $path === '/listpartners' ? 'directory' : 'catalog';
+        if ($this->requiresLogin($response)) {
+            throw new IcorpFailure($stage, 'session_expired', $response->status(), 'authentication');
         }
-        $session['cookies'] = $jar->toArray();
-        if (! $disk->put($sessionPath, Crypt::encryptString(json_encode($session, JSON_THROW_ON_ERROR)))) {
-            throw new RuntimeException('Could not save the encrypted iCorp session.');
-        }
+        $this->checkResponse($response, $stage);
+        $this->saveSession($sessionPath, $jar, $session['user_agent']);
 
         return $response->body();
     }
 
     public function connect(bool $takeOver = false): void
     {
-        $phone = preg_replace('/\D/', '', (string) config('external-prices.icorp.phone'));
-        $password = config('external-prices.icorp.password');
+        $credentials = app(IcorpCredentials::class)->current();
         $firmId = (string) config('external-prices.icorp.firm_id');
-        if ($phone === '' || ! is_string($password) || $password === '' || ! ctype_digit($firmId)) {
-            throw new RuntimeException('Configure ICORP_PHONE, ICORP_PASSWORD and ICORP_FIRM_ID before connecting.');
+        if ($credentials['phone'] === '' || $credentials['password'] === '' || ! ctype_digit($firmId)) {
+            throw new IcorpFailure('credentials', 'configuration_missing', reason: 'authentication');
         }
-        $sessionPath = 'external-prices/sessions/icorp-'.hash('sha256', (string) config('external-prices.icorp.phone')).'.encrypted';
+        $sessionPath = app(IcorpCredentials::class)->sessionPath();
         $disk = Storage::disk('local');
         $session = $disk->exists($sessionPath) ? json_decode(Crypt::decryptString($disk->get($sessionPath)), true, 512, JSON_THROW_ON_ERROR) : ['cookies' => [], 'user_agent' => 'Oapteka price-list importer'];
-        $jar = new CookieJar(false, $session['cookies']);
-        $login = $this->http($jar, $session['user_agent'])->get('https://icorp.tech/login');
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $jar = new CookieJar(false, $attempt === 0 ? $session['cookies'] : []);
+            try {
+                $this->authenticate($jar, $session['user_agent'], $credentials, $firmId, $takeOver);
+                $this->saveSession($sessionPath, $jar, $session['user_agent']);
+
+                return;
+            } catch (IcorpFailure $exception) {
+                if ($exception->httpStatus !== 419 || $attempt === 1) {
+                    throw $exception;
+                }
+            }
+        }
+    }
+
+    /** @param array{phone: string, password: string, revision: string} $credentials */
+    private function authenticate(CookieJar $jar, string $userAgent, array $credentials, string $firmId, bool $takeOver): void
+    {
+        $login = $this->http($jar, $userAgent)->get('https://icorp.tech/login');
         if ($login->successful()) {
             $csrf = $this->csrf($login->body());
-            $phone = strlen($phone) === 12 && str_starts_with($phone, '992') ? substr($phone, 3) : $phone;
-            $step = $this->http($jar, $session['user_agent'])->asForm()->withHeaders(['X-CSRF-TOKEN' => $csrf, 'X-Requested-With' => 'XMLHttpRequest'])
-                ->post('https://icorp.tech/authorize', ['phone' => $phone, '_token' => $csrf]);
-            $payload = $step->json();
-            $payload = is_string($payload) ? json_decode($payload, true, 512, JSON_THROW_ON_ERROR) : $payload;
-            if (! $step->successful() || ($payload['result'] ?? null) != 5 || ! str_contains($payload['input'] ?? '', 'value="password"')) {
-                throw new RuntimeException('iCorp requires additional authentication. Reconnect the account interactively.');
+            $step = $this->post($jar, $userAgent, '/authorize', '/login', $csrf, ['phone' => $credentials['phone'], '_token' => $csrf]);
+            $payload = $this->payload($step);
+            if (($payload['result'] ?? null) != 5 || ! str_contains($payload['input'] ?? '', 'value="password"')) {
+                throw new IcorpFailure('login', 'password_login_unavailable', reason: 'authentication');
             }
-            $authorized = $this->http($jar, $session['user_agent'])->asForm()->withHeaders(['X-CSRF-TOKEN' => $csrf, 'X-Requested-With' => 'XMLHttpRequest'])
-                ->post('https://icorp.tech/authorize', ['phone' => $phone, '_token' => $csrf, 'auth_mode' => 'password', 'password' => $password]);
-            $payload = $authorized->json();
-            $payload = is_string($payload) ? json_decode($payload, true, 512, JSON_THROW_ON_ERROR) : $payload;
-            if (! $authorized->successful() || ($payload['result'] ?? null) != 2) {
-                throw new RuntimeException('iCorp login failed.');
+            $csrf = is_string($payload['csrf_token'] ?? null) ? $payload['csrf_token'] : $csrf;
+            $authorized = $this->post($jar, $userAgent, '/authorize', '/login', $csrf, ['phone' => $credentials['phone'], '_token' => $csrf, 'auth_mode' => 'password', 'password' => $credentials['password']]);
+            if (($this->payload($authorized)['result'] ?? null) != 2) {
+                throw new IcorpFailure('login', 'invalid_credentials', reason: 'authentication');
             }
         } elseif (! $login->redirect()) {
-            throw new RuntimeException('Could not open the iCorp login page.');
+            $this->checkResponse($login, 'login');
         }
-        $choose = $this->http($jar, $session['user_agent'])->get('https://icorp.tech/choose');
-        if (! $choose->successful()) {
-            throw new RuntimeException('Could not select the iCorp workspace.');
-        }
+        $choose = $this->http($jar, $userAgent)->get('https://icorp.tech/choose');
+        $this->checkResponse($choose, 'workspace');
         $xpath = $this->document($choose->body());
         if ($xpath->query('//button[@data-firm-id="'.$firmId.'"]')->length !== 1) {
-            throw new RuntimeException('The configured iCorp workspace is not available to this account.');
+            throw new IcorpFailure('workspace', 'workspace_unavailable', reason: 'permission');
         }
-        $entry = $this->http($jar, $session['user_agent'])->asForm()->acceptJson()
-            ->withHeaders(['X-CSRF-TOKEN' => $this->csrf($choose->body()), 'X-Requested-With' => 'XMLHttpRequest'])
-            ->post('https://icorp.tech/firm-entry', ['firm_id' => $firmId, 'force_firm_session' => $takeOver ? 1 : 0]);
-        if ($entry->status() === 409) {
-            throw new RuntimeException('iCorp is in use on another device. Reconnect explicitly with --take-over to sign out that device.');
+        $entry = $this->post($jar, $userAgent, '/firm-entry', '/choose', $this->csrf($choose->body()), ['firm_id' => $firmId, 'force_firm_session' => $takeOver ? 1 : 0]);
+        $payload = $this->payload($entry);
+        if (($payload['status'] ?? $payload['success'] ?? false) !== true) {
+            throw new IcorpFailure('workspace', 'entry_rejected', $entry->status(), 'permission');
         }
-        if (! $entry->successful()) {
-            throw new RuntimeException('iCorp workspace entry failed (HTTP '.$entry->status().').');
+        $directory = $this->http($jar, $userAgent)->get('https://icorp.tech/listpartners');
+        $this->checkResponse($directory, 'directory');
+        if ($this->requiresLogin($directory)) {
+            throw new IcorpFailure('directory', 'session_expired', $directory->status(), 'authentication');
         }
-        $session['cookies'] = $jar->toArray();
-        if (! $disk->put($sessionPath, Crypt::encryptString(json_encode($session, JSON_THROW_ON_ERROR)))) {
-            throw new RuntimeException('Could not save the encrypted iCorp session.');
+        if ($this->document($directory->body())->query('//article[@data-partner-id]')->length === 0) {
+            throw new IcorpFailure('directory', 'directory_missing');
+        }
+    }
+
+    /** @param array<string, int|string> $data */
+    private function post(CookieJar $jar, string $userAgent, string $path, string $referer, string $csrf, array $data): Response
+    {
+        $response = $this->http($jar, $userAgent)->asForm()->acceptJson()->withHeaders([
+            'X-CSRF-TOKEN' => $csrf, 'X-Requested-With' => 'XMLHttpRequest',
+            'Origin' => 'https://icorp.tech', 'Referer' => 'https://icorp.tech'.$referer,
+        ])->post('https://icorp.tech'.$path, $data);
+        $this->checkResponse($response, $path === '/authorize' ? 'login' : 'workspace');
+
+        return $response;
+    }
+
+    private function checkResponse(Response $response, string $stage): void
+    {
+        if (! $response->successful()) {
+            $status = $response->status();
+            $reason = match (true) {
+                in_array($status, [301, 302, 303, 307, 308, 401, 419], true) => 'authentication',
+                $status === 409 => 'takeover_required',
+                $status === 403 => 'permission',
+                $status === 429 || $status >= 500 => 'transport',
+                default => 'extraction',
+            };
+            throw new IcorpFailure($stage, $status === 409 ? 'another device' : 'http_error', $status, $reason);
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function payload(Response $response): array
+    {
+        $payload = $response->json();
+        if (is_string($payload)) {
+            $payload = json_decode($payload, true);
+        }
+        if (! is_array($payload)) {
+            throw new IcorpFailure('login', 'invalid_auth_response', $response->status(), 'authentication');
+        }
+
+        return $payload;
+    }
+
+    private function requiresLogin(Response $response): bool
+    {
+        return in_array($response->status(), [301, 302, 303, 307, 308, 401, 419], true)
+            || $this->document($response->body())->query('//form[contains(@action,"/authorize")] | //input[@name="auth_mode"]')->length > 0;
+    }
+
+    private function saveSession(string $path, CookieJar $jar, string $userAgent): void
+    {
+        if (! Storage::disk('local')->put($path, Crypt::encryptString(json_encode(['cookies' => $jar->toArray(), 'user_agent' => $userAgent], JSON_THROW_ON_ERROR)))) {
+            throw new IcorpFailure('session', 'session_save_failed');
         }
     }
 
@@ -207,7 +267,7 @@ class IcorpClient
     {
         $node = $this->document($html)->query('//meta[@name="csrf-token"]')->item(0);
         if (! $node instanceof DOMElement || $node->getAttribute('content') === '') {
-            throw new RuntimeException('iCorp did not return a CSRF token.');
+            throw new IcorpFailure('login', 'csrf_token_missing', reason: 'authentication');
         }
 
         return $node->getAttribute('content');
@@ -223,7 +283,7 @@ class IcorpClient
         $document = new DOMDocument;
         $previous = libxml_use_internal_errors(true);
         try {
-            $document->loadHTML('<?xml encoding="UTF-8">'.$html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+            $document->loadHTML('<?xml encoding="UTF-8">'.($html !== '' ? $html : '<html></html>'), LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($previous);

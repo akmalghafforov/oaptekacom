@@ -31,6 +31,7 @@ use App\Http\Controllers\SupplierRequestController;
 use App\Http\Controllers\TelegramWebhookController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Middleware\ProtectGmailResponse;
+use App\Http\Middleware\ProtectSupplierSyncResponse;
 use App\Services\PhoneOtpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -152,7 +153,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->name('price-list-imports.retry');
     Route::post('/price-list-imports/{import}/replay', [PriceListImportController::class, 'replay'])->name('price-list-imports.replay');
     Route::prefix('admin')->middleware('role:admin')->group(function () {
-        Route::prefix('supplier-sync')->name('admin.supplier-sync.')->controller(SupplierSynchronizationController::class)->group(function (): void {
+        Route::prefix('supplier-sync')->middleware(ProtectSupplierSyncResponse::class)->name('admin.supplier-sync.')->controller(SupplierSynchronizationController::class)->group(function (): void {
             Route::get('/', 'index')->name('index');
             Route::post('/refresh', 'refresh')->name('refresh');
             Route::post('/mappings/approve', 'approve')->name('approve');

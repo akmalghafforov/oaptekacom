@@ -18,6 +18,8 @@ use App\Models\SupplierSyncRun;
 use App\Services\AuditLogger;
 use App\Services\ExternalSupplierDirectory;
 use App\Services\IcorpClient;
+use App\Services\IcorpCredentials;
+use App\Services\IcorpFailure;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceListTjClient;
 use App\Services\SupplierDirectoryContext;
@@ -73,7 +75,13 @@ class SupplierSynchronizationController extends Controller
             ->orderBy('name')->orderBy('id')->paginate(25, ['id', 'name'], 'supplier_page')->withQueryString();
         $statuses = collect(['icorp', 'pricelist_tj'])->mapWithKeys(fn (string $source): array => [$source => Cache::get('external-prices:status:'.$source, ['status' => 'unknown'])]);
 
-        return view('admin.supplier-synchronizations.index', compact('tab', 'partners', 'suppliers', 'allSuppliers', 'suggestions', 'statuses', 'directoryCounts', 'mappedPartners', 'configurations', 'reviewSuggestions', 'allPartners', 'partnerEvidence', 'supplierEvidence', 'restoredReview'));
+        try {
+            $icorpLogin = app(IcorpCredentials::class)->current()['phone'];
+        } catch (IcorpFailure) {
+            $icorpLogin = '';
+        }
+
+        return view('admin.supplier-synchronizations.index', compact('icorpLogin', 'tab', 'partners', 'suppliers', 'allSuppliers', 'suggestions', 'statuses', 'directoryCounts', 'mappedPartners', 'configurations', 'reviewSuggestions', 'allPartners', 'partnerEvidence', 'supplierEvidence', 'restoredReview'));
     }
 
     public function approve(ApproveSupplierMappingRequest $request, SupplierMappingApproval $approval): RedirectResponse
@@ -271,7 +279,17 @@ class SupplierSynchronizationController extends Controller
 
     public function connect(Request $request, string $source, AuditLogger $audit): RedirectResponse
     {
-        $request->validate(['take_over' => ['prohibited']], $this->validationMessages());
+        $request->validate([
+            'take_over' => ['prohibited'],
+            'phone' => [$source === 'icorp' ? 'sometimes' : 'prohibited', 'required', 'string', 'max:32', 'regex:/^(?:\+?992[ -]?)?\d[\d -]{7,14}\d$/'],
+            'password' => [$source === 'icorp' ? 'nullable' : 'prohibited', 'string', 'max:1024'],
+        ], [...$this->validationMessages(), 'phone.regex' => 'Введите телефон iCorp в формате 9 цифр или +992 и 9 цифр.']);
+        if ($request->filled('password') && ! $request->filled('phone')) {
+            throw ValidationException::withMessages(['phone' => 'Введите телефон iCorp.']);
+        }
+        if ($request->has('phone') && strlen(app(IcorpCredentials::class)->normalize($request->string('phone')->toString())) !== 9) {
+            throw ValidationException::withMessages(['phone' => 'Введите телефон iCorp в формате 9 цифр или +992 и 9 цифр.']);
+        }
 
         return $this->establishConnection($request, $source, $audit, false);
     }
@@ -287,20 +305,28 @@ class SupplierSynchronizationController extends Controller
     {
         abort_unless(in_array($source, ['icorp', 'pricelist_tj'], true), 404);
         $audit->log($takeOver ? 'supplier_sync.takeover_requested' : 'supplier_sync.connection_requested', $request->user(), [], ['source' => $source]);
+        $credentialsSaved = false;
         try {
-            Cache::lock('external-prices:'.$source, 7200)->block(1, function () use ($source, $takeOver): void {
+            Cache::lock('external-prices:'.$source, 7200)->block(1, function () use ($source, $takeOver, $request, $audit, &$credentialsSaved): void {
                 if ($source === 'icorp') {
+                    if (! $takeOver && $request->has('phone')) {
+                        app(IcorpCredentials::class)->save($request->string('phone')->toString(), $request->input('password'));
+                        $credentialsSaved = true;
+                        $audit->log('supplier_sync.credentials_updated', $request->user(), [], ['source' => 'icorp']);
+                    }
                     app(IcorpClient::class)->connect($takeOver);
                 } else {
                     app(PriceListTjClient::class)->connect();
                 }
             });
             Cache::forever('external-prices:status:'.$source, ['status' => 'connected', 'checked_at' => now()->toIso8601String()]);
+        } catch (ValidationException $exception) {
+            throw $exception;
         } catch (Throwable $exception) {
             $reason = ExternalSupplierDirectory::failureReason($exception);
             Cache::forever('external-prices:status:'.$source, ['status' => $reason, 'checked_at' => now()->toIso8601String()]);
 
-            return back()->with('warning', 'Подключение не выполнено: '.$this->connectionFailureLabel($reason));
+            return back()->with('warning', ($credentialsSaved ? 'Данные сохранены, подключение не выполнено: ' : 'Подключение не выполнено: ').$this->connectionFailureLabel($reason));
         }
 
         return back()->with('success', 'Подключение установлено.');

@@ -207,7 +207,8 @@ class SupplierSynchronizationService
 
                     return;
                 } catch (Throwable $exception) {
-                    $attempt->update(['status' => 'failed', 'reason' => ExternalSupplierDirectory::failureReason($exception)]);
+                    $attempt->update(['status' => 'failed', 'reason' => ExternalSupplierDirectory::failureReason($exception),
+                        'metadata' => array_replace($attempt->metadata ?? [], ['failure' => $exception instanceof IcorpFailure ? $exception->diagnostic() : ['stage' => 'download', 'code' => ExternalSupplierDirectory::failureReason($exception), 'http_status' => null]])]);
                 }
                 if ($attempt->fresh()->price_list_import_id) {
                     $run->update(['status' => 'processing']);

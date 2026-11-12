@@ -2,8 +2,6 @@
 @section('content')
     <x-ui.page-header title="Прайс-листы" description="Автоматическая обработка и публикация предложений поставщика." />
 
-    @include('price-list-imports.progress')
-
     @if(auth()->user()->isAdminMode())
         <x-ui.card class="mt-6"><h2 class="font-bold">Новый поставщик</h2><form method="post" action="{{ route('admin.suppliers.store') }}" class="mt-4 grid gap-4 md:grid-cols-4 md:items-end">@csrf <x-mode-version /><x-ui.input name="name" label="Название" required /><x-ui.input name="city" label="Город" /><x-ui.input name="phone" label="Телефон" /><x-ui.button>Создать</x-ui.button></form></x-ui.card>
         <x-ui.card class="mt-4">
@@ -38,17 +36,34 @@
         </form>
     </x-ui.card>
 
-    <div class="mt-6 table-wrap">
-        <table class="data-table">
-            <thead><tr><th>Файл</th><th>Поставщик</th><th>Статус</th><th>Строки</th><th>Дата</th><th></th></tr></thead>
-            <tbody>
-                @forelse($imports as $import)
-                    <tr><td>{{ $import->original_filename }}</td><td>{{ $import->supplier->name }}</td><td><x-ui.status-badge :status="$import->status->value" :label="$import->status->label()" /></td><td>{{ $import->valid_rows }} / {{ $import->error_rows }} ош.</td><td>{{ $import->created_at->format('d.m.Y H:i') }}</td><td class="text-right"><a class="font-semibold text-accent hover:underline" href="{{ route('price-list-imports.show', $import) }}">Открыть</a></td></tr>
-                @empty
-                    <tr><td colspan="6"><x-ui.empty-state title="Прайс-листов пока нет" description="Загруженные файлы появятся здесь." /></td></tr>
-                @endforelse
-            </tbody>
-        </table>
-    </div>
-    <div class="mt-4">{{ $imports->links('components.ui.pagination') }}</div>
+    <x-ui.card class="mt-6" data-import-progress data-progress-layout="table" data-status-url="{{ route('price-list-imports.index', ['tab' => $tab, 'page' => $history->currentPage()]) }}" data-watch-new="1" data-show-source="{{ $tab === 'services' ? '1' : '0' }}">
+        <h2 class="font-bold">История импорта</h2>
+        <nav class="mt-4 flex flex-wrap gap-2" aria-label="Источники импорта">
+            @foreach(['files' => 'Почта и файлы', 'services' => 'iCorp и PriceList.tj'] as $key => $label)
+                <x-ui.button :href="route('price-list-imports.index', ['tab' => $key])" :variant="$tab === $key ? 'primary' : 'secondary'" :aria-current="$tab === $key ? 'page' : null">{{ $label }}</x-ui.button>
+            @endforeach
+        </nav>
+        <div class="mt-4 table-wrap" tabindex="0" aria-label="История импорта: таблица с горизонтальной прокруткой">
+            <table class="data-table">
+                <thead><tr><th>{{ $tab === 'services' ? 'Файл / источник' : 'Файл' }}</th><th>Поставщик</th><th>Статус</th><th>Строки</th><th>Дата</th><th><span class="sr-only">Подробности</span></th></tr></thead>
+                <tbody data-progress-entries aria-live="polite">
+                    @forelse($history as $entry)
+                        <tr>
+                            <td><p class="min-w-48 max-w-sm break-words [overflow-wrap:anywhere]">{{ $entry['filename'] ?? $entry['source_label'] }}</p>@if($tab === 'services')<p class="mt-1 text-xs text-muted">{{ $entry['filename'] ? $entry['source_label'] : 'Файл ещё не получен' }}</p>@endif</td>
+                            <td>{{ $entry['supplier'] }}</td>
+                            <td><x-ui.status-badge :status="$entry['status']" :label="$entry['label']" />@if($tab === 'services')<p class="mt-1 min-w-48 max-w-sm text-sm text-muted">{{ $entry['detail'] }}</p>@endif</td>
+                            <td class="whitespace-nowrap">{{ $entry['rows'] ?? '—' }}</td>
+                            <td class="whitespace-nowrap">{{ $entry['date'] }}</td>
+                            <td class="text-right">@if($entry['url'])<a class="inline-flex min-h-10 items-center font-semibold text-accent hover:underline" href="{{ $entry['url'] }}">Открыть</a>@endif</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="6"><x-ui.empty-state :title="$tab === 'services' ? 'Загрузок из сервисов пока нет' : 'Прайс-листов пока нет'" :description="$tab === 'services' ? 'Загрузки из iCorp и PriceList.tj появятся здесь после запуска.' : 'Загруженные файлы появятся здесь.'" /></td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-4">{{ $history->links('components.ui.pagination') }}</div>
+        <p class="mt-3 text-sm text-muted" data-progress-feedback role="status">Статус обновляется автоматически.</p>
+        <x-ui.button variant="secondary" class="mt-3" :href="request()->fullUrl()">Обновить статус</x-ui.button>
+    </x-ui.card>
 @endsection

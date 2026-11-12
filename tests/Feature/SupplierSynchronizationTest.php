@@ -19,6 +19,7 @@ use App\Models\SupplierSyncRun;
 use App\Models\User;
 use App\Services\ExternalPriceWorkbook;
 use App\Services\ExternalSupplierDirectory;
+use App\Services\IcorpCredentials;
 use App\Services\PriceList\ImportActivator;
 use App\Services\PriceList\ProfileValidator;
 use App\Services\SupplierPriceListIngestor;
@@ -395,7 +396,7 @@ class SupplierSynchronizationTest extends TestCase
         $icorpPartner = $this->partner(['source' => 'icorp', 'external_id' => '156', 'supplier_organization_id' => $config->supplier_organization_id, 'metadata' => ['city' => 'Душанбе'],
             'profile_active' => true, 'profile_configuration' => ExternalPriceWorkbook::profile(['automatic' => ['minimum_valid_rows' => 5]])]);
         config(['external-prices.icorp.phone' => '927430570']);
-        Storage::disk('local')->put('external-prices/sessions/icorp-'.hash('sha256', '927430570').'.encrypted', Crypt::encryptString(json_encode(['cookies' => [], 'user_agent' => 'test'])));
+        Storage::disk('local')->put(app(IcorpCredentials::class)->sessionPath(), Crypt::encryptString(json_encode(['cookies' => [], 'user_agent' => 'test'])));
         $this->fakePrices(now()->subHour()->format('Y-m-d\TH:i:sP'));
         Http::fake([
             'icorp.tech/listpartners' => Http::response('<article data-partner-id="156" data-price-date="'.now()->subHour()->format('d.m.Y H:i:s').'"><h3>Фирма</h3><a href="/priceview/catalog">Прайс</a></article>'),
@@ -546,6 +547,7 @@ class SupplierSynchronizationTest extends TestCase
             'icorp.tech/login' => Http::response('', 302, ['Location' => '/choose']),
             'icorp.tech/choose' => Http::response('<meta name="csrf-token" content="private-csrf"><button data-firm-id="303">Вход</button>'),
             'icorp.tech/firm-entry' => Http::response(['success' => true]),
+            'icorp.tech/listpartners' => Http::response('<article data-partner-id="156"><h3>Supplier</h3></article>'),
         ]);
 
         $this->actingAs($this->admin())->post(route('admin.supplier-sync.takeover'), ['confirmed' => 1])->assertRedirect()->assertSessionHasNoErrors();
@@ -919,6 +921,32 @@ class SupplierSynchronizationTest extends TestCase
 
         $this->actingAs($this->admin())->from($url)->delete(route('admin.supplier-sync.unmap', $partner), ['_sync_form' => 'unmap-'.$partner->id, 'expected_supplier_organization_id' => $config->supplier_organization_id])->assertRedirect($url);
         $this->get($url)->assertSee('id="unmap-'.$partner->id.'-confirmed-error"', false)->assertDontSee('id="unmap-'.$other->id.'-confirmed-error"', false);
+    }
+
+    public function test_icorp_authentication_failure_records_safe_diagnostics_and_preserves_active_catalog(): void
+    {
+        Storage::fake('local');
+        [$config, $partner] = $this->configured(['selected_source' => 'icorp']);
+        $partner->update(['source' => 'icorp', 'external_id' => '171']);
+        $active = $this->candidate($config, $partner, ['status' => PriceListImportStatus::Completed]);
+        $config->supplier->update(['active_price_list_import_id' => $active->id]);
+        config(['external-prices.icorp.phone' => '927430570', 'external-prices.icorp.password' => 'private-password', 'external-prices.icorp.firm_id' => '303']);
+        Http::preventStrayRequests();
+        Http::fake(['icorp.tech/login' => Http::response('private-response-token', 419)]);
+
+        $run = app(SupplierSynchronizationService::class)->request($config->supplier);
+        app(SupplierSynchronizationService::class)->process($run->fresh());
+
+        $attempt = $run->attempts()->where('source', 'icorp')->firstOrFail();
+        $this->assertSame('authentication', $attempt->reason);
+        $this->assertSame(['stage' => 'login', 'code' => 'http_error', 'http_status' => 419], $attempt->metadata['failure']);
+        $this->assertNull($attempt->price_list_import_id);
+        $this->assertSame(1, PriceListImport::count());
+        $this->assertSame($active->id, $config->supplier->fresh()->active_price_list_import_id);
+        $this->assertStringNotContainsString('private-response-token', $attempt->toJson());
+        $this->actingAs($this->admin())->get(route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'history']))
+            ->assertSee('HTTP 419')->assertSee('Требуется авторизация')->assertDontSee('private-response-token')->assertDontSee('private-password');
+        Http::assertSentCount(2);
     }
 
     private function admin(): User
