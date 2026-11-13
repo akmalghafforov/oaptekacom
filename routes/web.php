@@ -10,6 +10,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AdminSubscriptionController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CartController;
+use App\Http\Controllers\CatalogBannerController;
 use App\Http\Controllers\CatalogController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\LegalController;
@@ -122,6 +123,10 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::post('/cart/promotions/{promotion}', [CartController::class, 'addPromotion'])->name('cart.promotions.add');
     Route::post('/cart/items/{item}/promotion-terms', [CartController::class, 'acceptPromotionTerms'])->name('cart.items.accept-promotion-terms');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::post('/catalog/banners/next', [CatalogBannerController::class, 'next'])->middleware('throttle:120,1')->name('catalog.banners.next');
+    Route::post('/catalog/banner-impressions/{appearance}', [CatalogBannerController::class, 'impression'])->whereUuid('appearance')->middleware('throttle:120,1')->name('catalog.banners.impression');
+    Route::get('/catalog/banners/{banner}/images/{device}', [CatalogBannerController::class, 'image'])->name('catalog.banners.image');
+    Route::get('/catalog/banners/{banner}', [CatalogBannerController::class, 'show'])->name('catalog.banners.show');
     Route::get('/catalog', [CatalogController::class, 'index'])->name('catalog');
     Route::get('/catalog/search', [CatalogController::class, 'search'])->name('catalog.search');
     Route::get('/cart/suppliers/{supplier}/pdf', [SupplierCartExportController::class, 'pdf'])->name('cart.suppliers.pdf');
@@ -180,6 +185,8 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
             Route::post('/refresh', [GmailController::class, 'refresh'])->name('admin.gmail.refresh');
             Route::delete('/connection', [GmailController::class, 'destroy'])->block(300, 10)->name('admin.gmail.destroy');
         });
+        Route::resource('catalog-banners', App\Http\Controllers\Admin\CatalogBannerController::class)->parameters(['catalog-banners' => 'banner'])->except('show')->names('admin.catalog-banners');
+        Route::patch('/catalog-banners/{banner}/activation', [App\Http\Controllers\Admin\CatalogBannerController::class, 'activation'])->name('admin.catalog-banners.activation');
         Route::get('/', [AdminController::class, 'index'])->name('admin.index');
         Route::post('/organizations/{organization}/approve', [AdminController::class, 'approve'])->name('admin.approve');
         Route::post('/suppliers', [AdminController::class, 'storeSupplier'])->name('admin.suppliers.store');

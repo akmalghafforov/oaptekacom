@@ -1,3 +1,4 @@
+import { initializeCatalogBanners } from './catalog-banners.js';
 const FILTER_KEYS = ['q', 'substring_match', 'category', 'sort', 'cities', 'suppliers', 'form', 'min_price', 'max_price'];
 const VALID_VIEWS = ['list', 'grid', 'suppliers'];
 
@@ -518,6 +519,7 @@ export function initializeCatalogQuery(form, queryInput, clearButton, controller
 }
 
 export function initializeCatalogSearch(root) {
+    const bannerCarousel = initializeCatalogBanners(root);
     const form = root.querySelector('[data-catalog-form]');
     const queryInput = form.elements.q;
     const substringCheckbox = form.elements.substring_match;
@@ -541,6 +543,7 @@ export function initializeCatalogSearch(root) {
 
     const controller = new CatalogSearchController({
         fetcher: async (filters, signal) => {
+            if (bannerCarousel?.isShowing()) return { fragments: {}, pagination: { total: 0, has_more: false }, has_more: false };
             cart.startSearch();
             const url = new URL(root.dataset.searchUrl, window.location.origin);
             Object.entries(filters).forEach(([key, value]) => Array.isArray(value) ? value.forEach((item) => url.searchParams.append(`${key}[]`, item)) : url.searchParams.set(key, value));
@@ -549,6 +552,7 @@ export function initializeCatalogSearch(root) {
             return response.json();
         },
         onFilters: (filters, pushHistory, restoreQuery = false) => {
+            bannerCarousel?.sync(filters.q);
             if (restoreQuery) queryInput.value = filters.q ?? '';
             root.querySelectorAll('[data-view]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.view === controller.view)));
             if (controller.view !== 'suppliers') lastProductView = controller.view;
@@ -564,6 +568,7 @@ export function initializeCatalogSearch(root) {
         onState: (name) => renderState(name),
     });
 
+    root.addEventListener('catalog-banners-unavailable', () => controller.submit(queryInput.value));
     const syncCategoryPicker = initializeCategoryPicker(root, controller);
 
     const containers = {

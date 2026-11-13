@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\CatalogSearchRequest;
 use App\Models\CartItem;
+use App\Models\CatalogBanner;
 use App\Models\Organization;
 use App\Models\ProductCategory;
 use App\Services\CatalogSearchService;
@@ -19,6 +20,7 @@ class CatalogController extends Controller
         $cartTotal = $canBuy ? (int) CartItem::query()->whereHas('cart', fn ($query) => $query->where('user_id', $request->user()->id))->sum('quantity') : 0;
 
         return view('catalog.index', [
+            'hasCatalogBanners' => CatalogBanner::eligible()->exists(),
             'categories' => ProductCategory::query()->where('is_active', true)->orderBy('sort_order')->get(),
             'cities' => Organization::query()->where('price_list_hidden', false)->whereNotNull('city')->where('city', '<>', '')->distinct()->orderBy('city')->pluck('city'),
             'suppliers' => Organization::query()->where('price_list_hidden', false)->whereNotNull('active_price_list_import_id')->orderBy('name')->get(['id', 'name', 'city']),

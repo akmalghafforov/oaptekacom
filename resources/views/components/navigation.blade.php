@@ -22,6 +22,7 @@
         $navigationItems = [
             ['label' => 'Акции', 'route' => 'promotions.manage', 'active' => ['promotions.*']],
             ['label' => 'Операционный центр', 'route' => 'admin.index', 'active' => ['admin.index']],
+            ['label' => 'Баннеры', 'route' => 'admin.catalog-banners.index', 'active' => ['admin.catalog-banners.*']],
             ['label' => 'Gmail', 'route' => 'admin.gmail.index', 'active' => ['admin.gmail.*']],
             ['label' => 'Аптеки', 'route' => 'admin.pharmacies.index', 'active' => ['admin.pharmacies.*']],
             ['label' => 'Поставщики', 'route' => 'admin.providers.index', 'active' => ['admin.providers.*']],

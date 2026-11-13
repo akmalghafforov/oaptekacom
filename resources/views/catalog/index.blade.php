@@ -35,6 +35,10 @@
         </div>
     </x-ui.card>
     <div data-search-sentinel class="h-px" aria-hidden="true"></div>
+    @if($hasCatalogBanners)
+        @include('catalog.banners.carousel')
+    @endif
+    <div data-catalog-content @if($hasCatalogBanners && ! filled(trim((string) request('q', '')))) hidden @endif>
     <section aria-labelledby="catalog-categories-title" class="mb-5">
         <h2 id="catalog-categories-title" class="sr-only">Категории</h2>
         <div class="catalog-toolbar" data-catalog-toolbar>
@@ -121,6 +125,7 @@
         <div data-suppliers-view class="hidden"><div data-catalog-suppliers class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"></div></div>
         <div class="mt-6 text-center"><x-ui.button type="button" variant="secondary" data-load-more class="hidden">Загрузить ещё</x-ui.button><p data-catalog-load-status class="mt-2 text-sm text-muted" aria-live="polite"></p></div>
     </section>
+    </div>
     @include('catalog.partials.categories-dialog')
     @include('catalog.partials.filters-dialog')
 </div>

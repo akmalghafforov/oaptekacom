@@ -1,3 +1,4 @@
+import { initializeBannerEditor } from './banner-editor.js';
 import { initializeDatePicker } from './date-picker.js';
 import { createCartTextShare } from './cart-text-share.js';
 import { updateCartAvailability } from './cart-availability.js';
@@ -554,3 +555,6 @@ if (document.querySelector('[data-bulk-subscriptions]')) {
         document.querySelectorAll('[data-bulk-subscriptions]').forEach(initializeBulkSubscriptions);
     });
 }
+
+document.querySelectorAll('[data-banner-editor]').forEach(initializeBannerEditor);
+document.querySelectorAll('[data-banner-delete]').forEach((form) => form.addEventListener('submit', (event) => { if (!window.confirm('Удалить баннер и его статистику?')) event.preventDefault(); }));
