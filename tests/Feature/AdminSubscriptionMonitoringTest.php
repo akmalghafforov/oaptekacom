@@ -60,7 +60,7 @@ class AdminSubscriptionMonitoringTest extends TestCase
         $factory = Subscription::factory()->for($account)->state(['starts_on' => '2026-09-01']);
         $first = (clone $factory)->create(['ends_on' => '2026-09-12']);
         $last = (clone $factory)->create(['ends_on' => '2026-09-19']);
-        (clone $factory)->create(['ends_on' => '2026-09-20']);
+        Subscription::factory()->create(['ends_on' => '2026-09-20']);
         (clone $factory)->create(['ends_on' => '2026-09-18', 'status' => SubscriptionStatus::Cancelled]);
         Subscription::factory()->for(User::factory()->pharmacy()->create(['phone' => '+992888888888']))->create(['ends_on' => '2026-09-18']);
 
@@ -93,7 +93,7 @@ class AdminSubscriptionMonitoringTest extends TestCase
 
         $response = $this->actingAs($admin)->get(route('admin.subscriptions.index', ['phone' => '000000']));
 
-        $response->assertViewHas('statistics', ['active' => 5, 'expired' => 2, 7 => 2, 30 => 4])
+        $response->assertViewHas('statistics', ['active' => 5, 'expired' => 0, 7 => 0, 30 => 0])
             ->assertSee('Общие итоги по всем подпискам')
             ->assertSee('12.09.2026');
         $this->assertSubscriptionIds($response, []);
@@ -102,12 +102,62 @@ class AdminSubscriptionMonitoringTest extends TestCase
         $this->assertTrue($account->hasActiveSubscription());
 
         $unfiltered = $this->get(route('admin.subscriptions.index'));
-        $unfiltered->assertViewHas('statistics', ['active' => 5, 'expired' => 2, 7 => 2, 30 => 4]);
+        $unfiltered->assertViewHas('statistics', ['active' => 5, 'expired' => 0, 7 => 0, 30 => 0]);
         foreach ([['status' => 'active'], ['status' => 'expired'], ['expires_in' => '7'], ['expires_in' => '30']] as $parameters) {
             $unfiltered->assertSeeHtml('href="'.e(route('admin.subscriptions.index', $parameters)).'"');
             $filtered = $this->get(route('admin.subscriptions.index', $parameters));
             $this->assertSame($unfiltered->viewData('statistics')[array_values($parameters)[0]], $filtered->viewData('subscriptions')->total());
         }
+    }
+
+    public function test_expired_filter_excludes_renewed_accounts_but_preserves_their_history(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-09-12 12:00:00', 'Asia/Dushanbe'));
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $renewed = User::factory()->pharmacy()->create();
+        $old = Subscription::factory()->for($renewed)->create(['status' => SubscriptionStatus::Expired, 'ends_on' => '2026-09-01']);
+        $overdue = Subscription::factory()->for($renewed)->create(['ends_on' => '2026-09-11']);
+        $current = Subscription::factory()->for($renewed)->create(['starts_on' => '2026-09-12', 'ends_on' => '2026-09-12']);
+        $expired = Subscription::factory()->create(['status' => SubscriptionStatus::Expired, 'ends_on' => '2026-09-01']);
+        $expiredAccount = $expired->user;
+        $anotherAccount = User::factory()->pharmacy($renewed->organization)->create();
+        $otherHistory = Subscription::factory()->for($anotherAccount)->create(['ends_on' => '2026-09-11']);
+        Subscription::factory()->for($expiredAccount)->create(['starts_on' => '2026-09-13', 'ends_on' => '2026-10-12']);
+
+        $response = $this->actingAs($admin)->get(route('admin.subscriptions.index', ['status' => 'expired']));
+
+        $this->assertSubscriptionIds($response, [$otherHistory->id, $expired->id]);
+        $response->assertViewHas('statistics', ['active' => 1, 'expired' => 2, 7 => 1, 30 => 1]);
+        $history = $this->get(route('admin.subscriptions.index'));
+        $this->assertContains($old->id, $history->viewData('subscriptions')->getCollection()->modelKeys());
+        $this->assertContains($overdue->id, $history->viewData('subscriptions')->getCollection()->modelKeys());
+        $this->assertSubscriptionIds($this->get(route('admin.subscriptions.index', ['status' => 'active'])), [$current->id]);
+        $this->assertSame(SubscriptionStatus::Active, $overdue->fresh()->status);
+    }
+
+    public function test_expiring_filters_exclude_accounts_with_active_coverage_beyond_the_window(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-09-12 12:00:00', 'Asia/Dushanbe'));
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $covered = User::factory()->pharmacy()->create();
+        Subscription::factory()->for($covered)->create(['ends_on' => '2026-09-19']);
+        Subscription::factory()->for($covered)->create(['ends_on' => '2026-10-13']);
+        $seven = Subscription::factory()->create(['ends_on' => '2026-09-19']);
+        $thirty = Subscription::factory()->create(['ends_on' => '2026-10-12']);
+        $middle = Subscription::factory()->create(['ends_on' => '2026-09-19']);
+        $later = Subscription::factory()->for($middle->user)->create(['ends_on' => '2026-09-20']);
+        Subscription::factory()->for($seven->user)->create(['status' => SubscriptionStatus::Cancelled, 'ends_on' => '2026-10-13']);
+        Subscription::factory()->for($seven->user)->create(['plan' => SubscriptionPlan::Free, 'ends_on' => '2026-10-13']);
+        Subscription::factory()->for($seven->user)->create(['starts_on' => '2026-09-13', 'ends_on' => '2026-10-13']);
+
+        $sevenDays = $this->actingAs($admin)->get(route('admin.subscriptions.index', ['expires_in' => '7']));
+        $thirtyDays = $this->get(route('admin.subscriptions.index', ['expires_in' => '30']));
+
+        $this->assertSubscriptionIds($sevenDays, [$seven->id]);
+        $this->assertSubscriptionIds($thirtyDays, [$later->id, $middle->id, $thirty->id, $seven->id]);
+        $sevenDays->assertViewHas('statistics', ['active' => 6, 'expired' => 0, 7 => 1, 30 => 4]);
+        $thirtyDays->assertViewHas('statistics', $sevenDays->viewData('statistics'));
+        $this->assertSame(9, Subscription::count());
     }
 
     public function test_dushanbe_midnight_changes_current_access_and_effective_expiration_without_mutation(): void

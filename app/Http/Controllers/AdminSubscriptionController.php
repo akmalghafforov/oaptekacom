@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\PaymentMethod;
 use App\Enums\SubscriptionPlan;
 use App\Enums\SubscriptionTerm;
+use App\Http\Requests\BulkSubscriptionRequest;
 use App\Http\Requests\GrantSubscriptionRequest;
 use App\Http\Requests\IndexSubscriptionRequest;
 use App\Http\Requests\ReviewPaymentRequest;
@@ -27,7 +28,10 @@ class AdminSubscriptionController extends Controller
 {
     public function index(IndexSubscriptionRequest $request, SubscriptionMonitoring $monitoring): View
     {
-        return view('admin.subscriptions.index', $monitoring->data($request->validated()));
+        return view('admin.subscriptions.index', array_merge($monitoring->data($request->validated()), [
+            'plans' => [SubscriptionPlan::Base, SubscriptionPlan::Premium],
+            'terms' => SubscriptionTerm::cases(),
+        ]));
     }
 
     public function create(): View
@@ -49,6 +53,18 @@ class AdminSubscriptionController extends Controller
         }
 
         return redirect()->route('admin.subscriptions.index')->with('success', 'Подписка выдана и сохранена в истории.');
+    }
+
+    public function bulkStore(BulkSubscriptionRequest $request, SubscriptionService $subscriptions): RedirectResponse
+    {
+        $data = $request->validated();
+        try {
+            $count = $subscriptions->grantBulk($data['user_ids'], $request->user(), $data['action'], SubscriptionPlan::from($data['plan']), SubscriptionTerm::from($data['term']), $data['ends_on'] ?? null);
+        } catch (InvalidArgumentException $exception) {
+            return back()->withInput()->withErrors(['bulk' => $exception->getMessage()]);
+        }
+
+        return redirect()->route('admin.subscriptions.index')->with('success', 'Подписки обновлены. Аккаунтов: '.$count.'.');
     }
 
     public function paymentRequests(): View

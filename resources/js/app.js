@@ -548,3 +548,9 @@ if (document.querySelector('[data-import-progress]')) {
         document.querySelectorAll('[data-import-progress]').forEach(panel => initializeImportProgress(panel, window));
     });
 }
+
+if (document.querySelector('[data-bulk-subscriptions]')) {
+    import('./bulk-subscriptions.js').then(({ initializeBulkSubscriptions }) => {
+        document.querySelectorAll('[data-bulk-subscriptions]').forEach(initializeBulkSubscriptions);
+    });
+}

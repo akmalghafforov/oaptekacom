@@ -202,6 +202,7 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::get('/subscriptions', [AdminSubscriptionController::class, 'index'])->name('admin.subscriptions.index');
         Route::get('/subscriptions/create', [AdminSubscriptionController::class, 'create'])->name('admin.subscriptions.create');
         Route::post('/subscriptions', [AdminSubscriptionController::class, 'store'])->name('admin.subscriptions.store');
+        Route::post('/subscriptions/bulk', [AdminSubscriptionController::class, 'bulkStore'])->name('admin.subscriptions.bulk.store');
         Route::post('/subscriptions/{subscription}/cancel', [AdminSubscriptionController::class, 'cancel'])->name('admin.subscriptions.cancel');
         Route::get('/subscription-prices', [AdminSubscriptionController::class, 'prices'])->name('admin.subscription-prices.edit');
         Route::patch('/subscription-prices', [AdminSubscriptionController::class, 'updatePrices'])->name('admin.subscription-prices.update');

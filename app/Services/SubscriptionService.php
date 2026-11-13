@@ -14,6 +14,7 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class SubscriptionService
@@ -42,6 +43,70 @@ class SubscriptionService
             AuditEvent::create(['user_id' => $assignedBy->id, 'event' => 'subscription.granted', 'subject_type' => Subscription::class, 'subject_id' => $subscription->id, 'before' => [], 'after' => ['user_id' => $lockedUser->id, 'plan' => $plan->value, 'term' => $term->value, 'starts_on' => $startsOn->toDateString(), 'ends_on' => $endsOn->toDateString(), 'daily_price' => $price->daily_price, 'total_price' => $totalPrice], 'ip' => request()?->ip()]);
 
             return $subscription;
+        });
+    }
+
+    /** @param array<int, int|string> $userIds */
+    public function grantBulk(array $userIds, User $assignedBy, string $action, SubscriptionPlan $plan, SubscriptionTerm $term, ?string $customEndsOn = null): int
+    {
+        if (! $assignedBy->isAdminMode() || ! $plan->isPaid() || ! in_array($action, ['set', 'extend'], true)) {
+            throw new InvalidArgumentException('Выберите платный тариф и действие в режиме администратора.');
+        }
+
+        $sortedIds = array_map('intval', $userIds);
+        sort($sortedIds, SORT_NUMERIC);
+        if ($sortedIds === [] || count(array_unique($sortedIds)) !== count($sortedIds)) {
+            throw new InvalidArgumentException('Выберите разные аккаунты аптек.');
+        }
+
+        return DB::transaction(function () use ($sortedIds, $assignedBy, $action, $plan, $term, $customEndsOn): int {
+            $users = User::query()->whereIn('id', $sortedIds)->orderBy('id')->lockForUpdate()->get();
+            if ($users->count() !== count($sortedIds) || $users->contains(fn (User $user): bool => ! $user->isCustomer())) {
+                throw new InvalidArgumentException('Один из выбранных аккаунтов больше не является аккаунтом аптеки. Обновите страницу.');
+            }
+
+            $price = $this->priceFor($plan);
+            $today = CarbonImmutable::now(self::TIMEZONE)->startOfDay();
+            foreach ($users as $user) {
+                $activeRecords = $user->subscriptions()->where('status', SubscriptionStatus::Active)->orderBy('id')->lockForUpdate()->get();
+                $current = $activeRecords->filter(fn (Subscription $subscription): bool => $subscription->plan->isPaid()
+                    && $subscription->starts_on !== null && $subscription->ends_on !== null
+                    && $subscription->starts_on->toDateString() <= $today->toDateString()
+                    && $subscription->ends_on->toDateString() >= $today->toDateString())
+                    ->sortByDesc(fn (Subscription $subscription): string => $subscription->ends_on->toDateString())->first();
+                $termStartsOn = $action === 'extend' && $current
+                    ? CarbonImmutable::parse($current->ends_on->toDateString(), self::TIMEZONE)->addDay() : $today;
+                if ($term === SubscriptionTerm::Custom && $customEndsOn !== null
+                    && CarbonImmutable::parse($customEndsOn, self::TIMEZONE)->startOfDay()->isBefore($termStartsOn)) {
+                    throw ValidationException::withMessages(['ends_on' => 'Дата окончания должна продлевать текущее покрытие каждого выбранного аккаунта.']);
+                }
+                [, $endsOn] = $this->period($term, $customEndsOn, $termStartsOn);
+                $totalPrice = bcmul((string) $price->daily_price, (string) ($today->diffInDays($endsOn) + 1), 2);
+                $before = $activeRecords->map(fn (Subscription $subscription): array => [
+                    'id' => $subscription->id, 'plan' => $subscription->plan->value,
+                    'starts_on' => $subscription->starts_on?->toDateString(), 'ends_on' => $subscription->ends_on?->toDateString(),
+                    'daily_price' => $subscription->daily_price, 'total_price' => $subscription->total_price,
+                ])->all();
+
+                $user->subscriptions()->where('status', SubscriptionStatus::Active)->update(['status' => SubscriptionStatus::Superseded, 'actual_ended_at' => now()]);
+                $subscription = Subscription::create([
+                    'user_id' => $user->id, 'assigned_by' => $assignedBy->id, 'plan' => $plan, 'term' => $term,
+                    'starts_on' => $today, 'ends_on' => $endsOn, 'daily_price' => $price->daily_price,
+                    'total_price' => $totalPrice, 'status' => SubscriptionStatus::Active,
+                ]);
+                $user->forceFill(['subscription_plan' => $plan])->save();
+                AuditEvent::create([
+                    'user_id' => $assignedBy->id, 'event' => 'subscription.bulk_'.$action,
+                    'subject_type' => Subscription::class, 'subject_id' => $subscription->id,
+                    'before' => ['subscriptions' => $before, 'current_ends_on' => $current?->ends_on?->toDateString()],
+                    'after' => ['action' => $action, 'user_id' => $user->id, 'plan' => $plan->value, 'term' => $term->value,
+                        'starts_on' => $today->toDateString(), 'ends_on' => $endsOn->toDateString(),
+                        'daily_price' => $price->daily_price, 'total_price' => $totalPrice],
+                    'ip' => request()?->ip(),
+                ]);
+            }
+
+            return $users->count();
         });
     }
 
@@ -185,9 +250,9 @@ class SubscriptionService
     }
 
     /** @return array{CarbonImmutable, CarbonImmutable} */
-    private function period(SubscriptionTerm $term, ?string $customEndsOn): array
+    private function period(SubscriptionTerm $term, ?string $customEndsOn, ?CarbonImmutable $startsOn = null): array
     {
-        $startsOn = CarbonImmutable::now(self::TIMEZONE)->startOfDay();
+        $startsOn ??= CarbonImmutable::now(self::TIMEZONE)->startOfDay();
         $endsOn = match ($term) {
             SubscriptionTerm::TenDays => $startsOn->addDays(10)->subDay(),
             SubscriptionTerm::Month => $startsOn->addMonthNoOverflow()->subDay(),

@@ -34,7 +34,7 @@
 </section>
 
 <x-ui.card class="mb-6">
-    <form method="get" action="{{ route('admin.subscriptions.index') }}" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+    <form method="get" action="{{ route('admin.subscriptions.index') }}" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5" data-subscription-filters>
         @if($sort)
             <input type="hidden" name="sort" value="{{ $sort }}">
             <input type="hidden" name="direction" value="{{ $direction }}">
@@ -64,10 +64,20 @@
     <p>Найдено по фильтрам: <strong class="text-heading">{{ $subscriptions->total() }}</strong></p>
     <p>Сортировка: {{ $sort ? $sortLabels[$sort].' · '.($direction === 'asc' ? 'по возрастанию ↑' : 'по убыванию ↓') : 'сначала новые (по умолчанию)' }}.</p>
 </div>
+@php
+    $pageAccounts = $subscriptions->pluck('user')->filter(fn ($user) => $user?->isCustomer())->unique('id');
+    $selectedAccountIds = $pageAccounts->pluck('id')->intersect((array) old('user_ids', []))->values()->all();
+@endphp
+<div data-bulk-subscriptions>
+<div class="mb-3 flex flex-wrap items-center gap-3">
+    <x-ui.button type="button" variant="secondary" data-bulk-open data-dialog-open aria-controls="bulk-subscriptions-dialog" aria-haspopup="dialog" :disabled="count($selectedAccountIds) === 0">Массовые действия</x-ui.button>
+    <p class="text-sm text-muted" aria-live="polite">Выбрано аккаунтов: <span data-selected-count>{{ count($selectedAccountIds) }}</span></p>
+</div>
 <div class="table-wrap" role="region" aria-label="Подписки пользователей" tabindex="0">
     <table class="data-table">
         <thead>
             <tr>
+                <th scope="col"><x-ui.checkbox name="select_page" data-select-page :disabled="$pageAccounts->isEmpty()"><span class="sr-only">Выбрать все аккаунты на этой странице</span></x-ui.checkbox></th>
                 @foreach(['pharmacy' => 'Аптека', 'account' => 'Аккаунт', 'phone' => 'Телефон аккаунта', 'plan' => 'Тариф', 'term' => 'Срок', 'starts_on' => 'Начало', 'ends_on' => 'Окончание', 'total_price' => 'Стоимость', 'status' => 'Статус'] as $column => $label)
                     @if($column === 'term')
                         <th scope="col">{{ $label }}</th>
@@ -87,6 +97,13 @@
             @forelse($subscriptions as $subscription)
                 @php($effectiveStatus = $subscription->effectiveStatusOn($today))
                 <tr>
+                    <td>
+                        @if($subscription->user?->isCustomer())
+                            <x-ui.checkbox :name="'subscription-selection-'.$subscription->id" :value="$subscription->user_id" :checked="in_array($subscription->user_id, $selectedAccountIds)" data-account-checkbox>
+                                <span class="sr-only">Выбрать аккаунт: {{ $subscription->user->name }} · {{ $subscription->user->phone }}</span>
+                            </x-ui.checkbox>
+                        @endif
+                    </td>
                     <td>{{ $subscription->user?->organization?->name ?: '—' }}</td>
                     <td>{{ $subscription->user?->name ?: '—' }}</td>
                     <td class="whitespace-nowrap">{{ $subscription->user?->phone ?: '—' }}</td>
@@ -123,10 +140,50 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="10"><x-ui.empty-state title="Подписки не найдены" description="Измените фильтры или выдайте подписку аккаунту аптеки." /></td></tr>
+                <tr><td colspan="11"><x-ui.empty-state title="Подписки не найдены" description="Измените фильтры или выдайте подписку аккаунту аптеки." /></td></tr>
             @endforelse
         </tbody>
     </table>
 </div>
 <div class="mt-6">{{ $subscriptions->links('components.ui.pagination') }}</div>
+<x-ui.dialog name="bulk-subscriptions-dialog" title="Массовые действия" description="Изменения применятся ко всем выбранным аккаунтам вместе." :open-on-load="$errors->any() && (old('_bulk_subscriptions') || old('user_ids') !== null)">
+    <form id="bulk-subscriptions-form" method="post" action="{{ route('admin.subscriptions.bulk.store') }}" class="overflow-y-auto p-5" data-bulk-form>
+        @csrf
+        <x-mode-version />
+        <input type="hidden" name="_bulk_subscriptions" value="1">
+        @foreach($pageAccounts as $account)
+            <input type="hidden" name="user_ids[]" value="{{ $account->id }}" data-selected-account @disabled(! in_array($account->id, $selectedAccountIds))>
+        @endforeach
+        @if($errors->any() && (old('_bulk_subscriptions') || old('user_ids') !== null))
+            <x-ui.alert type="danger" class="mb-4">
+                <ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
+            </x-ui.alert>
+        @endif
+        <div class="grid gap-4 sm:grid-cols-2">
+            <x-ui.select name="action" label="Действие" required hint="Тариф начинает действовать сегодня. Продление сохраняет оставшееся время.">
+                <option value="set" @selected(old('action', 'set') === 'set')>Назначить — заменить текущее покрытие</option>
+                <option value="extend" @selected(old('action') === 'extend')>Продлить — сохранить оставшееся время</option>
+            </x-ui.select>
+            <x-ui.select name="plan" label="Платный тариф" required>
+                <option value="">Выберите тариф</option>
+                @foreach($plans as $plan)
+                    <option value="{{ $plan->value }}" @selected(old('plan') === $plan->value)>{{ $plan->label() }}</option>
+                @endforeach
+            </x-ui.select>
+            <x-ui.select name="term" label="Срок" required>
+                <option value="">Выберите срок</option>
+                @foreach($terms as $term)
+                    <option value="{{ $term->value }}" @selected(old('term') === $term->value)>{{ $term->label() }}</option>
+                @endforeach
+            </x-ui.select>
+            <x-ui.input name="ends_on" type="date" label="Дата окончания" hint="Для произвольного срока: абсолютная дата включительно. При продлении должна быть позже текущего окончания каждого выбранного аккаунта." min="{{ now('Asia/Dushanbe')->toDateString() }}" />
+            <p class="text-sm text-muted sm:col-span-2">Сроки считаются по календарю Душанбе. Стоимость новой записи — все дни с сегодняшнего дня по дату окончания включительно по текущей дневной цене. Ожидающие заявки на оплату сохраняются.</p>
+        </div>
+        <div class="mt-5 flex flex-wrap justify-end gap-2">
+            <x-ui.button type="button" variant="secondary" data-dialog-close>Отмена</x-ui.button>
+            <x-ui.button data-bulk-apply :disabled="count($selectedAccountIds) === 0">Применить</x-ui.button>
+        </div>
+    </form>
+</x-ui.dialog>
+</div>
 @endsection

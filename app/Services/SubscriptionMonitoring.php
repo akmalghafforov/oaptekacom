@@ -29,11 +29,13 @@ class SubscriptionMonitoring
     {
         $today = now('Asia/Dushanbe')->startOfDay();
         $current = Subscription::query()->currentPaid($today);
+        $currentAccountIds = (clone $current)->select('subscriptions.user_id');
         $statistics = [
             'active' => (clone $current)->count(),
-            'expired' => Subscription::query()->effectiveStatus(SubscriptionStatus::Expired, $today)->count(),
-            '7' => (clone $current)->whereDate('ends_on', '<=', $today->copy()->addDays(7)->toDateString())->count(),
-            '30' => (clone $current)->whereDate('ends_on', '<=', $today->copy()->addDays(30)->toDateString())->count(),
+            'expired' => Subscription::query()->effectiveStatus(SubscriptionStatus::Expired, $today)
+                ->whereNotIn('subscriptions.user_id', $currentAccountIds)->count(),
+            '7' => $this->expiringWithin(Subscription::query(), $today, 7)->count(),
+            '30' => $this->expiringWithin(Subscription::query(), $today, 30)->count(),
         ];
 
         $query = Subscription::query()->with('user.organization')
@@ -47,6 +49,9 @@ class SubscriptionMonitoring
         }
         if (filled($filters['status'] ?? null)) {
             $query->effectiveStatus(SubscriptionStatus::from($filters['status']), $today);
+            if ($filters['status'] === SubscriptionStatus::Expired->value) {
+                $query->whereNotIn('subscriptions.user_id', $currentAccountIds);
+            }
         }
         if (filled($filters['ends_from'] ?? null)) {
             $query->whereDate('subscriptions.ends_on', '>=', $filters['ends_from']);
@@ -55,8 +60,7 @@ class SubscriptionMonitoring
             $query->whereDate('subscriptions.ends_on', '<=', $filters['ends_to']);
         }
         if (filled($filters['expires_in'] ?? null)) {
-            $query->currentPaid($today)
-                ->whereDate('subscriptions.ends_on', '<=', $today->copy()->addDays((int) $filters['expires_in'])->toDateString());
+            $this->expiringWithin($query, $today, (int) $filters['expires_in']);
         }
 
         $sort = $filters['sort'] ?? null;
@@ -73,6 +77,16 @@ class SubscriptionMonitoring
             'direction' => $direction,
             'filters' => $filters,
         ];
+    }
+
+    private function expiringWithin(Builder $query, CarbonInterface $today, int $days): Builder
+    {
+        $endsOn = $today->copy()->addDays($days)->toDateString();
+
+        return $query->currentPaid($today)
+            ->whereDate('subscriptions.ends_on', '<=', $endsOn)
+            ->whereNotIn('subscriptions.user_id', Subscription::query()->currentPaid($today)
+                ->whereDate('subscriptions.ends_on', '>', $endsOn)->select('subscriptions.user_id'));
     }
 
     private function withoutCountryPrefix(string $phone, string $search): string
