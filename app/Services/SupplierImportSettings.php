@@ -24,6 +24,13 @@ class SupplierImportSettings
             if ((int) $data['expected_version'] !== (int) ($configuration->version ?? 0)) {
                 throw ValidationException::withMessages(['expected_version' => 'Настройки уже изменились. Обновите страницу и повторите сохранение.']);
             }
+            if (($data['action'] ?? null) === 'save' && ! $configuration->automatic_enabled && $data['automatic_enabled']) {
+                throw ValidationException::withMessages(['automatic_enabled' => 'Для включения используйте «Включить автоматическое обновление и проверить».']);
+            }
+            if (($data['action'] ?? null) === 'enable') {
+                $data['automatic_enabled'] = true;
+                $data['paused'] = false;
+            }
             $newest = ($data['selection_mode'] ?? null) === 'newest_available';
             $source = $data['selected_source'] ?? null;
             $mapped = $source === 'email' || ExternalSupplierPartner::where('supplier_organization_id', $supplier->id)->where('source', $source)->exists();
@@ -46,10 +53,16 @@ class SupplierImportSettings
                     }
                 }
             }
+            if ($newest && (($data['action'] ?? null) === 'enable' || $configuration->reviewsConflicts())) {
+                $configuration->workflow_policy = ['version' => 1, 'tie_source' => $data['tie_source'] ?? null];
+            }
             $configuration->fill(array_intersect_key($data, array_flip(['selection_mode', 'selected_source', 'automatic_enabled', 'paused', 'fetch_interval_minutes', 'freshness_hours'])))
                 ->forceFill(['selection_mode' => $newest ? 'newest_available' : null, 'selected_source' => $newest ? null : $source,
                     'fetch_interval_minutes' => $newest ? max(60, (int) $data['fetch_interval_minutes']) : (int) $data['fetch_interval_minutes'], 'sources' => $sources, 'version' => ($configuration->version ?? 0) + 1, 'next_check_at' => now(), 'settings_confirmed' => true])->save();
             $this->audit->log('supplier_sync.configured', $configuration, $before, $configuration->toArray());
+            if (($data['action'] ?? null) === 'enable') {
+                app(SupplierSynchronizationService::class)->request($supplier);
+            }
         }, 3);
     }
 

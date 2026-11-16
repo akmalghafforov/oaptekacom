@@ -11,6 +11,7 @@ use App\Models\GmailImportReceipt;
 use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierSynchronization;
+use App\Services\PriceList\CatalogFingerprint;
 use Carbon\CarbonInterface;
 
 class NewestSupplierCandidates
@@ -90,7 +91,7 @@ class NewestSupplierCandidates
                 continue;
             }
             foreach ($entries as $otherIndex => $other) {
-                if ($index !== $otherIndex && ! $this->dateReason($other['date'], $other['precision'])
+                if (! $config->reviewsConflicts() && $index !== $otherIndex && ! $this->dateReason($other['date'], $other['precision'])
                     && $this->compare($entry['date'], $entry['precision'], $other['date'], $other['precision']) === null) {
                     $entries[$index]['review'] = 'review_date_precision';
                 }
@@ -140,24 +141,32 @@ class NewestSupplierCandidates
         }
         $current = ($supplier ?? $import->supplier)->activePriceListImport()->first();
         if ($current && $current->id !== $import->id) {
-            if (($import->source_fingerprint ?? $import->sha256) && ($import->source_fingerprint ?? $import->sha256) === ($current->source_fingerprint ?? $current->sha256)) {
+            if ($config->reviewsConflicts() && ($fingerprint = app(CatalogFingerprint::class)->calculate($import)) !== null
+                && $fingerprint === app(CatalogFingerprint::class)->calculate($current)) {
+                return 'unchanged_content';
+            }
+            if (! $config->reviewsConflicts() && ($import->source_fingerprint ?? $import->sha256) && ($import->source_fingerprint ?? $import->sha256) === ($current->source_fingerprint ?? $current->sha256)) {
                 return 'unchanged_content';
             }
             if ($this->publicationReason($current)) {
                 return 'review_active_date_unknown';
             }
             $order = $this->compare($import->source_published_at, $import->source_date_precision, $current->source_published_at, $current->source_date_precision);
-            if ($order === null) {
+            if ($order === null && ! $this->reviewedAgainst($import, $current, $config)) {
                 return 'review_date_precision';
             }
             if ($order < 0) {
                 return 'older_than_active';
             }
-            if ($order === 0) {
-                if ($current->source_type === $import->source_type) {
+            if ($order === 0 && ! $this->reviewedAgainst($import, $current, $config)) {
+                if ($config->reviewsConflicts()) {
+                    if (! $this->preferredTie($import->source_type->value, $current->source_type->value, $config)) {
+                        return 'review_equal_date_conflict';
+                    }
+                } elseif ($current->source_type === $import->source_type) {
                     return 'same_source_equal_date';
                 }
-                $priority = array_search($current->source_type->value, $sources, true);
+                $priority = $config->reviewsConflicts() ? false : array_search($current->source_type->value, $sources, true);
                 if ($priority !== false && $priority <= array_search($import->source_type->value, $sources, true)) {
                     return 'equal_date_lower_priority';
                 }
@@ -174,8 +183,26 @@ class NewestSupplierCandidates
                 }
             }
             $order = $this->compare($import->source_published_at, $import->source_date_precision, $candidate['date'], $candidate['precision']);
+            $other = $candidate['import'] ?? null;
+            if ($other && ($order === null || $order === 0) && $this->reviewedAgainst($import, $other, $config)) {
+                continue;
+            }
             if ($order === null) {
                 return 'review_date_precision';
+            }
+            if ($config->reviewsConflicts() && $order === 0) {
+                if (! $other) {
+                    return 'newer_candidate_pending';
+                }
+                $fingerprint = app(CatalogFingerprint::class)->calculate($import);
+                if ($fingerprint && $fingerprint === app(CatalogFingerprint::class)->calculate($other)) {
+                    continue;
+                }
+                if (! $this->preferredTie($import->source_type->value, $candidate['source'], $config)) {
+                    return 'review_equal_date_conflict';
+                }
+
+                continue;
             }
             if ($order < 0 || ($order === 0 && array_search($candidate['source'], $sources, true) < array_search($import->source_type->value, $sources, true))) {
                 return 'newer_candidate_pending';
@@ -183,5 +210,38 @@ class NewestSupplierCandidates
         }
 
         return null;
+    }
+
+    /** @return list<PriceListImport> */
+    public function reviewComparisons(PriceListImport $import, SupplierSynchronization $config): array
+    {
+        $others = collect($this->known($config))->pluck('import')->filter()->push($import->supplier->activePriceListImport()->first())
+            ->filter(fn ($other): bool => $other !== null && $other->id !== $import->id)->unique('id')->sortBy('id');
+
+        return $others->values()->all();
+    }
+
+    public function comparisonToken(PriceListImport $import, SupplierSynchronization $config): string
+    {
+        return hash('sha256', json_encode([$this->reviewToken($import, $config), array_map(fn ($other): string => $this->reviewToken($other, $config), $this->reviewComparisons($import, $config))], JSON_THROW_ON_ERROR));
+    }
+
+    private function preferredTie(string $source, string $otherSource, SupplierSynchronization $config): bool
+    {
+        return $source !== $otherSource && ($config->workflow_policy['tie_source'] ?? null) === $source;
+    }
+
+    public function reviewToken(PriceListImport $import, SupplierSynchronization $config): string
+    {
+        return hash('sha256', json_encode([$import->id, $config->version, $import->source_published_at?->toIso8601String(), $import->source_date_precision,
+            app(CatalogFingerprint::class)->calculate($import) ?? $import->source_fingerprint ?? $import->sha256], JSON_THROW_ON_ERROR));
+    }
+
+    private function reviewedAgainst(PriceListImport $import, PriceListImport $other, SupplierSynchronization $config): bool
+    {
+        $review = $import->source_metadata['conflict_review'] ?? [];
+
+        return $config->reviewsConflicts() && ($review['candidate'] ?? null) === $this->reviewToken($import, $config)
+            && in_array($this->reviewToken($other, $config), $review['others'] ?? [], true);
     }
 }

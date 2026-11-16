@@ -4,7 +4,7 @@
     $serviceNames = ['icorp' => 'iCorp', 'pricelist_tj' => 'PriceList-TJ'];
     $statusLabels = ['connected' => 'Подключено', 'unknown' => 'Не проверено', 'authentication' => 'Требуется авторизация', 'permission' => 'Нет доступа', 'transport' => 'Ошибка соединения', 'extraction' => 'Ошибка чтения данных', 'takeover_required' => 'Аккаунт занят на другом устройстве'];
 @endphp
-<x-ui.page-header title="Синхронизация поставщиков" description="Состояние сервисов, справочники и настройка загрузки прайс-листов.">
+<x-ui.page-header title="Прайс-листы поставщиков" description="Актуальность каталогов, ход обновления и задачи, требующие внимания.">
     <x-slot:actions><x-ui.button :href="request()->fullUrl()" variant="secondary">Обновить статус</x-ui.button></x-slot:actions>
 </x-ui.page-header>
 <div class="space-y-6">
@@ -15,6 +15,8 @@
             @if($success['removed'])<p class="mt-2">Подтверждённая запись больше не соответствует текущим фильтрам и исключена из результатов.</p>@endif
         </x-ui.alert>
     @endif
+    @if($tab === 'external')
+    <p class="text-sm text-muted">Общие подключения используются несколькими поставщиками. Сопоставление не разрешает автоматическую загрузку.</p>
     <div class="grid gap-4 md:grid-cols-2">
         @foreach($statuses as $source => $status)
             <x-ui.card>
@@ -42,8 +44,9 @@
             </x-ui.card>
         @endforeach
     </div>
+    @endif
     <nav aria-label="Справочники поставщиков" class="flex flex-wrap gap-2">
-        @foreach(['external' => 'Внешние поставщики', 'suppliers' => 'Наши поставщики'] as $key => $label)
+        @foreach(['suppliers' => 'Поставщики', 'external' => 'Сервисы и сопоставления'] as $key => $label)
             <x-ui.button :href="route('admin.supplier-sync.index', array_merge(request()->query(), ['tab' => $key]))" :variant="$tab === $key ? 'primary' : 'secondary'" :aria-current="$tab === $key ? 'page' : null">{{ $label }}</x-ui.button>
         @endforeach
     </nav>
@@ -57,7 +60,8 @@
                 <x-ui.select name="filter" label="Сопоставления" :restore="false">@foreach(['all' => 'Все', 'unmapped' => 'Без сопоставления', 'ambiguous' => 'Несколько кандидатов', 'suggested' => 'Есть предположения', 'confirmed' => 'Подтверждённые'] as $key => $label)<option value="{{ $key }}" @selected(request('filter', 'all') === $key)>{{ $label }}</option>@endforeach</x-ui.select>
             @else
                 @foreach(['q', 'service', 'filter', 'page'] as $key)<input type="hidden" name="{{ $key }}" value="{{ request($key) }}">@endforeach
-                <x-ui.input name="supplier_q" label="Поиск нашего поставщика" :restore="false" :value="request('supplier_q')" />
+                <x-ui.input name="supplier_q" label="Поиск поставщика" :restore="false" :value="request('supplier_q')" />
+                <x-ui.select name="supplier_status" label="Состояние" :restore="false">@foreach(['' => 'Все', 'attention' => 'Требуют внимания', 'updating' => 'Обновляются', 'configured' => 'Настроены', 'paused' => 'На паузе', 'off' => 'Выключены'] as $key => $label)<option value="{{ $key }}" @selected(request('supplier_status') === $key)>{{ $label }}</option>@endforeach</x-ui.select>
             @endif
             <x-ui.button>Найти</x-ui.button>
         </form>
@@ -159,7 +163,14 @@
         </x-ui.card>
         {{ $partners->links() }}
     @else
-        <x-ui.card><h2 class="mb-3 font-bold">Наши поставщики · {{ $suppliers->total() }}</h2><div class="divide-y divide-border">@forelse($suppliers as $supplier)<div class="flex flex-wrap items-center justify-between gap-3 py-3"><p class="min-w-0 flex-1 break-words font-semibold">{{ $supplier->name }}</p><x-ui.button variant="secondary" :href="route('admin.supplier-sync.show', $supplier)">Открыть</x-ui.button></div>@empty<x-ui.empty-state title="Наши поставщики не найдены" description="Попробуйте другое название."><x-slot:action><x-ui.button variant="secondary" :href="route('admin.supplier-sync.index', array_merge(request()->except(['supplier_q', 'supplier_page']), ['tab' => 'suppliers']))">Сбросить поиск</x-ui.button></x-slot:action></x-ui.empty-state>@endforelse</div>{{ $suppliers->links() }}</x-ui.card>
+        <x-ui.card><h2 class="mb-3 font-bold">Поставщики · {{ $suppliers->total() }}</h2>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Поставщик</th><th>Состояние</th><th>Активный источник / публикация</th><th>Последняя публикация</th><th>Следующая проверка</th><th>Действие</th></tr></thead><tbody>
+            @forelse($suppliers as $supplier)
+                @php($summary = $supplierStatuses[$supplier->id])
+                <tr><td class="font-semibold">{{ $supplier->name }}</td><td><x-ui.status-badge :status="$summary['attention'] ? 'pending' : ($summary['state'] === 'configured' ? 'confirmed' : 'pending')" :label="$summary['label']" /></td><td>{{ $summary['active_source'] }}<p class="text-sm text-muted">{{ $summary['publication'] ?? 'Дата неизвестна' }}</p></td><td>{{ $summary['activated_at'] ?? 'Нет данных' }}</td><td>{{ $summary['next_check'] ?? 'Не назначена' }}</td><td><x-ui.button variant="secondary" :href="route('admin.supplier-sync.show', $supplier)">Открыть</x-ui.button></td></tr>
+            @empty<tr><td colspan="6"><x-ui.empty-state title="Поставщики не найдены" description="Попробуйте другое название или состояние." /></td></tr>@endforelse
+            </tbody></table></div>{{ $suppliers->links() }}
+        </x-ui.card>
     @endif
 </div>
 @endsection

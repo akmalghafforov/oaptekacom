@@ -665,7 +665,7 @@ class SupplierSynchronizationTest extends TestCase
 
     public function test_directory_empty_states_distinguish_missing_directory_and_search(): void
     {
-        $this->actingAs($this->admin())->get(route('admin.supplier-sync.index'))->assertSee('Справочники ещё не загружены')->assertSee('Загрузить iCorp');
+        $this->actingAs($this->admin())->get(route('admin.supplier-sync.index', ['tab' => 'external']))->assertSee('Справочники ещё не загружены')->assertSee('Загрузить iCorp');
         $this->partner();
 
         $this->get(route('admin.supplier-sync.index', ['q' => 'Не существует']))->assertSee('Ничего не найдено')->assertSee('Сбросить фильтры')->assertDontSee('Справочники ещё не загружены');
@@ -734,8 +734,8 @@ class SupplierSynchronizationTest extends TestCase
         SupplierSyncRun::factory()->count(21)->create(['supplier_organization_id' => $config->supplier_organization_id, 'status' => 'queued']);
         $this->actingAs($this->admin())->get(route('admin.supplier-sync.show', $config->supplier))
             ->assertSee('Проверка готовности')->assertSee('Настройки не сохранены')->assertSee('Готов')->assertSee('В очереди')->assertDontSee('name="freshness_hours"', false);
-        $this->get(route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'sources']))->assertRedirect(route('admin.supplier-import-profiles.edit', $config->supplier));
-        $this->get(route('admin.supplier-import-profiles.edit', $config->supplier))
+        $this->get(route('admin.supplier-import-profiles.edit', $config->supplier))->assertRedirect(route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'sources']));
+        $this->get(route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'sources']))
             ->assertSee('Первое сохранение настроек')->assertSee('name="freshness_hours"', false)->assertSee('Настроить профиль PriceList-TJ');
         $this->get(route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'review']))
             ->assertSee('Требуется подтверждение даты')->assertSee('Просмотреть строки')->assertSee('Точность даты')->assertSee('Подтвердить дату');
@@ -748,7 +748,7 @@ class SupplierSynchronizationTest extends TestCase
     {
         [$config, $partner] = $this->configured();
         $other = $this->partner(['source' => 'icorp', 'supplier_organization_id' => $config->supplier_organization_id, 'profile_configuration' => ExternalPriceWorkbook::profile(), 'profile_active' => true]);
-        $url = route('admin.supplier-import-profiles.edit', $config->supplier);
+        $url = route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'sources']);
 
         $this->actingAs($this->admin())->from($url)->put(route('admin.supplier-sync.profile', $partner), [
             'expected_supplier_organization_id' => $config->supplier_organization_id, 'expected_profile_version' => $partner->profile_version, 'expected_source' => $partner->source, 'expected_external_id' => $partner->external_id,
@@ -765,7 +765,7 @@ class SupplierSynchronizationTest extends TestCase
     {
         [$config, $partner] = $this->configured();
         $partner->update(['profile_active' => false]);
-        $url = route('admin.supplier-import-profiles.edit', $config->supplier);
+        $url = route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'sources']);
         $data = $config->only(['automatic_enabled', 'paused', 'fetch_interval_minutes', 'freshness_hours', 'sources']) + ['expected_version' => $config->version, 'selected_source' => 'pricelist_tj'];
         $data['_sync_form'] = 'settings-'.$config->supplier_organization_id;
 
@@ -810,7 +810,7 @@ class SupplierSynchronizationTest extends TestCase
         $this->partner(['source' => 'icorp']);
         Cache::put('external-prices:status:icorp', ['status' => 'connected', 'checked_at' => '2026-11-11T06:00:00Z']);
 
-        $this->actingAs($this->admin())->get(route('admin.supplier-sync.index'))
+        $this->actingAs($this->admin())->get(route('admin.supplier-sync.index', ['tab' => 'external']))
             ->assertSee('Подключено')->assertSee('11.11.2026 11:00')->assertSee('В справочнике: 1 поставщиков')
             ->assertSee('Повторить подключение')->assertSee('Подключить')->assertDontSee('2026-11-11T06:00:00Z');
     }
@@ -818,7 +818,7 @@ class SupplierSynchronizationTest extends TestCase
     public function test_settings_priority_error_preserves_nested_value_and_field_association(): void
     {
         [$config] = $this->configured();
-        $url = route('admin.supplier-import-profiles.edit', $config->supplier);
+        $url = route('admin.supplier-sync.show', [$config->supplier, 'tab' => 'sources']);
         $data = $config->only(['automatic_enabled', 'paused', 'fetch_interval_minutes', 'freshness_hours', 'sources']) + ['expected_version' => $config->version, 'selected_source' => 'pricelist_tj'];
         $data['_sync_form'] = 'settings-'.$config->supplier_organization_id;
         $data['sources']['pricelist_tj']['priority'] = 0;
@@ -842,7 +842,7 @@ class SupplierSynchronizationTest extends TestCase
         $partner->update(['name' => 'Сервис TJ']);
         $this->partner(['source' => 'icorp', 'supplier_organization_id' => $config->supplier_organization_id, 'name' => 'Сервис iCorp']);
 
-        $this->actingAs($this->admin())->get(route('admin.supplier-sync.index'))
+        $this->actingAs($this->admin())->get(route('admin.supplier-sync.index', ['tab' => 'external']))
             ->assertSee('Наш поставщик')->assertSee('Источник')->assertSee('Действия')->assertSee('Сервис TJ')->assertSee('Сервис iCorp')
             ->assertSee('Профиль импорта')->assertSee('Удалить iCorp')->assertSee('Удалить PriceList-TJ')
             ->assertViewHas('partners', fn ($partners): bool => $partners->total() === 1);

@@ -6,12 +6,14 @@ use App\Enums\OrganizationType;
 use App\Enums\TradeMode;
 use App\Enums\UserRole;
 use App\Models\Organization;
+use App\Models\SupplierSynchronization;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\OrganizationApprovalService;
 use App\Support\PhoneNormalizer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\View\View;
 
 class AdminController extends Controller
@@ -36,8 +38,15 @@ class AdminController extends Controller
     public function storeSupplier(Request $request, AuditLogger $auditLogger): RedirectResponse
     {
         $validated = $request->validate(['name' => ['required', 'string', 'max:255'], 'city' => ['nullable', 'string', 'max:255'], 'phone' => ['nullable', 'string', 'max:32', 'unique:organizations,phone']]);
-        $supplier = Organization::create([...$validated, 'type' => OrganizationType::Wholesaler, 'status' => 'active', 'supplier_mode' => TradeMode::Supplier->value]);
-        $auditLogger->log('organization.supplier_created', $supplier, [], $supplier->only(['name', 'city', 'phone', 'type', 'status']));
+        $supplier = DB::transaction(function () use ($validated, $auditLogger): Organization {
+            $supplier = Organization::create([...$validated, 'type' => OrganizationType::Wholesaler, 'status' => 'active', 'supplier_mode' => TradeMode::Supplier->value]);
+            SupplierSynchronization::create(['supplier_organization_id' => $supplier->id, 'selection_mode' => 'newest_available',
+                'automatic_enabled' => false, 'paused' => false, 'fetch_interval_minutes' => 60, 'freshness_hours' => 24,
+                'sources' => collect(SupplierSynchronization::defaultSources())->map(fn (array $settings): array => array_replace($settings, ['enabled' => false]))->all()]);
+            $auditLogger->log('organization.supplier_created', $supplier, [], $supplier->only(['name', 'city', 'phone', 'type', 'status']));
+
+            return $supplier;
+        }, 3);
 
         return redirect()->route('admin.supplier-import-profiles.edit', $supplier)->with('success', 'Поставщик создан. Теперь настройте профиль импорта.');
     }

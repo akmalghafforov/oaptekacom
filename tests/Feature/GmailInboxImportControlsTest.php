@@ -184,7 +184,7 @@ class GmailInboxImportControlsTest extends TestCase
         if (! $existing) {
             $this->assertNull($supplier->importProfile()->first());
         }
-        $this->get(route('admin.supplier-import-profiles.edit', ['supplier' => $supplier, 'gmail_draft' => $token]))->assertOk()->assertSee('price@example.com')->assertSee('old@example.com')->assertSee('prices.csv')->assertSee('Отменить и вернуться')->assertHeader('Cache-Control', 'no-store, private');
+        $this->followingRedirects()->get(route('admin.supplier-import-profiles.edit', ['supplier' => $supplier, 'gmail_draft' => $token]))->assertOk()->assertSee('price@example.com')->assertSee('old@example.com')->assertSee('prices.csv')->assertSee('Отменить и вернуться')->assertHeader('Cache-Control', 'no-store, private');
         $this->getJson(route('admin.supplier-import-profiles.sample.preview', ['supplier' => $supplier, 'gmail_draft' => $token, 'worksheet' => 'Worksheet']))->assertOk()->assertJsonPath('rows.1.cells.A', 'Aspirin');
         $this->put(route('admin.supplier-import-profiles.update', $supplier), [
             'gmail_draft' => $token, 'name' => 'Gmail profile', 'file_type' => 'csv', 'worksheet' => 'Worksheet', 'data_row' => 2,

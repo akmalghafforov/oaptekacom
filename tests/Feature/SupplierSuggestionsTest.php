@@ -337,7 +337,7 @@ class SupplierSuggestionsTest extends TestCase
         $this->actingAs($this->admin());
         $supplier = Organization::factory()->wholesaler()->create(['name' => 'Совсем другая организация']);
         $partner = ExternalSupplierPartner::factory()->create(['name' => 'Уникальное название без совпадений', 'phones' => []]);
-        $response = $this->get(route('admin.supplier-sync.index'))->assertSee('Без сопоставления')->assertSee('Подтвердить сопоставление');
+        $response = $this->get(route('admin.supplier-sync.index', ['tab' => 'external']))->assertSee('Без сопоставления')->assertSee('Подтвердить сопоставление');
         $document = new \DOMDocument;
         @$document->loadHTML($response->getContent());
         $xpath = new \DOMXPath($document);

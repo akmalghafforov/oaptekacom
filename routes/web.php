@@ -169,9 +169,11 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
             Route::put('/partners/{partner}/profile', 'profile')->name('profile');
             Route::post('/availability/{availability}/date', 'confirmAvailabilityDate')->name('availability-date');
             Route::post('/imports/{import}/date', 'confirmDate')->name('date');
+            Route::post('/imports/{import}/resolve-conflict', 'resolveConflict')->name('resolve-conflict');
             Route::post('/imports/{import}/reject', 'reject')->name('reject');
             Route::get('/suppliers/{supplier}', 'show')->name('show');
             Route::put('/suppliers/{supplier}', 'update')->name('update');
+            Route::post('/suppliers/{supplier}/mapping', 'workspaceMapping')->name('workspace-mapping');
             Route::post('/suppliers/{supplier}/fetch', 'fetch')->name('fetch');
         });
         Route::prefix('gmail')->middleware(ProtectGmailResponse::class)->group(function () {

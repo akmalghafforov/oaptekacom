@@ -28,12 +28,12 @@ test('detail stops polling at completion while list watches for new downloads', 
     assert.equal(list.hasTimer(), true);
 });
 
-test('network errors retain displayed progress and offer manual refresh', async () => {
+test('network errors retain displayed progress and schedule another check', async () => {
     const state = setup([], '0', false);
     await state.poll();
     assert.equal(state.renders.length, 0);
     assert.match(state.feedback.textContent, /Не удалось/);
-    assert.equal(state.hasTimer(), false);
+    assert.equal(state.hasTimer(), true);
 });
 
 function tableSetup(entries, ok = true) {
@@ -97,7 +97,7 @@ test('polling failures retain the existing history table rows and refresh feedba
         const state = tableSetup([], failure);
         await state.poll();
         assert.equal(state.container.children[0], state.oldRow);
-        assert.match(state.feedback.textContent, /Не удалось.*Обновить статус/);
+        assert.match(state.feedback.textContent, /Не удалось.*Последние данные/);
     }
 });
 
@@ -106,4 +106,45 @@ test('empty service history remains a table row spanning all columns', async () 
     await state.poll();
     assert.equal(state.container.children[0].tagName, 'tr');
     assert.equal(state.container.children[0].children[0].colSpan, 6);
+});
+
+
+test('polling backs off transient failures then resumes successful monitoring', async () => {
+    let callback;
+    let delay;
+    let failing = true;
+    const feedback = {};
+    const rendered = [];
+    const panel = {dataset: {statusUrl: '/supplier', watchNew: '1'}, ownerDocument: {hidden: false}, querySelector: () => feedback};
+    initializeImportProgress(panel, {
+        fetch: async () => ({ok: !failing, json: async () => ({entries: [{active: true}]})}),
+        setTimeout: (fn, ms) => {callback = fn; delay = ms;}, clearTimeout() {}, addEventListener() {},
+    }, (_, entries) => rendered.push(entries));
+    await callback();
+    assert.equal(delay, 6000);
+    await callback();
+    assert.equal(delay, 12000);
+    assert.equal(rendered.length, 0);
+    failing = false;
+    await callback();
+    assert.equal(delay, 3000);
+    assert.equal(rendered.length, 1);
+    assert.match(feedback.textContent, /Статус обновлён/);
+});
+
+test('hidden tabs make no status requests and repeated failures eventually stop', async () => {
+    let callback;
+    let requests = 0;
+    let cleared = false;
+    const panel = {dataset: {statusUrl: '/supplier', watchNew: '1'}, ownerDocument: {hidden: true}, querySelector: () => ({})};
+    initializeImportProgress(panel, {
+        fetch: async () => {requests += 1; throw new Error('offline');},
+        setTimeout: fn => {callback = fn;}, clearTimeout: () => {cleared = true;}, addEventListener() {},
+    }, () => {});
+    await callback();
+    assert.equal(requests, 0);
+    panel.ownerDocument.hidden = false;
+    for (let count = 0; count < 6; count += 1) await callback();
+    assert.equal(requests, 6);
+    assert.equal(cleared, true);
 });

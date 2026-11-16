@@ -8,8 +8,12 @@
     $nextDirection = fn (string $column) => $sort === $column && $direction === 'asc' ? 'desc' : 'asc';
 @endphp
 <x-ui.page-header :title="$title" :description="$isProvider ? 'Каталог поставщиков и связанных учётных записей.' : 'Каталог аптек и связанных учётных записей.'">
-    <x-slot:actions><div class="flex flex-wrap gap-3"><a class="text-sm font-semibold text-accent hover:underline" href="{{ route('admin.pharmacies.index') }}">Аптеки</a><a class="text-sm font-semibold text-accent hover:underline" href="{{ route('admin.providers.index') }}">Поставщики</a></div></x-slot:actions>
+    <x-slot:actions><div class="flex flex-wrap gap-3"><a class="text-sm font-semibold text-accent hover:underline" href="{{ route('admin.pharmacies.index') }}">Аптеки</a><a class="text-sm font-semibold text-accent hover:underline" href="{{ route('admin.providers.index') }}">Поставщики</a>@if($isProvider)<x-ui.button variant="secondary" :href="route('admin.supplier-sync.index')">Синхронизация поставщиков</x-ui.button>@endif</div></x-slot:actions>
 </x-ui.page-header>
+
+@if($isProvider)
+<x-ui.card class="mb-6"><h2 class="font-bold">Прайс-листы поставщиков</h2><div class="mt-3 flex flex-wrap gap-3">@foreach(['failed' => 'Ошибки проверки', 'review' => 'Ожидают решения', 'overdue' => 'Проверки задерживаются'] as $state => $label)<x-ui.button variant="secondary" :href="route('admin.supplier-sync.index', ['supplier_status' => $state])">{{ $label }}: {{ $synchronizationCounts[$state] }}</x-ui.button>@endforeach</div></x-ui.card>
+@endif
 
 <x-ui.card class="mb-6">
     <form method="get" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

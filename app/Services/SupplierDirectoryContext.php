@@ -12,6 +12,7 @@ class SupplierDirectoryContext
     {
         return [
             'q' => ['nullable', 'string', 'max:255'],
+            'supplier_status' => ['nullable', 'in:attention,review,failed,overdue,updating,configured,paused,off'],
             'supplier_q' => ['nullable', 'string', 'max:255'],
             'tab' => ['nullable', 'in:external,suppliers'],
             'service' => ['nullable', 'in:icorp,pricelist_tj'],

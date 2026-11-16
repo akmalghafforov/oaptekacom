@@ -19,11 +19,19 @@ export function initializeSyncSubmit(form, browser) {
     const buttons = [...form.querySelectorAll('button[type="submit"], button:not([type])')];
     const initial = buttons.map((button) => ({ button, text: button.textContent, disabled: button.disabled }));
     let submitting = false;
+    let submitterField;
     form.addEventListener('submit', (event) => {
         if (event.defaultPrevented) return;
         if (submitting) {
             event.preventDefault();
             return;
+        }
+        if (event.submitter?.name) {
+            submitterField = form.ownerDocument.createElement('input');
+            submitterField.type = 'hidden';
+            submitterField.name = event.submitter.name;
+            submitterField.value = event.submitter.value;
+            form.append(submitterField);
         }
         submitting = true;
         form.setAttribute('aria-busy', 'true');
@@ -34,6 +42,8 @@ export function initializeSyncSubmit(form, browser) {
     });
     browser.addEventListener('pageshow', () => {
         submitting = false;
+        submitterField?.remove();
+        submitterField = null;
         form.removeAttribute('aria-busy');
         initial.forEach(({ button, text, disabled }) => {
             button.disabled = disabled;

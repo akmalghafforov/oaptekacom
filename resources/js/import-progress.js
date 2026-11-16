@@ -16,7 +16,7 @@ export function renderImportProgress(panel, entries) {
         if (entry.url) {
             const link = doc.createElement('a');
             link.href = entry.url;
-            link.textContent = 'Открыть подробности';
+            link.textContent = entry.action_label ?? 'Открыть подробности';
             link.className = 'inline-flex min-h-10 items-center font-semibold underline';
             card.append(link);
         }
@@ -32,7 +32,8 @@ export function renderImportProgress(panel, entries) {
 
 export function initializeImportProgress(panel, browser, render = renderImportProgress) {
     let stopped = false;
-    let polls = 0;
+    let failures = 0;
+    let lastUpdated = null;
     let timer;
     const feedback = panel.querySelector('[data-progress-feedback]');
     const stop = () => { stopped = true; browser.clearTimeout(timer); };
@@ -45,25 +46,33 @@ export function initializeImportProgress(panel, browser, render = renderImportPr
             const result = await response.json();
             if (stopped) return;
             render(panel, result.entries);
+            if (panel.querySelectorAll) {
+                panel.querySelectorAll('[data-supplier-field]').forEach(node => {
+                    node.textContent = result[node.dataset.supplierField] ?? 'Нет данных';
+                });
+            }
+            failures = 0;
+            lastUpdated = new Date().toLocaleTimeString('ru-RU');
+            feedback.textContent = `Статус обновлён: ${lastUpdated}.`;
             if (panel.dataset.watchNew !== '1' && !result.entries.some(entry => entry.active)) {
                 feedback.textContent = 'Статус обновлён. Автообновление завершено.';
-                stop();
-                return;
-            }
-            if (++polls >= 200) {
-                feedback.textContent = 'Автообновление остановлено. Нажмите «Обновить статус».';
                 stop();
                 return;
             }
             timer = browser.setTimeout(poll, 3000);
         } catch {
             if (stopped) return;
-            feedback.textContent = 'Не удалось обновить статус. Нажмите «Обновить статус».';
-            stop();
+            failures += 1;
+            feedback.textContent = `Не удалось обновить статус. Последние данные: ${lastUpdated ?? 'при открытии страницы'}. Это ошибка наблюдения; результат импорта неизвестен. ${failures <= 5 ? 'Повторяем проверку.' : 'Нажмите «Обновить статус».'}`;
+            if (failures <= 5) {
+                timer = browser.setTimeout(poll, Math.min(3000 * 2 ** failures, 30000));
+            } else {
+                stop();
+            }
         }
     };
     browser.addEventListener('pagehide', stop, {once: true});
-    browser.addEventListener('pageshow', event => { if (event.persisted) { stopped = false; polls = 0; poll(); } });
+    browser.addEventListener('pageshow', event => { if (event.persisted) { stopped = false; failures = 0; poll(); } });
     timer = browser.setTimeout(poll, 3000);
     return stop;
 }

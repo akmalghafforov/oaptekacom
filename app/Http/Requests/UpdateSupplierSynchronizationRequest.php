@@ -15,6 +15,8 @@ class UpdateSupplierSynchronizationRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'tie_source' => ['nullable', 'in:email,icorp,pricelist_tj'],
+            'action' => ['sometimes', 'in:save,enable'],
             'expected_version' => ['required', 'integer', 'min:0'],
             'selection_mode' => ['nullable', 'in:newest_available'],
             'selected_source' => ['nullable', 'required_unless:selection_mode,newest_available', 'in:email,icorp,pricelist_tj'],

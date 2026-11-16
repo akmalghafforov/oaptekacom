@@ -2,42 +2,56 @@
 @section('content')
 @php
     $labels = ['manual' => 'Ручной запуск', 'automatic' => 'По расписанию', 'mailbox' => 'Поступление почты', 'queued' => 'В очереди', 'fetching' => 'Загрузка', 'processing' => 'Обработка', 'activating' => 'Активация', 'activated' => 'Активирован', 'completed' => 'Завершён', 'validated' => 'Проверен', 'review' => 'Ожидает проверки', 'skipped' => 'Пропущен', 'failed' => 'Ошибка', 'unchanged' => 'Без изменений', 'waiting_mailbox' => 'Ожидает почту', 'waiting_import' => 'Ожидает импорт', 'preferred_fresh' => 'Приоритетный источник актуален', 'preferred_unresolved' => 'Ожидает приоритетный источник', 'unchanged_content' => 'Содержимое не изменилось', 'validation_failed' => 'Не пройдены пороги проверки', 'review_missing_date' => 'Требуется подтверждение даты', 'review_date_precision' => 'Недостаточная точность даты', 'review_future_date' => 'Дата в будущем', 'review_active_date_unknown' => 'Неизвестна дата активного прайса', 'review_pending' => 'Ожидает проверки предпросмотра', 'stale' => 'Устарел', 'older_than_active' => 'Старше активного прайса', 'equal_date_lower_priority' => 'Приоритет ниже при равной дате', 'configuration_missing' => 'Настройки синхронизации отсутствуют', 'configuration_changed' => 'Настройки изменились', 'profile_changed' => 'Профиль изменился', 'mapping_changed' => 'Сопоставление изменилось', 'paused' => 'Автоматическая загрузка приостановлена', 'source_not_selected' => 'Источник исключён: выбран другой', 'selection_required' => 'Выберите источник в профиле импорта', 'source_disabled' => 'Источник выключен', 'inactive_supplier' => 'Поставщик неактивен', 'no_new_mailbox_list' => 'Нет нового прайса в почте', 'unmapped' => 'Нет сопоставления', 'missing_profile' => 'Нет активного профиля', 'empty_catalog' => 'Пустой прайс', 'import_failed' => 'Ошибка импорта', 'no_eligible_candidate' => 'Нет подходящего прайса', 'service_busy' => 'Сервис занят', 'authentication' => 'Требуется авторизация', 'permission' => 'Нет доступа', 'transport' => 'Ошибка соединения', 'extraction' => 'Ошибка чтения данных', 'takeover_required' => 'Требуется отдельный принудительный вход'];
-    $labels += ['mailbox_disabled' => 'Проверка почты выключена', 'availability_pending' => 'Ожидает проверку справочника', 'waiting_availability' => 'Ожидает доступность источников', 'service_retry_pending' => 'Ожидает повторную проверку сервиса', 'download_busy' => 'Слот загрузки занят', 'pacing_wait' => 'Ожидает разрешённое время запроса', 'downloading' => 'Загрузка страниц', 'retry' => 'Ожидает повторной попытки', 'cooldown' => 'Пауза после ошибок', 'cancelled' => 'Отменён', 'challenge' => 'Требуется проверка доступа', 'rate_limited' => 'Ограничение частоты запросов', 'service_cooldown' => 'Пауза сервиса', 'retry_exhausted' => 'Повторы исчерпаны', 'mailbox_processing' => 'Ожидает обработку почты', 'mailbox_unhealthy' => 'Проверка почты не завершена', 'mailbox_failed' => 'Ошибка проверки почты', 'newest_publication' => 'Выбрана самая новая публикация', 'newer_candidate_pending' => 'Ожидает более новый прайс', 'same_source_equal_date' => 'Дата источника не изменилась'];
+    $labels += ['review_equal_date_conflict' => 'Разные версии с равной датой: сравните содержимое','mailbox_disabled' => 'Проверка почты выключена', 'availability_pending' => 'Ожидает проверку справочника', 'waiting_availability' => 'Ожидает доступность источников', 'service_retry_pending' => 'Ожидает повторную проверку сервиса', 'download_busy' => 'Слот загрузки занят', 'pacing_wait' => 'Ожидает разрешённое время запроса', 'downloading' => 'Загрузка страниц', 'retry' => 'Ожидает повторной попытки', 'cooldown' => 'Пауза после ошибок', 'cancelled' => 'Отменён', 'challenge' => 'Требуется проверка доступа', 'rate_limited' => 'Ограничение частоты запросов', 'service_cooldown' => 'Пауза сервиса', 'retry_exhausted' => 'Повторы исчерпаны', 'mailbox_processing' => 'Ожидает обработку почты', 'mailbox_unhealthy' => 'Проверка почты не завершена', 'mailbox_failed' => 'Ошибка проверки почты', 'newest_publication' => 'Выбрана самая новая публикация', 'newer_candidate_pending' => 'Ожидает более новый прайс', 'same_source_equal_date' => 'Дата источника не изменилась'];
     $sourceNames = ['email' => 'Почта', 'icorp' => 'iCorp', 'pricelist_tj' => 'PriceList-TJ'];
     $precisionLabels = ['day' => 'До дня', 'minute' => 'До минуты', 'second' => 'До секунды'];
     $formatDate = fn ($date) => $date?->timezone('Asia/Dushanbe')->format('d.m.Y H:i') ?? 'Нет данных';
 @endphp
 <x-ui.page-header :title="$supplier->name" description="Синхронизация прайс-листов · время Душанбе">
-    <x-slot:actions><x-ui.button variant="secondary" :href="route('admin.supplier-sync.index')">Справочник поставщиков</x-ui.button></x-slot:actions>
+    <x-slot:actions><x-ui.button variant="secondary" :href="route('admin.supplier-sync.index')">Прайс-листы поставщиков</x-ui.button></x-slot:actions>
 </x-ui.page-header>
 <div class="space-y-6">
     <x-ui.card>
         <div class="flex flex-wrap items-center justify-between gap-4">
             <x-ui.status-badge :status="$configuration->automatic_enabled && !$configuration->paused ? 'confirmed' : 'pending'" :label="!$configuration->settings_confirmed ? 'Требуется настройка' : ($configuration->paused ? 'На паузе' : ($configuration->automatic_enabled ? 'Автоматическая загрузка включена' : 'Автоматическая загрузка выключена'))" />
             <div class="flex flex-wrap gap-3">
-                @if($configuration->exists)<form data-sync-submit method="post" action="{{ route('admin.supplier-sync.fetch', $supplier) }}">@csrf <x-mode-version /><x-ui.button>Загрузить сейчас</x-ui.button></form>@else<x-ui.button :href="route('admin.supplier-import-profiles.edit', $supplier)">Настроить загрузку</x-ui.button>@endif
+                @if($configuration->exists)<form data-sync-submit method="post" action="{{ route('admin.supplier-sync.fetch', $supplier) }}">@csrf <x-mode-version /><x-ui.button>Проверить сейчас</x-ui.button></form>@else<x-ui.button :href="route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources'])">Настроить загрузку</x-ui.button>@endif
                 <x-ui.button variant="secondary" :href="request()->fullUrl()">Обновить статус</x-ui.button>
             </div>
         </div>
         <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2"><p>Последняя успешная активация<br><strong>{{ $formatDate($configuration->last_activated_at) }}</strong></p><p>Следующая проверка<br><strong>{{ $configuration->next_check_at ? $formatDate($configuration->next_check_at) : 'Не назначена' }}</strong></p></div>
-        <p class="mt-3 font-semibold">Выбранный источник: {{ $sourceNames[$configuration->selected_source] ?? 'Не выбран' }}</p>
-        <x-ui.button class="mt-3" variant="secondary" :href="route('admin.supplier-import-profiles.edit', $supplier)">Профиль импорта</x-ui.button>
-        <p class="mt-3 text-sm text-muted">Ручная загрузка ставится в очередь и доступна при паузе. Проверки дат и выбранного источника обязательны. Для результата нажмите «Обновить статус».</p>
+        <p class="mt-3 font-semibold">Режим: {{ $configuration->usesNewestAvailable() ? 'Самый новый доступный прайс' : ('Только '.($sourceNames[$configuration->selected_source] ?? 'источник не выбран')) }}</p><p class="mt-2">Активный источник: {{ $supplierStatus['active_source'] }}</p>
+        <x-ui.button class="mt-3" variant="secondary" :href="route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources'])">Источники и настройки</x-ui.button>
+        <p class="mt-3 text-sm text-muted">«Проверить сейчас» проверяет источники и публикует подходящий более новый прайс. Доступно при паузе автоматизации; общие паузы сервисов сохраняются. Повторные запросы объединяются.</p>
     </x-ui.card>
     <nav class="flex flex-wrap gap-2" aria-label="Разделы синхронизации">
-        @foreach(['overview' => 'Обзор', 'review' => 'Требуют проверки', 'history' => 'История'] as $key => $label)
+        @foreach(['overview' => 'Обзор', 'sources' => 'Источники и настройки', 'review' => 'Требуют проверки', 'history' => 'История'] as $key => $label)
             <x-ui.button :href="route('admin.supplier-sync.show', [$supplier, 'tab' => $key])" :variant="$tab === $key ? 'primary' : 'secondary'" :aria-current="$tab === $key ? 'page' : null">{{ $label }}{{ $key === 'review' && $previews->count() ? ' · '.$previews->count() : '' }}</x-ui.button>
         @endforeach
     </nav>
-    @if($configuration->usesNewestAvailable() || $downloads->isNotEmpty())
-        @include('admin.supplier-synchronizations.background-health')
+    @if($tab !== 'sources' && ($configuration->usesNewestAvailable() || $downloads->isNotEmpty()))
+        <details @if($tab === 'review') open @endif><summary class="min-h-10 cursor-pointer py-2 font-semibold">Доступность источников и фоновые попытки</summary>@include('admin.supplier-synchronizations.background-health')</details>
     @endif
-    @if($tab === 'overview')
+    @if($tab === 'sources')
+        @include('admin.supplier-import-profiles.edit')
+    @elseif($tab === 'overview')
+        @include('admin.supplier-synchronizations.operation')
+        @if($previews->isNotEmpty())<x-ui.alert type="warning">{{ $previews->count() }} прайс-листов ожидают решения. <a class="inline-flex min-h-10 items-center font-semibold underline" href="{{ route('admin.supplier-sync.show', [$supplier, 'tab' => 'review']) }}">Проверить даты и версии</a></x-ui.alert>@endif
         <div class="grid gap-4 lg:grid-cols-2">
             <x-ui.card><h2 class="mb-3 font-bold">Активный каталог</h2>
                 @if($active = $supplier->activePriceListImport)
                     @if($configuration->usesNewestAvailable() && (!$active->source_published_at || $active->source_published_at->lt(now()->subHours($configuration->freshness_hours))))<x-ui.alert type="warning">Активный прайс устарел или дата публикации неизвестна.</x-ui.alert>@endif
-                    <p class="break-words">{{ $active->original_filename }} · {{ $active->valid_rows }} корректных строк</p><p class="mt-2 text-sm text-muted">Публикация: {{ $formatDate($active->source_published_at) }} · {{ $precisionLabels[$active->source_date_precision] ?? 'Точность не определена' }}</p><x-ui.button class="mt-3" variant="secondary" :href="route('price-list-imports.show', $active)">Просмотреть каталог</x-ui.button>
+                    <p class="break-words">{{ $active->source_type->label() }} · {{ $active->original_filename }} · {{ $active->valid_rows }} корректных строк</p><p class="mt-2 text-sm text-muted">Публикация: {{ $formatDate($active->source_published_at) }} · {{ $precisionLabels[$active->source_date_precision] ?? 'Точность не определена' }}</p><p class="mt-2 text-sm text-muted">Основание: {{ $supplierStatus['evidence'] ?? 'Метаданные источника; дата не подтверждена администратором' }}</p><x-ui.button class="mt-3" variant="secondary" :href="route('price-list-imports.show', $active)">Просмотреть каталог</x-ui.button>
+                    @if($activeDateNeedsReview)
+                        <details class="mt-3"><summary class="min-h-10 cursor-pointer py-2 font-semibold">Уточнить дату активного каталога</summary>
+                            <form method="post" data-sync-submit action="{{ route('admin.supplier-sync.date', $active) }}" class="mt-3 space-y-3">@csrf <x-mode-version />
+                                <x-ui.input type="datetime-local" step="1" name="published_at" id="active-publication-date" label="Дата публикации активного прайса (Душанбе)" required />
+                                <x-ui.select name="precision" id="active-publication-precision" label="Точность даты"><option value="day">Известен только день</option><option value="minute">До минуты</option><option value="second">До секунды</option></x-ui.select>
+                                <x-ui.input name="evidence" id="active-publication-evidence" label="Основание подтверждения" required maxlength="1000" />
+                                <x-ui.button variant="secondary">Подтвердить дату активного прайса</x-ui.button>
+                            </form>
+                        </details>
+                    @endif
                 @else<p class="text-muted">Активного каталога пока нет.</p>@endif
             </x-ui.card>
             <x-ui.card><h2 class="mb-3 font-bold">Последний запуск</h2>
@@ -50,11 +64,12 @@
                     $partner = $partners->firstWhere('source', $source);
                     $ready = $source === 'email' ? (bool) $supplier->importProfile?->is_active : (bool) ($partner?->profile_active && $partner?->profile_configuration);
                 @endphp
-                <li class="flex flex-wrap items-center gap-3"><x-ui.status-badge :status="$configuration->selected_source !== $source || $ready ? 'confirmed' : 'pending'" :label="$ready ? 'Готов' : 'Нужна настройка'" /><span>{{ $sourceNames[$source] }}</span>
-                    @if($configuration->selected_source === $source && !$ready)<a class="inline-flex min-h-10 items-center font-semibold underline" href="{{ $source !== 'email' && !$partner ? route('admin.supplier-sync.index', ['service' => $source, 'filter' => 'unmapped']) : route('admin.supplier-import-profiles.edit', $supplier) }}">{{ $source !== 'email' && !$partner ? 'Подтвердить сопоставление' : 'Настроить профиль' }}</a>@endif
+                <li class="flex flex-wrap items-center gap-3"><x-ui.status-badge :status="$ready ? 'confirmed' : 'pending'" :label="$ready ? 'Готов' : 'Нужна настройка'" /><span>{{ $sourceNames[$source] }}</span><span class="text-sm text-muted">Подключение: {{ ($supplierStatus['source_health'][$source]['connection_status'] ?? 'unknown') === 'ready' ? 'Готово' : 'Не подтверждено' }} · {{ $supplierStatus['source_health'][$source]['identity_confirmed'] ? 'Поставщик подтверждён' : 'Требуется маршрутизация или сопоставление' }}</span>
+                    <span class="text-sm text-muted">{{ in_array($source, $configuration->enabledSources(), true) ? 'Использование разрешено' : 'Использование выключено' }}</span>
+                    @if(!$ready)<a class="inline-flex min-h-10 items-center font-semibold underline" href="{{ $source !== 'email' && !$partner ? route('admin.supplier-sync.index', ['tab' => 'external', 'service' => $source, 'filter' => 'unmapped']) : route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources']) }}">{{ $source !== 'email' && !$partner ? 'Подтвердить сопоставление' : 'Настроить профиль' }}</a>@endif
                 </li>
             @endforeach
-            <li><x-ui.status-badge :status="$configuration->settings_confirmed ? 'confirmed' : 'pending'" :label="$configuration->settings_confirmed ? 'Настройки сохранены' : 'Настройки не сохранены'" /> <a class="inline-flex min-h-10 items-center font-semibold underline" href="{{ route('admin.supplier-import-profiles.edit', $supplier) }}">Проверить настройки</a></li>
+            <li><x-ui.status-badge :status="$configuration->settings_confirmed ? 'confirmed' : 'pending'" :label="$configuration->settings_confirmed ? 'Настройки сохранены' : 'Настройки не сохранены'" /> <a class="inline-flex min-h-10 items-center font-semibold underline" href="{{ route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources']) }}">Проверить настройки</a></li>
         </ul></x-ui.card>
         <x-ui.card><h2 class="mb-3 font-bold">Пять последних запусков</h2>@include('admin.supplier-synchronizations.history', ['historyRuns' => $runs->take(5), 'showPagination' => false])<x-ui.button class="mt-4" variant="secondary" :href="route('admin.supplier-sync.show', [$supplier, 'tab' => 'history'])">История синхронизации</x-ui.button></x-ui.card>
     @elseif($tab === 'review')
@@ -62,5 +77,5 @@
     @else
         <x-ui.card><h2 class="mb-3 font-bold">История синхронизации</h2>@include('admin.supplier-synchronizations.history', ['historyRuns' => $runs, 'showPagination' => true])</x-ui.card>
     @endif
-</div>
+<x-ui.card><details><summary class="min-h-10 cursor-pointer py-2 font-semibold">Как определяется актуальность</summary><p class="mt-2 text-sm text-muted">Сравниваются даты публикации из настроенной ячейки, имени файла, метаданных сервиса или подтверждения администратора. Время получения и загрузки не доказывает актуальность. Это актуальность по записанным сведениям: система не может доказать, когда поставщик изменил каждую цену. Почта проверяется каждые пять минут, доступность внешних прайсов кешируется на час. Общая очередь и ограничения сервисов могут задержать загрузку.</p></details></x-ui.card></div>
 @endsection

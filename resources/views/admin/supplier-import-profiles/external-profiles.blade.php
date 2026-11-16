@@ -24,10 +24,26 @@
                     <p class="mt-3 text-sm text-muted">{{ $configuration->usesNewestAvailable() ? 'Загрузка выполняется после сравнения публикаций разрешённых источников.' : 'Для импорта выберите этот источник в настройках загрузки и сохраните настройки.' }}</p>
                 @endif
             @endif
+            @if($source !== 'email')
+                <p class="mt-2 text-sm text-muted">Подключение сервиса: {{ ($connectionStatuses[$source]['status'] ?? 'unknown') === 'connected' ? 'Проверено' : 'Требуется проверка подключения' }}</p>
+                <x-ui.button class="mt-3" type="button" variant="secondary" data-dialog-open :aria-controls="'service-connection-'.$source" aria-haspopup="dialog">Подключение {{ $sourceNames[$source] }}</x-ui.button>
+                <x-ui.dialog :name="'service-connection-'.$source" :title="'Общее подключение '.$sourceNames[$source]" :open-on-load="old('_sync_form') === 'connection-'.$source">
+                    <div class="px-5 pb-5"><p class="text-sm text-muted">Это общее подключение для нескольких поставщиков. Изменение учётных данных влияет на их проверки. Принудительный вход автоматически не выполняется.</p>
+                    <form method="post" data-sync-submit action="{{ route('admin.supplier-sync.connect', $source) }}" class="mt-4 space-y-3">@csrf <x-mode-version /><input type="hidden" name="_sync_form" value="connection-{{ $source }}">
+                        @if($source === 'icorp')<x-ui.input name="phone" id="workspace-icorp-phone" label="Телефон / логин iCorp" :value="$icorpLogin" required autocomplete="username" /><x-ui.input type="password" name="password" id="workspace-icorp-password" label="Пароль iCorp" autocomplete="new-password" hint="Пустое поле сохраняет пароль для того же телефона." />@endif
+                        <x-ui.button>Проверить подключение</x-ui.button>
+                    </form></div>
+                </x-ui.dialog>
+            @endif
             @if($source === 'email')
-                <x-ui.button class="mt-3" variant="secondary" href="#email-profile">Профиль почты и маршрутизация вложений</x-ui.button>
+                <x-ui.button class="mt-3" variant="secondary" :href="route('admin.gmail.index')">Проверить подключение почты</x-ui.button><x-ui.button class="mt-3" variant="secondary" href="#email-profile">Профиль почты и маршрутизация вложений</x-ui.button>
             @elseif(!$partner)
-                <p class="mt-3">Сначала подтвердите сопоставление с сервисом.</p><x-ui.button class="mt-3" variant="secondary" :href="route('admin.supplier-sync.index', ['service' => $source, 'filter' => 'unmapped'])">Найти сопоставление</x-ui.button>
+                <p class="mt-3">Сначала подтвердите сопоставление с сервисом.</p>
+                <form method="post" data-sync-submit action="{{ route('admin.supplier-sync.workspace-mapping', $supplier) }}" class="mt-3 space-y-3">@csrf <x-mode-version /><input type="hidden" name="_sync_form" value="workspace-mapping-{{ $source }}">
+                    <x-ui.select :restore="old('_sync_form') === 'workspace-mapping-'.$source" name="partner_id" :id="'mapping-'.$source.'-partner'" label="Поставщик в сервисе" required><option value="">Выберите подтверждённый каталог</option>@foreach($unmappedPartners->where('source', $source) as $candidate)<option value="{{ $candidate->id }}">{{ $candidate->name }} · {{ $candidate->external_id }}</option>@endforeach</x-ui.select>
+                    <x-ui.select name="confirmed" :id="'mapping-'.$source.'-confirmed'" label="Подтверждение поставщика и коммерческих условий" required><option value="">Выберите</option><option value="1">Подтверждаю: это тот же поставщик и каталог</option></x-ui.select>
+                    <x-ui.button variant="secondary">Подтвердить сопоставление</x-ui.button>
+                </form><x-ui.button class="mt-3" variant="secondary" :href="route('admin.supplier-sync.index', ['tab' => 'external', 'service' => $source, 'filter' => 'unmapped'])">Поиск и обновление справочника</x-ui.button>
             @else
         <p class="mt-2 break-words text-sm">Сопоставление: {{ $partner->name }} · {{ $partner->external_id }}</p>
         @php

@@ -7,6 +7,7 @@ use App\Enums\PriceListRowDisposition;
 use App\Models\PriceListImport;
 use App\Models\SupplierSyncAttempt;
 use App\Services\PriceList\ActivationDispatcher;
+use App\Services\PriceList\CatalogFingerprint;
 use App\Services\PriceList\CategoryCandidateExtractor;
 use App\Services\SupplierSourcePolicy;
 use Illuminate\Bus\Queueable;
@@ -78,6 +79,8 @@ class FinalizePriceListImportPreview implements ShouldQueue
 
             return;
         }
+
+        $attributes['summary']['catalog_fingerprint'] = app(CatalogFingerprint::class)->calculate($import);
 
         DB::transaction(function () use ($import, $attributes): void {
             $import->update(array_replace($attributes, ['status' => PriceListImportStatus::Preview, 'previewed_at' => now()]));

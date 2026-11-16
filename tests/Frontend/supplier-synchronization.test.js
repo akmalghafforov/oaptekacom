@@ -82,3 +82,24 @@ test('saving source settings leaves the external profile form available', () => 
     externalProfile.handlers.submit({});
     assert.equal(externalProfile.button.disabled, true);
 });
+
+
+test('named enable action survives disabling the submit button and back navigation', () => {
+    const handlers = {};
+    const browserHandlers = {};
+    const hidden = [];
+    const button = {name: 'action', value: 'enable', textContent: 'Включить', disabled: false};
+    initializeSyncSubmit({
+        querySelectorAll: () => [button],
+        ownerDocument: {createElement: () => ({remove() { hidden.splice(hidden.indexOf(this), 1); }})},
+        append: node => hidden.push(node),
+        addEventListener: (name, callback) => { handlers[name] = callback; },
+        setAttribute() {}, removeAttribute() {},
+    }, {addEventListener: (name, callback) => { browserHandlers[name] = callback; }});
+    handlers.submit({submitter: button});
+    assert.equal(hidden[0].name, 'action');
+    assert.equal(hidden[0].value, 'enable');
+    assert.equal(button.disabled, true);
+    browserHandlers.pageshow();
+    assert.equal(hidden.length, 0);
+});

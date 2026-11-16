@@ -15,6 +15,8 @@ use App\Models\SupplierSenderAddress;
 use App\Models\SupplierSynchronization;
 use App\Services\AuditLogger;
 use App\Services\GmailProfileDrafts;
+use App\Services\IcorpCredentials;
+use App\Services\IcorpFailure;
 use App\Services\PriceList\ProfileValidator;
 use App\Services\PriceList\SampleWorkbookReader;
 use App\Services\SupplierImportSettings;
@@ -26,14 +28,23 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use Illuminate\View\View;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use RuntimeException;
 use Throwable;
 
 class SupplierImportProfileController extends Controller
 {
-    public function edit(Request $request, int $supplier, SampleWorkbookReader $reader): View
+    public function edit(Request $request, int $supplier, SampleWorkbookReader $reader): RedirectResponse
+    {
+        Organization::query()->where('type', OrganizationType::Wholesaler)->findOrFail($supplier);
+        app(GmailProfileDrafts::class)->get($request, $supplier);
+        $request->session()->reflash();
+
+        return redirect()->route('admin.supplier-sync.show', ['supplier' => $supplier, 'tab' => 'sources', ...$request->only('gmail_draft')]);
+    }
+
+    /** @return array<string, mixed> */
+    public function workspaceData(Request $request, int $supplier, SampleWorkbookReader $reader): array
     {
         $organization = Organization::query()->where('type', OrganizationType::Wholesaler)->findOrFail($supplier);
         $profile = $organization->importProfile ?? new SupplierImportProfile(['name' => 'Основной профиль', 'file_type' => 'xlsx', 'configuration' => ProfileValidator::defaults()]);
@@ -65,14 +76,21 @@ class SupplierImportProfileController extends Controller
         }
 
         $configuration = SupplierSynchronization::where('supplier_organization_id', $supplier)->first()
-            ?? new SupplierSynchronization(['automatic_enabled' => false, 'paused' => false, 'fetch_interval_minutes' => 15, 'freshness_hours' => 24, 'sources' => SupplierSynchronization::defaultSources()]);
+            ?? new SupplierSynchronization(['automatic_enabled' => false, 'paused' => false, 'selection_mode' => 'newest_available', 'fetch_interval_minutes' => 60, 'freshness_hours' => 24, 'sources' => collect(SupplierSynchronization::defaultSources())->map(fn (array $settings): array => array_replace($settings, ['enabled' => false]))->all()]);
         $partners = ExternalSupplierPartner::where('supplier_organization_id', $supplier)->orderBy('source')->get();
         $sources = collect(SupplierSynchronization::defaultSources())->map(fn (array $settings, string $source): array => array_replace($settings, is_array($configuration->sources[$source] ?? null) ? $configuration->sources[$source] : []))->sortBy('priority');
         $readiness = collect(array_keys(SupplierSynchronization::defaultSources()))->mapWithKeys(fn (string $source): array => [$source => app(SupplierImportSettings::class)->readinessReason($organization, $source, true)]);
 
+        $unmappedPartners = ExternalSupplierPartner::whereNull('supplier_organization_id')->orderBy('name')->get();
+        try {
+            $icorpLogin = app(IcorpCredentials::class)->current()['phone'];
+        } catch (IcorpFailure) {
+            $icorpLogin = '';
+        }
+        $connectionStatuses = collect(['icorp', 'pricelist_tj'])->mapWithKeys(fn (string $source): array => [$source => Cache::get('external-prices:status:'.$source, ['status' => 'unknown'])]);
         $dispatchPaused = Cache::get('supplier-imports:dispatch-paused', false);
 
-        return view('admin.supplier-import-profiles.edit', compact('organization', 'profile', 'senderEmails', 'preview', 'draft', 'configuration', 'partners', 'sources', 'readiness', 'dispatchPaused'));
+        return compact('icorpLogin', 'connectionStatuses', 'unmappedPartners', 'organization', 'profile', 'senderEmails', 'preview', 'draft', 'configuration', 'partners', 'sources', 'readiness', 'dispatchPaused');
     }
 
     public function storeSample(StoreSupplierImportProfileSampleRequest $request, int $supplier, SampleWorkbookReader $reader): RedirectResponse
@@ -202,6 +220,16 @@ class SupplierImportProfileController extends Controller
                 'matching_strategy' => $request->validated('matching_strategy'),
                 'activation_mode' => 'automatic',
             ]);
+            if ($request->has('publication_source')) {
+                $publicationSource = $request->validated('publication_source');
+                $pattern = $request->validated('publication_pattern');
+                if ($publicationSource === 'filename' && @preg_match($pattern, '') === false) {
+                    throw ValidationException::withMessages(['publication_pattern' => 'Введите корректное регулярное выражение с первой группой для даты.']);
+                }
+                $configuration['inventory'] = ['source' => $publicationSource === 'review' ? 'upload_time' : $publicationSource,
+                    'cell' => strtoupper($request->validated('publication_cell') ?? ''), 'pattern' => $pattern, 'group' => 1,
+                    'formats' => array_values(array_filter(array_map('trim', explode(',', $request->validated('publication_formats') ?? 'd.m.Y,Y-m-d'))))];
+            }
             $configuration = $validator->validate($configuration);
             $emails = collect(preg_split('/\R/u', (string) $request->validated('sender_emails')))->map(fn (string $email): string => mb_strtolower(trim($email)))->filter()->unique()->values();
             foreach ($emails as $email) {

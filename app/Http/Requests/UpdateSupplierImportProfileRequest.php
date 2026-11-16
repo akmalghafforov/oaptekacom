@@ -32,6 +32,10 @@ class UpdateSupplierImportProfileRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'publication_source' => ['sometimes', 'nullable', 'in:cell,filename,review'],
+            'publication_cell' => ['nullable', 'required_if:publication_source,cell', 'regex:/^[A-Za-z]{1,3}[1-9][0-9]{0,6}$/'],
+            'publication_pattern' => ['nullable', 'required_if:publication_source,filename', 'string', 'max:500'],
+            'publication_formats' => ['nullable', 'required_with:publication_source', 'string', 'max:255'],
             'name' => ['required', 'string', 'max:255'],
             'file_type' => ['required', 'in:csv,tsv,xls,xlsx'],
             'worksheet' => ['required', 'string', 'max:255'],

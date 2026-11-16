@@ -19,6 +19,10 @@ class ImportProgress
             $status === 'failed' => 'Импорт завершился с ошибкой. Активный каталог сохранён.',
             $reason === 'source_not_selected' => 'Выбран другой источник. Активный каталог сохранён.',
             in_array($reason, ['configuration_changed', 'mapping_changed', 'profile_changed'], true) => 'Настройки изменились. Запустите новый импорт.',
+            in_array($reason, ['review_missing_date', 'review_future_date', 'review_active_date_unknown'], true) => 'Уточните дату публикации и основание в разделе «Требуют проверки». Активный каталог сохранён.',
+            $reason === 'review_date_precision' => 'Даты пересекаются: точности недостаточно для выбора нового прайса. Сравните версии.',
+            $reason === 'review_equal_date_conflict' => 'Разное содержимое при равной дате. Сравните версии и подтвердите выбор.',
+            $reason === 'validation_failed' => 'Файл не прошёл пороги проверки. Исправьте профиль; активный каталог сохранён.',
             $reason !== null => 'Требуется проверка даты или настроек источника.',
             $status === 'processing' => 'Обработано строк: '.$processed.' / '.$import->total_rows,
             $status === 'committing' => 'Публикация проверенных товаров в каталоге.',
@@ -28,11 +32,11 @@ class ImportProgress
         };
 
         return ['id' => 'import-'.$import->id, 'import_id' => $import->id, 'title' => $import->supplier->name.' · '.$import->source_type->label().' · №'.$import->id,
-            'label' => $import->status->label(), 'detail' => $detail, 'active' => in_array($status, ['pending', 'processing', 'committing'], true) || ($status === 'preview' && $reason === null),
+            'reason' => $reason, 'label' => $reason === 'unchanged_content' ? 'Без изменений' : ($reason && str_starts_with($reason, 'review_') ? 'Требуется проверка' : $import->status->label()), 'detail' => $detail, 'active' => in_array($status, ['pending', 'processing', 'committing'], true) || ($status === 'preview' && $reason === null),
             'filename' => $import->original_filename, 'source' => $import->source_type->value,
             'source_label' => $import->source_type->value === 'pricelist_tj' ? 'PriceList.tj' : $import->source_type->label(),
             'supplier' => $import->supplier->name, 'status' => $status,
-            'rows' => $import->valid_rows.' / '.$import->error_rows.' ош.', 'date' => $import->created_at->format('d.m.Y H:i'),
+            'rows' => $import->valid_rows.' / '.$import->error_rows.' ош.', 'date' => $import->created_at->copy()->timezone('Asia/Dushanbe')->format('d.m.Y H:i'),
             'processed' => $processed, 'total' => (int) $import->total_rows, 'url' => route('price-list-imports.show', $import)];
     }
 
@@ -44,7 +48,7 @@ class ImportProgress
         $active = $run->active_supplier_id !== null;
         $label = match ($run->status) {
             'queued' => 'В очереди на загрузку', 'processing' => 'Обработка', 'review' => 'Требуется проверка',
-            'completed' => 'Завершён', 'failed' => 'Ошибка загрузки', 'unchanged' => 'Без изменений', 'skipped' => 'Пропущен',
+            'completed' => 'Каталог опубликован', 'downloading' => 'Загрузка', 'activating' => 'Публикация', 'waiting_mailbox' => 'Ожидает почту', 'waiting_availability' => 'Ожидает проверку источников', 'failed' => 'Ошибка загрузки', 'unchanged' => 'Без изменений', 'skipped' => 'Пропущен',
             'waiting_import' => 'Ожидает завершения другого импорта', default => 'Загрузка из сервиса',
         };
 
@@ -61,14 +65,24 @@ class ImportProgress
             'transport' => 'Не удалось соединиться с сервисом. Активный каталог сохранён.',
             'extraction' => 'Не удалось прочитать данные сервиса. Активный каталог сохранён.',
             'empty_catalog' => 'Сервис вернул пустой прайс-лист. Активный каталог сохранён.',
-            'service_busy' => 'Сервис занят. Ожидается повторная загрузка.',
+            'service_busy', 'download_busy' => 'Общая загрузка занята другим поставщиком. Ожидается освобождение очереди.',
+            'service_cooldown', 'rate_limited' => 'Сервис ограничил запросы. Повтор выполняется после установленной паузы.',
+            'pacing_wait' => 'Ожидается разрешённое время следующего запроса.',
+            'mailbox_processing' => 'Ожидается обработка полученных почтовых файлов.',
+            'mailbox_unhealthy', 'mailbox_failed' => 'Проверка почты не подтверждена. Результат по остальным источникам может быть частичным.',
+            'availability_pending', 'service_retry_pending' => 'Ожидается фоновая проверка доступности источников.',
+            'configuration_changed', 'profile_changed', 'mapping_changed' => 'Настройки изменились. Предыдущая работа остановлена; проверьте с новыми настройками.',
             default => $active ? 'После получения файла здесь появится обработка прайс-листа.' : 'Активный каталог сохранён. Подробности доступны в истории синхронизации.',
         };
+
+        if ($run->next_retry_at) {
+            $detail .= ' Следующая попытка: '.$run->next_retry_at->copy()->timezone('Asia/Dushanbe')->format('d.m.Y H:i').'.';
+        }
 
         return ['id' => 'run-'.$run->id, 'import_id' => null, 'title' => $run->supplier->name.' · '.$sourceLabel,
             'label' => $label, 'detail' => $detail,
             'filename' => null, 'source' => $source, 'source_label' => $sourceLabel, 'supplier' => $run->supplier->name,
-            'status' => $label === 'Ошибка загрузки' ? 'failed' : $run->status, 'rows' => null, 'date' => $run->created_at->format('d.m.Y H:i'),
+            'status' => $label === 'Ошибка загрузки' ? 'failed' : $run->status, 'rows' => null, 'date' => $run->created_at->copy()->timezone('Asia/Dushanbe')->format('d.m.Y H:i'),
             'active' => $active && ! in_array($run->status, ['review', 'failed', 'skipped', 'unchanged', 'completed'], true), 'processed' => 0, 'total' => 0,
             'url' => route('admin.supplier-sync.show', [$run->supplier_organization_id, 'tab' => 'history'])];
     }

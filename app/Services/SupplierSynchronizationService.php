@@ -385,7 +385,8 @@ class SupplierSynchronizationService
 
             return;
         }
-        $this->finish($run, 'unchanged', 'no_eligible_candidate');
+        $needsReview = $run->attempts()->where('status', 'review')->exists();
+        $this->finish($run, $needsReview ? 'review' : 'unchanged', $needsReview ? 'review_pending' : 'no_eligible_candidate');
     }
 
     private function finish(SupplierSyncRun $run, string $status, string $reason, ?string $source = null): void

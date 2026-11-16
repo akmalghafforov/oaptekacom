@@ -83,7 +83,7 @@ class SupplierImportProfileTest extends TestCase
         ])->assertSessionHasNoErrors();
 
         $response = $this->withSession(['_old_input' => $oldWorksheet === null ? [] : ['worksheet' => $oldWorksheet]])
-            ->get(route('admin.supplier-import-profiles.edit', $supplier));
+            ->get(route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources']));
 
         $response->assertOk()->assertSessionMissing('warning')
             ->assertViewHas('preview', fn (array $preview): bool => $preview['worksheet'] === $expectedWorksheet)
@@ -101,7 +101,7 @@ class SupplierImportProfileTest extends TestCase
         }
         $this->actingAs($admin)->post(route('admin.supplier-import-profiles.sample.store', $supplier), ['sample' => UploadedFile::fake()->createWithContent('prices.csv', implode("\n", $rows))]);
 
-        $response = $this->actingAs($admin)->get(route('admin.supplier-import-profiles.edit', $supplier));
+        $response = $this->actingAs($admin)->get(route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources']));
 
         $response->assertSee('Столбец A')->assertSee('Столбец B')->assertSee('С строки 100')->assertSee('Показаны первые 100 строк из 101')->assertSee('&lt;script&gt;', false)->assertDontSee("<script>alert('x')</script>", false);
     }
@@ -225,7 +225,7 @@ class SupplierImportProfileTest extends TestCase
         $profile = $supplier->importProfile()->sole();
         $this->assertSame('Прайс [A]*', $profile->attachment_filename_filter);
         $this->assertSame(2, SupplierSenderAddress::where('normalized_email', 'shared@example.com')->count());
-        $this->get(route('admin.supplier-import-profiles.edit', $supplier))->assertSee('Фильтр имени вложения')->assertSee('Прайс [A]*')->assertSee('должно начинаться с указанного текста без учёта регистра и лишних пробелов');
+        $this->get(route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources']))->assertSee('Фильтр имени вложения')->assertSee('Прайс [A]*')->assertSee('должно начинаться с указанного текста без учёта регистра и лишних пробелов');
         $audit = AuditEvent::where('event', 'supplier_import_profile.updated')->latest('id')->firstOrFail();
         $this->assertNull($audit->before['attachment_filename_filter']);
         $this->assertSame('Прайс [A]*', $audit->after['attachment_filename_filter']);
@@ -264,6 +264,27 @@ class SupplierImportProfileTest extends TestCase
     }
 
     /** @param array<string, mixed> $overrides @return array<string, mixed> */
+    #[TestWith(['cell', 'C1', null])]
+    #[TestWith(['filename', null, '/(\\d{4}-\\d{2}-\\d{2})/'])]
+    public function test_email_publication_settings_are_saved_without_enabling_automation(string $source, ?string $cell, ?string $pattern): void
+    {
+        Storage::fake('local');
+        $supplier = Organization::factory()->wholesaler()->create();
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $this->actingAs($admin)->post(route('admin.supplier-import-profiles.sample.store', $supplier), ['sample' => UploadedFile::fake()->createWithContent('prices.csv', "Name,Price\nAspirin,10\n")]);
+
+        $this->put(route('admin.supplier-import-profiles.update', $supplier), $this->payload([
+            'publication_source' => $source, 'publication_cell' => $cell, 'publication_pattern' => $pattern, 'publication_formats' => 'Y-m-d, d.m.Y H:i',
+        ]))->assertSessionHasNoErrors();
+
+        $inventory = $supplier->importProfile()->firstOrFail()->configuration['inventory'];
+        $this->assertSame($source, $inventory['source']);
+        $this->assertSame(['Y-m-d', 'd.m.Y H:i'], $inventory['formats']);
+        $this->assertSame($cell ?? '', $inventory['cell']);
+        $this->assertSame($pattern, $inventory['pattern']);
+        $this->assertDatabaseMissing('supplier_synchronizations', ['supplier_organization_id' => $supplier->id]);
+    }
+
     private function payload(array $overrides = []): array
     {
         return array_replace([

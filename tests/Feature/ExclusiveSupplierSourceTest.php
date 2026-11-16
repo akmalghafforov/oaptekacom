@@ -46,7 +46,7 @@ class ExclusiveSupplierSourceTest extends TestCase
         $supplier = Organization::factory()->wholesaler()->create();
         $partner = ExternalSupplierPartner::factory()->create(['supplier_organization_id' => $supplier->id, 'source' => 'icorp'])->refresh();
         $draft = ['sample' => ['path' => 'private-draft.csv'], 'message' => 'message'];
-        $url = route('admin.supplier-import-profiles.edit', $supplier);
+        $url = route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources']);
         $this->actingAs($this->admin())->withSession(['gmail_profile_drafts.keep' => $draft])->get($url)
             ->assertOk()->assertSee('Единственный источник')->assertSee('нет сопоставления')->assertSee($partner->name)->assertDontSee('id="profile-form"', false);
         $this->from($url.'?gmail_draft=untouched')->put(route('admin.supplier-import-profiles.settings', $supplier), $this->settings())
@@ -83,7 +83,7 @@ class ExclusiveSupplierSourceTest extends TestCase
     public function test_opening_and_saving_email_parser_does_not_confirm_synchronization(): void
     {
         $supplier = Organization::factory()->wholesaler()->create();
-        $this->actingAs($this->admin())->get(route('admin.supplier-import-profiles.edit', $supplier))->assertOk();
+        $this->actingAs($this->admin())->get(route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources']))->assertOk();
         $this->assertDatabaseMissing('supplier_synchronizations', ['supplier_organization_id' => $supplier->id]);
         Storage::fake('local');
         $this->post(route('admin.supplier-import-profiles.sample.store', $supplier), ['sample' => UploadedFile::fake()->createWithContent('prices.csv', "name,price\nАспирин,12.50\n")])->assertSessionHasNoErrors();
@@ -367,7 +367,7 @@ class ExclusiveSupplierSourceTest extends TestCase
         $this->assertSame([], $configuration->enabledSources());
         $mail = PriceListImport::factory()->for($supplier, 'supplier')->create(['source_type' => 'email']);
         $this->assertSame('source_not_selected', app(SupplierSourcePolicy::class)->reason($mail));
-        $this->get(route('admin.supplier-import-profiles.edit', $supplier))->assertSee($partner->name)->assertSee('expected_profile_version');
+        $this->get(route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources']))->assertSee($partner->name)->assertSee('expected_profile_version');
     }
 
     public function test_nonselected_mail_receipt_is_processed_without_activating_its_catalog(): void
@@ -427,7 +427,7 @@ class ExclusiveSupplierSourceTest extends TestCase
         $this->assertSame('invalid_ranking', $configuration->refresh()->source_conversion['reason']);
         $data = $this->settings(2);
         $data['selected_source'] = 'email';
-        $this->actingAs($this->admin())->get(route('admin.supplier-import-profiles.edit', $configuration->supplier))->assertOk();
+        $this->actingAs($this->admin())->get(route('admin.supplier-sync.show', [$configuration->supplier, 'tab' => 'sources']))->assertOk();
         $this->putJson(route('admin.supplier-import-profiles.settings', $configuration->supplier), $data)->assertRedirect();
         $this->assertSame('email', $configuration->refresh()->selected_source);
         $this->assertSame(3, $configuration->version);
@@ -442,7 +442,7 @@ class ExclusiveSupplierSourceTest extends TestCase
         [$configuration, $partner] = $this->configured(['selected_source' => $source, 'paused' => true]);
         $partner->update(['source' => $source]);
         config(['external-prices.'.$source.'.phone' => '123', 'external-prices.'.$source.'.password' => 'test', 'external-prices.'.$source.'.firm_id' => '123']);
-        $url = route('admin.supplier-import-profiles.edit', $configuration->supplier);
+        $url = route('admin.supplier-sync.show', [$configuration->supplier, 'tab' => 'sources']);
         $this->actingAs($this->admin())->get($url)->assertSee('Импортировать из '.$label)->assertSee('name="expected_version"', false);
         $before = $configuration->getAttributes();
         $profileBefore = $partner->fresh()->toArray();
@@ -493,7 +493,7 @@ class ExclusiveSupplierSourceTest extends TestCase
     public function test_profile_run_tokens_are_paired_and_email_has_no_external_run_action(): void
     {
         [$configuration] = $this->configured(['selected_source' => 'email']);
-        $this->actingAs($this->admin())->get(route('admin.supplier-import-profiles.edit', $configuration->supplier))
+        $this->actingAs($this->admin())->get(route('admin.supplier-sync.show', [$configuration->supplier, 'tab' => 'sources']))
             ->assertDontSee('Импортировать из')->assertSee('Для импорта выберите этот источник');
         $this->postJson(route('admin.supplier-sync.fetch', $configuration->supplier), ['expected_version' => 1])->assertUnprocessable()->assertJsonValidationErrors('expected_source');
         $this->postJson(route('admin.supplier-sync.fetch', $configuration->supplier), ['expected_source' => 'icorp'])->assertUnprocessable()->assertJsonValidationErrors('expected_version');

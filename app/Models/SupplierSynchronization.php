@@ -40,6 +40,11 @@ class SupplierSynchronization extends Model
         return $this->selection_mode === 'newest_available';
     }
 
+    public function reviewsConflicts(): bool
+    {
+        return $this->usesNewestAvailable() && ($this->workflow_policy['version'] ?? null) === 1;
+    }
+
     /** @return array<string, array{enabled: bool, priority: int}> */
     public static function defaultSources(): array
     {
@@ -48,6 +53,6 @@ class SupplierSynchronization extends Model
 
     protected function casts(): array
     {
-        return ['source_conversion' => 'array', 'sources' => 'array', 'automatic_enabled' => 'boolean', 'settings_confirmed' => 'boolean', 'paused' => 'boolean', 'next_check_at' => 'datetime', 'last_activated_at' => 'datetime'];
+        return ['workflow_policy' => 'array', 'source_conversion' => 'array', 'sources' => 'array', 'automatic_enabled' => 'boolean', 'settings_confirmed' => 'boolean', 'paused' => 'boolean', 'next_check_at' => 'datetime', 'last_activated_at' => 'datetime'];
     }
 }

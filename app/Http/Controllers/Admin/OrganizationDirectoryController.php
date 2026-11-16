@@ -10,9 +10,11 @@ use App\Http\Requests\UpdateAdminOrganizationRequest;
 use App\Http\Requests\UpdateOrganizationAccountRequest;
 use App\Http\Requests\UpdatePriceListVisibilityRequest;
 use App\Models\Organization;
+use App\Models\SupplierSynchronization;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\OrganizationApprovalService;
+use App\Services\SupplierSynchronizationStatus;
 use App\Services\TelegramSupplierReviews;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
@@ -25,9 +27,12 @@ class OrganizationDirectoryController extends Controller
         return $this->index($request, OrganizationType::Pharmacy);
     }
 
-    public function providers(OrganizationDirectoryRequest $request): View
+    public function providers(OrganizationDirectoryRequest $request, SupplierSynchronizationStatus $status): View
     {
-        return $this->index($request, OrganizationType::Wholesaler);
+        $summaries = $status->forSuppliers(Organization::where('type', OrganizationType::Wholesaler)->get(), SupplierSynchronization::all()->keyBy('supplier_organization_id'));
+
+        return $this->index($request, OrganizationType::Wholesaler)->with('synchronizationCounts',
+            collect(['failed', 'review', 'overdue'])->mapWithKeys(fn (string $state): array => [$state => $summaries->where('state', $state)->count()]));
     }
 
     public function showPharmacy(Organization $organization): View

@@ -205,6 +205,9 @@ class ExternalPriceDownload
                 }
                 $attempt = SupplierSyncAttempt::with('run')->findOrFail($current->supplier_sync_attempt_id);
                 $publication = ExternalPriceWorkbook::publicationDate($current->snapshot['evidence']['confirmed_published_at'] ?? $current->company['published_at'] ?? $current->company['lastPriceUpdate'] ?? null);
+                if (isset($current->snapshot['evidence']['confirmed_published_at'], $current->snapshot['evidence']['confirmed_precision'])) {
+                    $publication['precision'] = $current->snapshot['evidence']['confirmed_precision'];
+                }
                 $metadata = ['partner_id' => $current->snapshot['partner_id'], 'external_id' => $current->external_id, 'profile_version' => $current->snapshot['profile_version'],
                     'configuration_version' => $current->snapshot['configuration_version'], 'trigger' => $attempt->run->trigger, 'fingerprint' => $fingerprint,
                     'published_at' => $publication['date']?->toIso8601String(), 'date_precision' => $publication['precision'], 'extracted_at' => now()->toIso8601String(),

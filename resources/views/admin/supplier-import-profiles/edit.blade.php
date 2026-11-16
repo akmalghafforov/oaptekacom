@@ -1,5 +1,3 @@
-@extends('layouts.app')
-@section('content')
 @php
     $sourceNames = ['email' => 'Почта', 'icorp' => 'iCorp', 'pricelist_tj' => 'PriceList-TJ'];
     $supplier = $organization;
@@ -9,9 +7,6 @@
     $savedMapping = array_flip($profile->configuration['mapping'] ?? []);
     $selectedDataRow = (int) $emailValue('data_row', $profile->configuration['data_row'] ?? 1);
 @endphp
-<x-ui.page-header :title="'Профиль импорта: '.$organization->name" description="Источник загрузки, внешние профили, почта и обработка файлов.">
-    <x-slot:actions><x-ui.button variant="secondary" :href="route('admin.supplier-sync.show', $organization)">Синхронизация и история</x-ui.button></x-slot:actions>
-</x-ui.page-header>
 @if((int) session('supplier_import_requested') === $organization->id)
 <x-ui.button variant="secondary" class="mt-3" :href="route('admin.supplier-sync.show', [$organization, 'tab' => 'history'])">История и результат импорта</x-ui.button>
 @endif
@@ -49,7 +44,15 @@
         <div class="mt-4 grid gap-4 md:grid-cols-3">
             <x-ui.input :restore="$restoringEmail" name="decimal_separator" label="Десятичный разделитель" :value="$profile->configuration['decimal_separator'] ?? '.'" required />
             <x-ui.select :restore="$restoringEmail" name="matching_strategy" label="Сопоставление" data-matching-strategy>@foreach(['name' => 'По нормализованному названию', 'sku' => 'Строго по SKU', 'sku_then_name' => 'SKU, затем название'] as $value => $label)<option value="{{ $value }}" @selected(($restoringEmail ? old('matching_strategy', $profile->configuration['matching_strategy'] ?? 'name') : ($profile->configuration['matching_strategy'] ?? 'name')) === $value)>{{ $label }}</option>@endforeach</x-ui.select>
-            <p class="self-end pb-3 text-sm text-muted">Прайс-листы обрабатываются и публикуются автоматически.</p>
+            <p class="self-end pb-3 text-sm text-muted">Готовый профиль разрешает разбор файла. Использование почты и автоматическое обновление включаются отдельно в настройках.</p>
+        </div>
+    </x-ui.card>
+    <x-ui.card><h2 class="font-bold">Дата публикации прайс-листа</h2><p class="mt-2 text-sm text-muted">Укажите, где поставщик записывает дату. Без надёжной даты новый режим запросит проверку; время получения письма не используется как дата публикации.</p>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+            <x-ui.select name="publication_source" :restore="$restoringEmail" label="Где находится дата">@foreach(['review' => 'Подтверждать вручную', 'cell' => 'В ячейке таблицы', 'filename' => 'В имени файла'] as $key => $label)<option value="{{ $key }}" @selected($emailValue('publication_source', $profile->configuration['inventory']['source'] ?? 'review') === $key)>{{ $label }}</option>@endforeach</x-ui.select>
+            <x-ui.input name="publication_cell" :restore="$restoringEmail" label="Ячейка с датой, например C1" :value="$profile->configuration['inventory']['cell'] ?? ''" />
+            <x-ui.input name="publication_pattern" :restore="$restoringEmail" label="Шаблон имени файла с первой группой для даты" :value="$profile->configuration['inventory']['pattern'] ?? ''" hint="Например: /(\d{4}-\d{2}-\d{2})/" />
+            <x-ui.input name="publication_formats" :restore="$restoringEmail" label="Форматы даты через запятую" :value="implode(', ', $profile->configuration['inventory']['formats'] ?? ['d.m.Y', 'Y-m-d'])" hint="Y-m-d — до дня; Y-m-d H:i — до минуты; Y-m-d H:i:s — до секунды." />
         </div>
     </x-ui.card>
     <x-ui.card>
@@ -60,7 +63,7 @@
             <thead><tr><th class="sticky left-0 z-10 min-w-44">Начало импорта</th>@foreach($preview['columns'] as $column)<th class="min-w-52"><span class="mb-2 block text-center text-xs" data-column-label="{{ $column }}">Столбец {{ $column }}</span><x-ui.select :restore="$restoringEmail" name="column_mappings[{{ $column }}]" label="Назначение столбца {{ $column }}" class="min-w-44" data-column-mapping data-column="{{ $column }}"><option value="ignore">Игнорировать</option>@foreach($attributeLabels as $field => $label)<option value="{{ $field }}" @selected($emailValue('column_mappings.'.$column, $savedMapping[$column] ?? 'ignore') === $field)>{{ $label }}</option>@endforeach</x-ui.select></th>@endforeach</tr></thead>
             <tbody>@foreach($preview['rows'] as $row)<tr data-source-row="{{ $row['number'] }}"><td class="sticky left-0 bg-inherit"><x-ui.row-start-radio :row="$row['number']" :checked="$selectedDataRow === $row['number']" /><span class="mt-1 block text-xs font-semibold" data-row-state></span></td>@foreach($preview['columns'] as $column)<td>{{ $row['cells'][$column] }}</td>@endforeach</tr>@endforeach</tbody>
         </table></div>
-        <div class="mt-5 flex justify-end"><x-ui.button data-save-button>Сохранить и активировать профиль</x-ui.button></div>
+        <div class="mt-5 flex justify-end"><x-ui.button data-save-button>Сохранить профиль разбора</x-ui.button></div>
     </x-ui.card>
 </form>
 <template data-mapping-options><option value="ignore">Игнорировать</option>@foreach($attributeLabels as $field => $label)<option value="{{ $field }}">{{ $label }}</option>@endforeach</template>
@@ -90,4 +93,3 @@
 @else
 <x-ui.alert type="warning" class="mt-6">Для настройки почты и файлов загрузите образец прайс-листа. Настройки внешних источников доступны выше.</x-ui.alert>
 @endif
-@endsection

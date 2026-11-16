@@ -2,7 +2,7 @@
     <h2 class="mb-3 font-bold">Фоновая загрузка и доступность</h2>
     @foreach($serviceStates as $state)
         <p class="mt-2">{{ $sourceNames[$state->source] }} · {{ $labels[$state->reason] ?? ($state->status === 'ready' ? 'Готов' : 'Требуется проверка') }}</p>
-        @if($state->status !== 'ready')<x-ui.button variant="secondary" :href="$state->source === 'email' ? route('admin.gmail.index') : route('admin.supplier-sync.index')">Восстановить подключение</x-ui.button>@endif
+        @if($state->status !== 'ready')<x-ui.button variant="secondary" :href="$state->source === 'email' ? route('admin.gmail.index') : route('admin.supplier-sync.index', ['tab' => 'external'])">Восстановить подключение</x-ui.button>@endif
         <p class="text-sm text-muted">Проверка: {{ $formatDate($state->last_checked_at) }} · Успешная проверка: {{ $formatDate($state->last_success_at) }} · Пауза до: {{ $formatDate($state->cooldown_until) }}</p>
     @endforeach
     @foreach($observations as $observation)
@@ -15,7 +15,8 @@
                     <input type="hidden" name="_sync_form" value="availability-date-{{ $observation->id }}">
                     <input type="hidden" name="version_key" value="{{ $observation->version_key }}">
                     <x-ui.input type="datetime-local" step="1" name="published_at" :id="'availability-'.$observation->id.'-published_at'" :restore="$restoring" label="Подтверждённая дата публикации" required />
-                    <x-ui.input name="evidence" :id="'availability-'.$observation->id.'-evidence'" :restore="$restoring" label="Основание подтверждения" maxlength="1000" required />
+                    <x-ui.select name="precision" :id="'availability-'.$observation->id.'-precision'" :restore="$restoring" label="Точность подтверждения"><option value="day">Известен только день</option><option value="minute">До минуты</option><option value="second">До секунды</option></x-ui.select>
+                <x-ui.input name="evidence" :id="'availability-'.$observation->id.'-evidence'" :restore="$restoring" label="Основание подтверждения" maxlength="1000" required />
                     <x-ui.button>Подтвердить дату источника</x-ui.button>
                 </form>
             @endif
