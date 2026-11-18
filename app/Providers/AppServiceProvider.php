@@ -8,9 +8,13 @@ use App\Models\GmailConnection;
 use App\Models\SupplierRequest;
 use App\Models\User;
 use App\Services\AccountModeContext;
+use App\Services\ExternalImportQueue;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
@@ -19,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->scoped(AccountModeContext::class);
+        $this->app->scoped(ExternalImportQueue::class);
     }
 
     /**
@@ -34,6 +39,9 @@ class AppServiceProvider extends ServiceProvider
             if (config('session.block_lock_seconds') <= (int) ini_get('max_execution_time')) {
                 throw new \LogicException('Session lock lifetime must exceed the HTTP execution timeout.');
             }
+        }
+        foreach (['external-import-start' => 'start', 'external-import-download' => 'download', 'external-import-poll' => 'poll'] as $name => $setting) {
+            RateLimiter::for($name, fn (Request $request) => Limit::perMinute((int) config('external-prices.lifecycle.'.$setting.'_per_minute'))->by((string) $request->user()->id));
         }
         Gate::before(fn (User $user, string $ability, array $arguments): ?bool => $user->isAdminMode() && ! in_array(is_object($arguments[0] ?? null) ? $arguments[0]::class : ($arguments[0] ?? null), [Cart::class, SupplierRequest::class, GmailConnection::class], true) ? true : null);
         View::composer('layouts.app', function ($view): void {

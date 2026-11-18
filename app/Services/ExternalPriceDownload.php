@@ -9,6 +9,7 @@ use App\Jobs\DownloadExternalPricePage;
 use App\Jobs\SynchronizeSupplier;
 use App\Models\ExternalAvailability;
 use App\Models\ExternalDownload;
+use App\Models\ExternalImportQueueItem;
 use App\Models\ExternalServiceState;
 use App\Models\ExternalSupplierPartner;
 use App\Models\Organization;
@@ -31,6 +32,12 @@ class ExternalPriceDownload
 
     public function start(SupplierSyncAttempt $attempt, SupplierSynchronization $config, ExternalSupplierPartner $partner, ?ExternalAvailability $observation = null): void
     {
+        $queue = app(ExternalImportQueue::class);
+        $queue->execute($attempt->run, $queue->generation($attempt->supplier_sync_run_id), fn () => $this->startOwned($attempt, $config, $partner, $observation));
+    }
+
+    private function startOwned(SupplierSyncAttempt $attempt, SupplierSynchronization $config, ExternalSupplierPartner $partner, ?ExternalAvailability $observation = null): void
+    {
         $evidence = $observation?->evidence ?? $partner->metadata ?? [];
         $version = app(SupplierVersions::class)->enabled() && $observation?->published_at ? hash('sha256', $config->supplier_organization_id.'|'.$partner->source.'|'.app(SupplierVersions::class)->day($observation->published_at)) : $observation?->version_key ?? hash('sha256', json_encode([$partner->external_id, $evidence, $config->version, $attempt->supplier_sync_run_id], JSON_THROW_ON_ERROR));
         $download = DB::transaction(function () use ($attempt, $config, $partner, $observation, $evidence, $version): ExternalDownload {
@@ -52,7 +59,7 @@ class ExternalPriceDownload
             if ($download->exists) {
                 $original = SupplierSyncAttempt::findOrFail($download->supplier_sync_attempt_id);
                 if (app(SupplierVersions::class)->enabled() || $download->snapshot['configuration_version'] === $config->version) {
-                    $attempt->update(['status' => $download->status === 'completed' ? ($original->price_list_import_id ? 'processing' : 'skipped') : (in_array($download->status, ['failed', 'cancelled'], true) ? 'failed' : 'downloading'),
+                    $attempt->update(['status' => $download->status === 'completed' ? ($original->price_list_import_id ? 'processing' : 'skipped') : (in_array($download->status, ['failed', 'cancelled'], true) ? 'failed' : 'queued'),
                         'price_list_import_id' => $original->price_list_import_id, 'reason' => $download->reason ?? 'version_claimed']);
 
                     return $download;
@@ -69,7 +76,7 @@ class ExternalPriceDownload
             if (isset($claim)) {
                 $claim->update(['external_download_id' => $download->id]);
             }
-            $attempt->update(['status' => 'downloading', 'reason' => null]);
+            $attempt->update(['status' => 'queued', 'reason' => null]);
 
             return $download;
         }, 3);
@@ -103,7 +110,25 @@ class ExternalPriceDownload
             && $partner->profile_active && $partner->profile_version === $download->snapshot['profile_version'];
     }
 
-    public function process(int $id): void
+    public function process(int $id, ?int $generation = null): void
+    {
+        $download = ExternalDownload::findOrFail($id);
+        $run = SupplierSyncAttempt::findOrFail($download->supplier_sync_attempt_id)->run;
+        app(ExternalImportQueue::class)->execute($run, $generation ?? app(ExternalImportQueue::class)->generation($run->id), fn () => $this->processOwned($id), function (ExternalImportQueueItem $item) use ($download): void {
+            if (! in_array($download->status, ['pending', 'downloading', 'retry'], true) || $download->next_retry_at?->isFuture()) {
+                return;
+            }
+            try {
+                $this->control->assertAvailable($download->source);
+                $this->lease->claim('download:'.$download->id);
+                $item->update(['state' => 'downloading']);
+            } catch (ExternalServiceUnavailable) {
+                $item->update(['state' => 'queued']);
+            }
+        });
+    }
+
+    private function processOwned(int $id): void
     {
         $worker = (string) Str::uuid();
         $download = DB::transaction(function () use ($id, $worker): ?ExternalDownload {
@@ -140,6 +165,7 @@ class ExternalPriceDownload
                 }
             }
             $this->control->assertAvailable($download->source);
+            $download->update(['status' => 'downloading', 'next_retry_at' => null]);
             SupplierSyncAttempt::whereKey($download->supplier_sync_attempt_id)->update(['status' => 'downloading', 'next_retry_at' => null]);
             if ($download->total_pages !== null && $download->next_page === $download->total_pages + 1) {
                 $this->complete($download, $worker, $owner, $fence);
@@ -208,10 +234,10 @@ class ExternalPriceDownload
             }
         }
         if ($continue) {
-            DownloadExternalPricePage::dispatch($id)->onQueue(config('price-list-imports.queue'));
+            DownloadExternalPricePage::dispatch($id)->onQueue(config('price-list-imports.queue'))->afterCommit();
         } else {
             $attempt = SupplierSyncAttempt::with('run')->findOrFail($download->supplier_sync_attempt_id);
-            SynchronizeSupplier::dispatch($attempt->supplier_sync_run_id)->onQueue(config('price-list-imports.queue'));
+            SynchronizeSupplier::dispatch($attempt->supplier_sync_run_id)->onQueue(config('price-list-imports.queue'))->afterCommit();
         }
     }
 
@@ -299,8 +325,12 @@ class ExternalPriceDownload
             return;
         }
         $attempt = SupplierSyncAttempt::findOrFail($current->supplier_sync_attempt_id);
+        if ($exception->getMessage() === 'catalog_changed') {
+            DB::table('external_download_pages')->where('external_download_id', $current->id)->delete();
+            $current->update(['next_page' => 1, 'received_rows' => 0, 'total_rows' => null, 'total_pages' => null, 'company' => null, 'account_discount' => null]);
+        }
         $busy = $exception instanceof LockTimeoutException || in_array($reason, ['download_busy', 'lease_lost'], true);
-        $transient = $reason === 'transport' || (app(SupplierVersions::class)->enabled() && $reason === 'rate_limited');
+        $transient = in_array($reason, ['transport', 'rate_limited'], true);
         $state = ExternalServiceState::findOrFail($download->source);
         $retry = $current->retry_count + ($transient ? 1 : 0);
         $delay = $busy ? 60 : ($exception instanceof ExternalServiceUnavailable && $exception->retryAfter ? $exception->retryAfter : $this->control->retryDelay($retry));
@@ -308,7 +338,7 @@ class ExternalPriceDownload
         $status = match (true) {
             in_array($reason, ['configuration_changed', 'reserved_for_inbox', 'ineligible_version', 'version_owned'], true) => 'cancelled',
             $busy, $transient && $retry <= 3 => 'retry',
-            $transient => app(SupplierVersions::class)->enabled() ? 'failed' : 'cooldown',
+            $transient => 'failed',
             $state->status === 'paused' => 'paused',
             in_array($reason, ['service_cooldown', 'rate_limited', 'pacing_wait'], true) => 'retry',
             default => 'failed',
@@ -326,7 +356,6 @@ class ExternalPriceDownload
             $this->control->pause($download->source, $reason);
         }
         if ($transient && $retry > 3) {
-            $state->update(['cooldown_until' => $next, 'reason' => 'retry_exhausted']);
             $this->control->incident($download->source, 'retry_exhausted');
         }
     }

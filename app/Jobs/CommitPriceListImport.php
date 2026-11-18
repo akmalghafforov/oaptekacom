@@ -6,6 +6,7 @@ use App\Enums\PriceListImportStatus;
 use App\Models\PriceListImport;
 use App\Models\SupplierSyncAttempt;
 use App\Models\User;
+use App\Services\ExternalImportQueue;
 use App\Services\PriceList\ImportActivator;
 use App\Services\SupplierSourcePolicy;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -24,13 +25,18 @@ class CommitPriceListImport implements ShouldQueue
 
     public array $backoff = [15, 45, 120];
 
-    public function __construct(public readonly int $importId, public readonly ?int $actorId = null) {}
+    public readonly int $generation;
+
+    public function __construct(public readonly int $importId, public readonly ?int $actorId = null, ?int $generation = null)
+    {
+        $this->generation = $generation ?? app(ExternalImportQueue::class)->importGeneration(PriceListImport::findOrFail($this->importId));
+    }
 
     public int $maxExceptions = 3;
 
     public function retryUntil(): \DateTimeInterface
     {
-        return now()->addHours(2);
+        return app(ExternalImportQueue::class)->importRetryDeadline(PriceListImport::findOrFail($this->importId));
     }
 
     public function middleware(): array
@@ -43,6 +49,11 @@ class CommitPriceListImport implements ShouldQueue
     }
 
     public function handle(ImportActivator $activator): void
+    {
+        app(ExternalImportQueue::class)->executeImport(PriceListImport::findOrFail($this->importId), ($this->generation ?? 1), fn () => $this->handleOwned($activator));
+    }
+
+    private function handleOwned(ImportActivator $activator): void
     {
         $import = PriceListImport::findOrFail($this->importId);
         if (in_array($import->status, [PriceListImportStatus::Superseded, PriceListImportStatus::Failed], true)) {
@@ -62,10 +73,15 @@ class CommitPriceListImport implements ShouldQueue
             return;
         }
         CleanupSupersededPriceListOffers::dispatch($result['import']->id, $result['superseded_import_id'])
-            ->onQueue(config('price-list-imports.queue'));
+            ->onQueue(config('price-list-imports.queue'))->afterCommit();
     }
 
     public function failed(?Throwable $exception): void
+    {
+        app(ExternalImportQueue::class)->executeImport(PriceListImport::findOrFail($this->importId), ($this->generation ?? 1), fn () => $this->failedOwned($exception));
+    }
+
+    private function failedOwned(?Throwable $exception): void
     {
         $context = [
             'stage' => 'activation_cutover', 'import_id' => $this->importId,

@@ -49,7 +49,7 @@ class ImportHistoryTest extends TestCase
             ->assertSee(route('price-list-imports.show', $import))
             ->assertSee(route('admin.supplier-sync.show', [$failed->supplier_organization_id, 'tab' => 'history']));
         $this->getJson($url)->assertJsonCount(2, 'entries')->assertJsonPath('entries.0.id', 'run-'.$failed->id)
-            ->assertJsonPath('entries.0.rows', null)->assertJsonPath('entries.0.filename', null)
+            ->assertJsonPath('entries.0.rows', '0 / —')->assertJsonPath('entries.0.filename', null)
             ->assertJsonPath('entries.1.id', 'import-'.$import->id)->assertJsonPath('entries.1.source_label', 'PriceList.tj');
     }
 
@@ -119,7 +119,7 @@ class ImportHistoryTest extends TestCase
     #[TestWith(['permission', 'Сервис отказал в доступе. Активный каталог сохранён.'])]
     #[TestWith(['extraction', 'Не удалось прочитать данные сервиса. Активный каталог сохранён.'])]
     #[TestWith(['empty_catalog', 'Сервис вернул пустой прайс-лист. Активный каталог сохранён.'])]
-    #[TestWith(['service_busy', 'Сервис занят. Ожидается повторная загрузка.'])]
+    #[TestWith(['service_busy', 'Общая загрузка занята другим поставщиком. Ожидается освобождение очереди.'])]
     public function test_service_rows_explain_download_problems(string $reason, string $explanation): void
     {
         $run = SupplierSyncRun::factory()->create(['configuration_snapshot' => ['selected_source' => 'icorp'], 'reason' => $reason]);

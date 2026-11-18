@@ -30,22 +30,72 @@ export function renderImportProgress(panel, entries) {
     container.replaceChildren(...cards);
 }
 
+export function renderQueueSummary(panel, queue) {
+    if (!queue || !panel.querySelectorAll) return;
+    panel.querySelectorAll('[data-queue-count]').forEach(node => {
+        node.textContent = queue.counts[node.dataset.queueCount] ?? 0;
+    });
+    const doc = panel.ownerDocument;
+    const line = (text, className = 'text-sm text-muted') => {
+        const node = doc.createElement('p');
+        node.textContent = text;
+        node.className = className;
+        return node;
+    };
+    const groups = panel.querySelector('[data-queue-groups]');
+    groups?.replaceChildren(...queue.groups.map(group => line(`Завершено ${group.finished} из ${group.total} · Успешно: ${group.succeeded} · Пропущено: ${group.skipped} · Ошибок: ${group.failed} · Требуют проверки: ${group.blocked}`)));
+    const active = panel.querySelector('[data-queue-active]');
+    active?.replaceChildren(...(queue.active.length ? queue.active.map(entry => {
+        const card = doc.createElement('div');
+        card.append(line(entry.title, 'font-semibold'), line(`${entry.lane} · ${entry.label}`, ''), line(entry.detail),
+            line(`Строки: ${entry.processed} / ${entry.total || '—'} · Страницы: ${entry.downloaded_pages} / ${entry.total_pages || '—'}`),
+            line(`Попытка: ${entry.retry_count + 1} · Следующий повтор: ${entry.next_retry_at ?? '—'} · Последняя активность: ${entry.heartbeat_at ?? '—'}`));
+        return card;
+    }) : [line('Нет выполняющихся импортов.', 'text-muted')]));
+}
+
 export function initializeImportProgress(panel, browser, render = renderImportProgress) {
     let stopped = false;
     let failures = 0;
     let lastUpdated = null;
     let timer;
+    let inFlight = false;
+    let controller;
+    let requestId = 0;
+    let revision = -1;
+    let retryNotBefore = 0;
     const feedback = panel.querySelector('[data-progress-feedback]');
-    const stop = () => { stopped = true; browser.clearTimeout(timer); };
+    const stop = () => {
+        stopped = true;
+        requestId += 1;
+        browser.clearTimeout(timer);
+        controller?.abort();
+    };
     const poll = async () => {
-        if (stopped) return;
+        if (stopped || inFlight) return;
         if (panel.ownerDocument.hidden) { timer = browser.setTimeout(poll, 3000); return; }
+        if (Date.now() < retryNotBefore) { timer = browser.setTimeout(poll, retryNotBefore - Date.now()); return; }
+        inFlight = true;
+        const currentRequest = ++requestId;
+        controller = new (browser.AbortController ?? globalThis.AbortController)();
+        const timeout = browser.setTimeout(() => controller.abort(), 15000);
+        let delay = 3000;
         try {
-            const response = await browser.fetch(panel.dataset.statusUrl, {headers: {Accept: 'application/json'}, cache: 'no-store'});
+            const response = await browser.fetch(panel.dataset.statusUrl, {headers: {Accept: 'application/json'}, cache: 'no-store', signal: controller.signal});
+            if (response.status === 429) {
+                const retry = response.headers?.get('Retry-After');
+                const seconds = /^\d+$/.test(retry ?? '') ? Number(retry) : (Date.parse(retry) - Date.now()) / 1000;
+                delay = Math.max(1000, Number.isFinite(seconds) ? seconds * 1000 : 60000);
+                retryNotBefore = Date.now() + delay;
+                throw new Error('throttled');
+            }
             if (!response.ok) throw new Error('status');
             const result = await response.json();
-            if (stopped) return;
+            if (stopped || currentRequest !== requestId) return;
+            if (result.revision !== undefined && result.revision < revision) return;
+            revision = result.revision ?? revision;
             render(panel, result.entries);
+            renderQueueSummary(panel, result.queue);
             if (panel.querySelectorAll) {
                 panel.querySelectorAll('[data-supplier-field]').forEach(node => {
                     node.textContent = result[node.dataset.supplierField] ?? 'Нет данных';
@@ -54,25 +104,31 @@ export function initializeImportProgress(panel, browser, render = renderImportPr
             failures = 0;
             lastUpdated = new Date().toLocaleTimeString('ru-RU');
             feedback.textContent = `Статус обновлён: ${lastUpdated}.`;
-            if (panel.dataset.watchNew !== '1' && !result.entries.some(entry => entry.active)) {
+            if (panel.dataset.watchNew !== '1' && !result.entries.some(entry => entry.unfinished ?? entry.active)) {
                 feedback.textContent = 'Статус обновлён. Автообновление завершено.';
                 stop();
-                return;
             }
-            timer = browser.setTimeout(poll, 3000);
         } catch {
-            if (stopped) return;
+            if (stopped || currentRequest !== requestId) return;
             failures += 1;
-            feedback.textContent = `Не удалось обновить статус. Последние данные: ${lastUpdated ?? 'при открытии страницы'}. Это ошибка наблюдения; результат импорта неизвестен. ${failures <= 5 ? 'Повторяем проверку.' : 'Нажмите «Обновить статус».'}`;
-            if (failures <= 5) {
-                timer = browser.setTimeout(poll, Math.min(3000 * 2 ** failures, 30000));
-            } else {
-                stop();
-            }
+            feedback.textContent = `Не удалось обновить статус. Данные устарели. Последние данные: ${lastUpdated ?? 'при открытии страницы'}. Это ошибка наблюдения; результат импорта неизвестен. ${failures <= 5 ? 'Повторяем проверку.' : 'Нажмите «Обновить статус».'}`;
+            delay = Math.max(delay, Math.min(3000 * 2 ** failures, 30000));
+            if (failures > 5 && retryNotBefore <= Date.now()) stop();
+        } finally {
+            browser.clearTimeout(timeout);
+            inFlight = false;
+            if (!stopped) timer = browser.setTimeout(poll, currentRequest === requestId ? delay : 0);
         }
     };
-    browser.addEventListener('pagehide', stop, {once: true});
+    browser.addEventListener('pagehide', stop);
     browser.addEventListener('pageshow', event => { if (event.persisted) { stopped = false; failures = 0; poll(); } });
+    panel.ownerDocument.addEventListener?.('visibilitychange', () => {
+        if (!panel.ownerDocument.hidden) {
+            browser.clearTimeout(timer);
+            if (failures > 5) { stopped = false; failures = 0; }
+            poll();
+        }
+    });
     timer = browser.setTimeout(poll, 3000);
     return stop;
 }

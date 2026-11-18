@@ -2,10 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Models\ExternalSupplierPartner;
+use App\Models\SupplierSynchronization;
 use App\Services\ExternalSupplierEligibility;
 use App\Services\IcorpClient;
 use App\Services\PriceListTjClient;
 use App\Services\RenderedSupplierListing;
+use App\Services\SupplierSynchronizationService;
 use App\Services\SupplierVersions;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -18,7 +21,7 @@ class FetchExternalPrices extends Command
 {
     protected $signature = 'external-prices:fetch {source : pricelist_tj or icorp} {--discover : Save partner metadata without fetching prices} {--exclude= : Local JSON list of suppliers already sending prices}';
 
-    protected $description = 'Discover external suppliers or extract eligible price lists into private staging storage';
+    protected $description = 'Discover external suppliers or queue configured supplier imports in the system lane';
 
     public function handle(PriceListTjClient $priceListTj, IcorpClient $icorp, ExternalSupplierEligibility $eligibility): int
     {
@@ -60,6 +63,29 @@ class FetchExternalPrices extends Command
                 return self::FAILURE;
             }
         }
+        if (! $this->option('discover')) {
+            $group = (string) Str::uuid();
+            $queued = 0;
+            ExternalSupplierPartner::where('source', $source)->whereNotNull('supplier_organization_id')->where('profile_active', true)
+                ->with('supplier')->eachById(function ($partner) use ($source, $excluded, $group, $eligibility, &$queued): void {
+                    $configuration = SupplierSynchronization::where('supplier_organization_id', $partner->supplier_organization_id)->first();
+                    if (! $configuration || ! in_array($source, $configuration->enabledSources(), true) || ! $configuration->automatic_enabled || $configuration->paused || $partner->supplier->status !== 'active') {
+                        return;
+                    }
+                    $phones = array_filter(array_map($eligibility->normalizePhone(...), $partner->phones ?? []));
+                    $isExcluded = collect($excluded)->contains(fn (array $entry): bool => ($entry['supplier_organization_id'] ?? null) === $partner->supplier_organization_id
+                        || (isset($entry['name']) && $eligibility->normalizeName($entry['name']) === $eligibility->normalizeName($partner->name))
+                        || array_intersect($phones, array_filter(array_map($eligibility->normalizePhone(...), $entry['phones'] ?? []))) !== []);
+                    if ($isExcluded) {
+                        return;
+                    }
+                    app(SupplierSynchronizationService::class)->request($partner->supplier, 'cli', groupId: $group);
+                    $queued++;
+                });
+            $this->info($queued.' supplier imports queued in the system lane.');
+
+            return self::SUCCESS;
+        }
         $lock = Cache::lock('external-prices:'.$source, 7200);
         if (! $lock->get()) {
             $this->error('An extraction is already using this service account.');
@@ -70,40 +96,9 @@ class FetchExternalPrices extends Command
             $runPath = 'external-prices/runs/'.now()->format('Ymd-His').'-'.Str::uuid();
             $partners = $client->partners();
             $this->save($runPath.'/partners.json', $partners);
-            if ($this->option('discover')) {
-                $this->info(count($partners).' partners discovered. Private file: '.$runPath.'/partners.json');
+            $this->info(count($partners).' partners discovered. Private file: '.$runPath.'/partners.json');
 
-                return self::SUCCESS;
-            }
-            $report = [];
-            $this->save($runPath.'/report.json', $report);
-            $failed = false;
-            foreach ($partners as $partner) {
-                $result = $eligibility->review([$partner], $excluded)[0];
-                if ($result['outcome'] === 'eligible') {
-                    try {
-                        $prices = $client->prices($partner['external_id']);
-                        if ($prices['unavailable'] ?? false) {
-                            $result = [...$result, 'outcome' => 'skip', 'reason' => 'price_list_unavailable'];
-                        } else {
-                            $file = $runPath.'/'.hash('sha256', $partner['external_id']).'.json';
-                            $this->save($file, ['source' => $source, 'fetched_at' => now()->toIso8601String(), ...$prices]);
-                            $result = [...$result, 'outcome' => 'extracted', 'row_count' => count($prices['items']), 'file' => $file];
-                        }
-                    } catch (RuntimeException $exception) {
-                        $failed = true;
-                        $result = [...$result, 'outcome' => 'failed', 'reason' => 'extraction_failed', 'message' => $exception->getMessage()];
-                    } catch (Throwable) {
-                        $failed = true;
-                        $result = [...$result, 'outcome' => 'failed', 'reason' => 'extraction_failed'];
-                    }
-                }
-                $report[] = $result;
-                $this->save($runPath.'/report.json', $report);
-            }
-            $this->info('Private extraction report: '.$runPath.'/report.json');
-
-            return $failed ? self::FAILURE : self::SUCCESS;
+            return self::SUCCESS;
         } catch (RuntimeException $exception) {
             $this->error($exception->getMessage());
 

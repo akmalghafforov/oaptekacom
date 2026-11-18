@@ -9,6 +9,7 @@ use App\Jobs\MaterializePriceListImportChunk;
 use App\Models\PriceListImport;
 use App\Services\SupplierSourcePolicy;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 
 class ActivationDispatcher
 {
@@ -39,6 +40,10 @@ class ActivationDispatcher
             ->all();
         $jobs[] = new CommitPriceListImport($import->id, $actorId);
 
-        Bus::chain($jobs)->onQueue(config('price-list-imports.queue'))->dispatch();
+        if (in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)) {
+            DB::afterCommit(fn () => Bus::chain($jobs)->onQueue(config('price-list-imports.queue'))->dispatch());
+        } else {
+            Bus::chain($jobs)->onQueue(config('price-list-imports.queue'))->dispatch();
+        }
     }
 }

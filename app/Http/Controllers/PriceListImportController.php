@@ -15,6 +15,7 @@ use App\Http\Requests\StorePriceListImportRequest;
 use App\Http\Requests\StoreSupplierImportProfileSampleRequest;
 use App\Jobs\PreparePriceListImport;
 use App\Models\ExternalDownload;
+use App\Models\ExternalImportQueueItem;
 use App\Models\Medicine;
 use App\Models\Organization;
 use App\Models\PriceListImport;
@@ -22,8 +23,12 @@ use App\Models\PriceListImportRow;
 use App\Models\ProductCategory;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
+use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
 use App\Services\AuditLogger;
+use App\Services\ExternalImportQueue;
+use App\Services\ExternalServiceControl;
+use App\Services\ExternalServiceUnavailable;
 use App\Services\ImportFileValidator;
 use App\Services\ImportProgress;
 use App\Services\PriceList\ActivationDispatcher;
@@ -93,11 +98,12 @@ class PriceListImportController extends Controller
 
             return $entry;
         }));
+        $queueSummary = $tab === 'services' ? $progress->queue($request->user()) : null;
         if ($request->expectsJson()) {
-            return response()->json(['entries' => $history->items()])->header('Cache-Control', 'private, no-store');
+            return response()->json(['entries' => $history->items(), 'queue' => $queueSummary, 'revision' => $queueSummary['revision'] ?? 0])->header('Cache-Control', 'private, no-store');
         }
 
-        return view('price-list-imports.index', ['tab' => $tab, 'history' => $history, 'suppliers' => $request->user()->isAdminMode() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
+        return view('price-list-imports.index', ['tab' => $tab, 'history' => $history, 'queueSummary' => $queueSummary, 'suppliers' => $request->user()->isAdminMode() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
     }
 
     public function store(StorePriceListImportRequest $request, SupplierPriceListIngestor $ingestor): RedirectResponse
@@ -137,7 +143,7 @@ class PriceListImportController extends Controller
         $importModel->load(['supplier'])->loadCount('rows');
         $progressEntries = [app(ImportProgress::class)->import($importModel)];
         if ($request->expectsJson()) {
-            return response()->json(['entries' => $progressEntries, 'status' => $importModel->status->value, 'label' => $importModel->status->label(), 'counts' => $importModel->only(['total_rows', 'valid_rows', 'error_rows', 'warning_rows', 'skipped_rows'])]);
+            return response()->json(['entries' => $progressEntries, 'revision' => $progressEntries[0]['revision'] ?? 0, 'status' => $importModel->status->value, 'label' => $importModel->status->label(), 'counts' => $importModel->only(['total_rows', 'valid_rows', 'error_rows', 'warning_rows', 'skipped_rows'])]);
         }
         $rows = $importModel->rows()->when($request->string('disposition')->isNotEmpty(), fn ($query) => $query->where('disposition', $request->string('disposition')->toString()))->when($request->string('categorization_status')->isNotEmpty(), fn ($query) => $query->where('categorization_status', $request->string('categorization_status')->toString()))->orderBy('source_row')->paginate(50)->withQueryString();
 
@@ -164,29 +170,59 @@ class PriceListImportController extends Controller
     {
         $importModel = $this->scoped($request, $import);
         $this->authorize('retry', $importModel);
-        abort_unless($importModel->status === PriceListImportStatus::Failed, 422);
-        if (! app(SupplierVersions::class)->enabled() && in_array($importModel->source_type->value, ['icorp', 'pricelist_tj'], true)) {
-            app(SupplierSynchronizationService::class)->request($importModel->supplier);
 
-            return back()->with('success', 'Новая загрузка выбранного источника поставлена в очередь.');
-        }
-        abort_if($importModel->failure_stage === 'version_skipped', 422, 'Версия уже импортирована или обрабатывается.');
-        if (app(SupplierVersions::class)->enabled()) {
-            abort_if(app(SupplierVersions::class)->attach($importModel) !== null, 422, 'Версия уже импортирована или занята другим импортом.');
-        }
-        $activationFailure = in_array($importModel->failure_stage, ['activation', 'activation_materialization', 'activation_cutover'], true);
-        $importModel->update([
-            'status' => $activationFailure ? PriceListImportStatus::Preview : PriceListImportStatus::Pending,
-            'failed_at' => null, 'failure_stage' => null, 'failure_message' => null,
-        ]);
-        if ($activationFailure) {
-            $activationDispatcher->dispatch($importModel->fresh(), $request->user()->id);
-        } else {
-            $importModel->rows()->delete();
-            PreparePriceListImport::dispatch($importModel->fresh())->onQueue(config('price-list-imports.queue'))->afterCommit();
-        }
+        return DB::transaction(function () use ($request, $importModel, $activationDispatcher): RedirectResponse {
+            $run = app(ExternalImportQueue::class)->runForImport($importModel);
+            $item = $run ? ExternalImportQueueItem::find($run->execution_queue_item_id) : null;
+            if ($item) {
+                DB::table('external_import_queue_lanes')->where('id', $item->lane_id)->lockForUpdate()->first();
+            } elseif (in_array($importModel->source_type->value, ['icorp', 'pricelist_tj'], true)) {
+                DB::table('external_import_queue_lanes')->where('id', 'system')->lockForUpdate()->first();
+            }
+            Organization::whereKey($importModel->supplier_organization_id)->lockForUpdate()->firstOrFail();
+            $importModel = PriceListImport::whereKey($importModel->id)->lockForUpdate()->firstOrFail();
+            abort_unless($importModel->status === PriceListImportStatus::Failed, 422);
+            if (! app(SupplierVersions::class)->enabled() && in_array($importModel->source_type->value, ['icorp', 'pricelist_tj'], true)
+                && ($importModel->source_metadata['configuration_version'] ?? null) !== SupplierSynchronization::where('supplier_organization_id', $importModel->supplier_organization_id)->value('version')) {
+                app(SupplierSynchronizationService::class)->request($importModel->supplier);
 
-        return back()->with('success', 'Повторная обработка запущена.');
+                return back()->with('success', 'Новая загрузка выбранного источника поставлена в очередь.');
+            }
+            abort_if($importModel->failure_stage === 'version_skipped', 422, 'Версия уже импортирована или обрабатывается.');
+            if (app(SupplierVersions::class)->enabled()) {
+                abort_if(app(SupplierVersions::class)->attach($importModel) !== null, 422, 'Версия уже импортирована или занята другим импортом.');
+            }
+            $activationFailure = in_array($importModel->failure_stage, ['activation', 'activation_materialization', 'activation_cutover'], true);
+            $externalRun = app(ExternalImportQueue::class)->runForImport($importModel);
+            if (! $externalRun && in_array($importModel->source_type->value, ['icorp', 'pricelist_tj'], true)) {
+                $externalRun = app(ExternalImportQueue::class)->adoptImport($importModel);
+            }
+            if ($externalRun) {
+                $configuration = SupplierSynchronization::where('supplier_organization_id', $importModel->supplier_organization_id)->firstOrFail();
+                abort_unless(($importModel->source_metadata['configuration_version'] ?? null) === $configuration->version, 422);
+                $reason = app(SupplierSourcePolicy::class)->reason($importModel);
+                abort_unless(in_array($reason, [null, 'validation_failed'], true), 422, 'Повтор недоступен: '.$reason);
+                try {
+                    app(ExternalServiceControl::class)->assertAvailable($importModel->source_type->value);
+                } catch (ExternalServiceUnavailable $exception) {
+                    throw ValidationException::withMessages(['import' => 'Повтор ожидает восстановления сервиса: '.$exception->reason]);
+                }
+                app(ExternalImportQueue::class)->retry($externalRun, $request->user()->id);
+            }
+            $importModel->update([
+                'status' => $activationFailure ? PriceListImportStatus::Preview : PriceListImportStatus::Pending,
+                'failed_at' => null, 'failure_stage' => null, 'failure_message' => null,
+            ]);
+            if ($activationFailure) {
+                $activationDispatcher->dispatch($importModel->fresh(), $request->user()->id);
+            } else {
+                $importModel->rows()->delete();
+                $importModel->update(['total_rows' => 0, 'valid_rows' => 0, 'error_rows' => 0, 'warning_rows' => 0, 'skipped_rows' => 0, 'summary' => [], 'effective_layout' => null, 'processing_started_at' => null, 'previewed_at' => null]);
+                PreparePriceListImport::dispatch($importModel->fresh())->onQueue(config('price-list-imports.queue'))->afterCommit();
+            }
+
+            return back()->with('success', 'Повторная обработка запущена.');
+        }, 3);
     }
 
     public function replay(Request $request, int $import, SupplierPriceListIngestor $ingestor): RedirectResponse

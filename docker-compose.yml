@@ -20,6 +20,7 @@ services:
       DB_USERNAME: ${DB_USERNAME:-oapteka}
       DB_PASSWORD: ${DB_PASSWORD:-secret}
       CACHE_STORE: database
+      DB_CACHE_LOCK_CONNECTION: pgsql_locks
       SESSION_DRIVER: database
       QUEUE_CONNECTION: database
     depends_on:
@@ -88,7 +89,7 @@ services:
     restart: unless-stopped
     working_dir: /var/www
     command: >-
-      sh -c "until test -f vendor/autoload.php; do sleep 2; done; php artisan queue:work --queue=$${GMAIL_IMPORTS_QUEUE:-gmail-imports},$${PRICE_LIST_QUEUE:-price-list-imports},default --sleep=2 --tries=3 --timeout=120"
+      sh -c "until test -f vendor/autoload.php; do sleep 2; done; php -d memory_limit=512M artisan queue:work --queue=$${GMAIL_IMPORTS_QUEUE:-gmail-imports},$${PRICE_LIST_QUEUE:-price-list-imports},default --sleep=2 --tries=3 --timeout=120"
     volumes:
       - ./:/var/www
       - vendor:/var/www/vendor
@@ -101,6 +102,7 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-secret}
       QUEUE_CONNECTION: database
       PRICE_LIST_QUEUE: ${PRICE_LIST_QUEUE:-price-list-imports}
+      DB_CACHE_LOCK_CONNECTION: pgsql_locks
       GMAIL_IMPORTS_QUEUE: ${GMAIL_IMPORTS_QUEUE:-gmail-imports}
     depends_on:
       postgres:
@@ -126,6 +128,7 @@ services:
       DB_USERNAME: ${DB_USERNAME:-oapteka}
       DB_PASSWORD: ${DB_PASSWORD:-secret}
       CACHE_STORE: database
+      DB_CACHE_LOCK_CONNECTION: pgsql_locks
     depends_on:
       postgres:
         condition: service_healthy

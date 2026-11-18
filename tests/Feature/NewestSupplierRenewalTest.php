@@ -151,7 +151,7 @@ class NewestSupplierRenewalTest extends TestCase
         Http::assertNothingSent();
         $this->travel(15)->minutes();
         app(SupplierSynchronizationService::class)->process($run->fresh());
-        $this->assertSame('downloading', $run->fresh()->status);
+        $this->assertSame('queued', $run->fresh()->status);
         $this->assertSame(1, ExternalDownload::count());
     }
 
@@ -250,7 +250,7 @@ class NewestSupplierRenewalTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_transient_failures_retry_three_times_then_cool_down_and_release_slot(): void
+    public function test_transient_failures_retry_three_times_then_fail_and_release_slot(): void
     {
         [$config] = $this->configured();
         $this->fakeExternal(now()->subHour()->toIso8601String());
@@ -261,9 +261,13 @@ class NewestSupplierRenewalTest extends TestCase
             app(ExternalPriceDownload::class)->process($download->id);
             $download->refresh();
             $this->assertSame($index + 1, $download->retry_count);
-            $seconds = (int) now()->diffInSeconds($download->next_retry_at);
-            $this->assertGreaterThanOrEqual($delay, $seconds);
-            $this->assertLessThanOrEqual((int) ($delay * 1.2), $seconds);
+            if ($index < 3) {
+                $seconds = (int) now()->diffInSeconds($download->next_retry_at);
+                $this->assertGreaterThanOrEqual($delay, $seconds);
+                $this->assertLessThanOrEqual((int) ($delay * 1.2), $seconds);
+            } else {
+                $this->assertNull($download->next_retry_at);
+            }
             $this->assertNull(DB::table('external_download_leases')->first()->owner);
             if ($index < 3) {
                 app(ExternalPriceDownload::class)->process($download->id);
@@ -271,7 +275,7 @@ class NewestSupplierRenewalTest extends TestCase
                 $this->travelTo($download->next_retry_at);
             }
         }
-        $this->assertSame('cooldown', $download->status);
+        $this->assertSame('failed', $download->status);
         $this->artisan('suppliers:sync')->assertSuccessful();
         $this->assertSame(4, $download->fresh()->retry_count);
     }

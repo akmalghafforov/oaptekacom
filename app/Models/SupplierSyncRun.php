@@ -25,6 +25,11 @@ class SupplierSyncRun extends Model
         return $this->hasMany(SupplierSyncAttempt::class);
     }
 
+    public function queueItem(): BelongsTo
+    {
+        return $this->belongsTo(ExternalImportQueueItem::class, 'execution_queue_item_id');
+    }
+
     protected function casts(): array
     {
         return ['decision' => 'array', 'mailbox_wait_started_at' => 'datetime', 'next_retry_at' => 'datetime', 'configuration_snapshot' => 'array', 'lease_expires_at' => 'datetime', 'finished_at' => 'datetime'];

@@ -150,12 +150,12 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
     Route::get('/orders', [OrderController::class, 'index'])->name('orders.index');
     Route::get('/orders/{order}', [OrderController::class, 'show'])->name('orders.show');
     Route::patch('/orders/{order}/status', [OrderController::class, 'status'])->name('orders.status');
-    Route::get('/price-list-imports', [PriceListImportController::class, 'index'])->name('price-list-imports.index');
+    Route::get('/price-list-imports', [PriceListImportController::class, 'index'])->middleware('throttle:external-import-poll')->name('price-list-imports.index');
     Route::post('/price-list-imports', [PriceListImportController::class, 'store'])->name('price-list-imports.store');
-    Route::get('/price-list-imports/{import}', [PriceListImportController::class, 'show'])->name('price-list-imports.show');
-    Route::get('/price-list-imports/{import}/download', [PriceListImportController::class, 'download'])->name('price-list-imports.download');
+    Route::get('/price-list-imports/{import}', [PriceListImportController::class, 'show'])->middleware('throttle:external-import-poll')->name('price-list-imports.show');
+    Route::get('/price-list-imports/{import}/download', [PriceListImportController::class, 'download'])->middleware('throttle:external-import-download')->name('price-list-imports.download');
     Route::get('/price-list-imports/{import}/categorization-report', [PriceListImportController::class, 'categorizationReport'])->name('price-list-imports.categorization-report');
-    Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->name('price-list-imports.retry');
+    Route::post('/price-list-imports/{import}/retry', [PriceListImportController::class, 'retry'])->middleware('throttle:external-import-start')->name('price-list-imports.retry');
     Route::post('/price-list-imports/{import}/replay', [PriceListImportController::class, 'replay'])->name('price-list-imports.replay');
     Route::prefix('admin')->middleware('role:admin')->group(function () {
         Route::prefix('supplier-sync')->middleware(ProtectSupplierSyncResponse::class)->name('admin.supplier-sync.')->controller(SupplierSynchronizationController::class)->group(function (): void {
@@ -169,14 +169,14 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
             Route::put('/partners/{partner}/profile', 'profile')->name('profile');
             Route::post('/availability/{availability}/date', 'confirmAvailabilityDate')->name('availability-date');
             Route::post('/imports/{import}/date', 'confirmDate')->name('date');
-            Route::post('/downloads/{download}/retry', 'retryDownload')->name('download-retry');
+            Route::post('/downloads/{download}/retry', 'retryDownload')->middleware('throttle:external-import-start')->name('download-retry');
             Route::put('/suppliers/{supplier}/external-fetch', 'externalFetching')->name('external-fetch');
             Route::post('/imports/{import}/resolve-conflict', 'resolveConflict')->name('resolve-conflict');
             Route::post('/imports/{import}/reject', 'reject')->name('reject');
             Route::get('/suppliers/{supplier}', 'show')->name('show');
             Route::put('/suppliers/{supplier}', 'update')->name('update');
             Route::post('/suppliers/{supplier}/mapping', 'workspaceMapping')->name('workspace-mapping');
-            Route::post('/suppliers/{supplier}/fetch', 'fetch')->name('fetch');
+            Route::post('/suppliers/{supplier}/fetch', 'fetch')->middleware('throttle:external-import-start')->name('fetch');
         });
         Route::prefix('gmail')->middleware(ProtectGmailResponse::class)->group(function () {
             Route::get('/', [GmailController::class, 'index'])->name('admin.gmail.index');

@@ -24,13 +24,18 @@ use Throwable;
 
 class SupplierSynchronizationService
 {
-    public function request(Organization $supplier, string $trigger = 'manual', ?int $expectedVersion = null, ?string $expectedSource = null): SupplierSyncRun
+    public function request(Organization $supplier, string $trigger = 'manual', ?int $expectedVersion = null, ?string $expectedSource = null, ?int $requesterId = null, ?string $groupId = null): SupplierSyncRun
     {
         if (app(SupplierVersions::class)->paused()) {
             throw ValidationException::withMessages(['selected_source' => 'Новые импорты приостановлены на время переключения источников.']);
         }
 
-        return DB::transaction(function () use ($supplier, $trigger, $expectedVersion, $expectedSource): SupplierSyncRun {
+        $queueRequester = $trigger === 'manual' ? ($requesterId ?? auth()->id()) : null;
+        $queueLane = $queueRequester === null ? 'system' : 'user:'.$queueRequester;
+        DB::table('external_import_queue_lanes')->insertOrIgnore(['id' => $queueLane]);
+
+        return DB::transaction(function () use ($supplier, $trigger, $expectedVersion, $expectedSource, $requesterId, $groupId, $queueLane): SupplierSyncRun {
+            DB::table('external_import_queue_lanes')->where('id', $queueLane)->lockForUpdate()->first();
             $supplier = Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
             if (app(SupplierVersions::class)->paused()) {
                 throw ValidationException::withMessages(['selected_source' => 'Новые импорты приостановлены на время переключения источников.']);
@@ -58,7 +63,12 @@ class SupplierSynchronizationService
                     }
                 }
             }
-            SynchronizeSupplier::dispatch($run->id)->onQueue(config('price-list-imports.queue'))->afterCommit();
+            if (array_intersect($config->enabledSources(), ['icorp', 'pricelist_tj']) !== []) {
+                $item = app(ExternalImportQueue::class)->enqueue($run, $trigger === 'manual' ? ($requesterId ?? auth()->id()) : null, $groupId);
+                DB::afterCommit(fn () => app(ExternalImportQueue::class)->dispatchLane($item->lane_id));
+            } else {
+                SynchronizeSupplier::dispatch($run->id)->onQueue(config('price-list-imports.queue'))->afterCommit();
+            }
 
             return $run;
         }, 3);
@@ -84,9 +94,22 @@ class SupplierSynchronizationService
         }, 3);
     }
 
-    public function process(SupplierSyncRun $run): void
+    public function process(SupplierSyncRun $run, ?int $generation = null): void
     {
-        $lock = Cache::lock('supplier-synchronization:'.$run->supplier_organization_id, 7200);
+        $run = $run->fresh();
+        $enabledSources = array_keys(array_filter($run->configuration_snapshot['sources'] ?? [], fn (array $source): bool => (bool) ($source['enabled'] ?? false)));
+        $hasExternalSource = in_array($run->configuration_snapshot['selected_source'] ?? null, ['icorp', 'pricelist_tj'], true) || array_intersect($enabledSources, ['icorp', 'pricelist_tj']) !== [];
+        if ($run->execution_queue_item_id || ($run->trigger !== 'mailbox' && $hasExternalSource)) {
+            app(ExternalImportQueue::class)->execute($run, $generation ?? app(ExternalImportQueue::class)->generation($run->id), fn () => $this->processOwned($run));
+
+            return;
+        }
+        $this->processOwned($run);
+    }
+
+    private function processOwned(SupplierSyncRun $run): void
+    {
+        $lock = Cache::lock('supplier-synchronization:'.$run->supplier_organization_id, 140);
         if (! $lock->get()) {
             return;
         }
@@ -98,7 +121,7 @@ class SupplierSynchronizationService
                 if (! $run->active_supplier_id || ($run->owner_token && $run->lease_expires_at?->isFuture())) {
                     return false;
                 }
-                $run->update(['owner_token' => $token, 'lease_expires_at' => now()->addSeconds(7200)]);
+                $run->update(['owner_token' => $token, 'lease_expires_at' => now()->addSeconds(140)]);
 
                 return true;
             }, 3);
@@ -157,7 +180,7 @@ class SupplierSynchronizationService
         }
         foreach ($config->enabledSources() as $source) {
             $attempt = $run->attempts()->where('source', $source)->first();
-            if ($attempt && $attempt->status === 'downloading') {
+            if ($attempt && in_array($attempt->status, ['queued', 'downloading', 'retry', 'cooldown', 'paused'], true)) {
                 $run->update(['status' => $attempt->status, 'next_retry_at' => $attempt->next_retry_at]);
 
                 return;
@@ -234,7 +257,7 @@ class SupplierSynchronizationService
                     $attempt->update(['status' => 'failed', 'reason' => ExternalSupplierDirectory::failureReason($exception),
                         'metadata' => array_replace($attempt->metadata ?? [], ['failure' => $exception instanceof IcorpFailure ? $exception->diagnostic() : ['stage' => 'download', 'code' => ExternalSupplierDirectory::failureReason($exception), 'http_status' => null]])]);
                 }
-                if ($attempt->fresh()->status === 'downloading') {
+                if (in_array($attempt->fresh()->status, ['queued', 'downloading', 'retry', 'cooldown', 'paused'], true)) {
                     $run->update(['status' => $attempt->status, 'next_retry_at' => $attempt->next_retry_at]);
 
                     return;
@@ -296,7 +319,7 @@ class SupplierSynchronizationService
 
                 return;
             }
-            if ($attempt->status === 'downloading') {
+            if (in_array($attempt->status, ['queued', 'downloading', 'retry', 'cooldown', 'paused'], true)) {
                 $run->update(['status' => $attempt->status, 'next_retry_at' => $attempt->next_retry_at]);
 
                 return;
@@ -378,8 +401,8 @@ class SupplierSynchronizationService
                 if (! $run->fresh()->active_supplier_id) {
                     return;
                 }
-                if (in_array($attempt->fresh()->status, ['downloading', 'processing'], true)) {
-                    $run->update(['status' => 'downloading', 'selected_source' => $source, 'reason' => 'newest_publication']);
+                if (in_array($attempt->fresh()->status, ['queued', 'downloading', 'retry', 'cooldown', 'paused', 'processing'], true)) {
+                    $run->update(['status' => $attempt->fresh()->status, 'selected_source' => $source, 'reason' => 'newest_publication']);
 
                     return;
                 }
@@ -447,8 +470,8 @@ class SupplierSynchronizationService
 
                 return;
             }
-            if (in_array($attempt->status, ['downloading', 'retry', 'cooldown', 'paused'], true)) {
-                $run->update(['status' => 'downloading', 'next_retry_at' => $attempt->next_retry_at]);
+            if (in_array($attempt->status, ['queued', 'downloading', 'retry', 'cooldown', 'paused'], true)) {
+                $run->update(['status' => $attempt->status, 'next_retry_at' => $attempt->next_retry_at]);
 
                 return;
             }
@@ -504,8 +527,8 @@ class SupplierSynchronizationService
 
                 continue;
             }
-            if ($attempt->fresh()->status === 'downloading') {
-                $run->update(['status' => 'downloading', 'selected_source' => $entry['partner']->source]);
+            if (in_array($attempt->fresh()->status, ['queued', 'downloading', 'retry', 'cooldown', 'paused'], true)) {
+                $run->update(['status' => $attempt->fresh()->status, 'selected_source' => $entry['partner']->source]);
 
                 return;
             }

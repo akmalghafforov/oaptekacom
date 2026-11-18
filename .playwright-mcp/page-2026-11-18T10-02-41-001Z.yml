@@ -1,0 +1,662 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - generic [ref=e3]:
+      - link "OAPTEKA — на главную" [ref=e4] [cursor=pointer]:
+        - /url: https://oapteka24.test/dashboard
+        - img "OAPTEKA" [ref=e5]
+      - group [ref=e6]:
+        - generic "Меню" [ref=e7] [cursor=pointer]
+  - main [ref=e8]:
+    - generic [ref=e10]:
+      - heading "Прайс-листы" [level=1] [ref=e11]
+      - paragraph [ref=e12]: Автоматическая обработка и публикация предложений поставщика.
+    - generic [ref=e13]:
+      - heading "Новый поставщик" [level=2] [ref=e14]
+      - generic [ref=e15]:
+        - generic [ref=e16]:
+          - generic [ref=e17]: Название
+          - textbox "Название" [ref=e19]
+        - generic [ref=e20]:
+          - generic [ref=e21]: Город
+          - textbox "Город" [ref=e23]
+        - generic [ref=e24]:
+          - generic [ref=e25]: Телефон
+          - textbox "Телефон" [ref=e27]
+        - button "Создать" [ref=e28]
+    - generic [ref=e29]:
+      - heading "Профили поставщиков" [level=2] [ref=e30]
+      - generic [ref=e31]:
+        - link "Азиз-Истаравшан(Оптовый) Нет активного профиля" [ref=e32] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/301/import-profile
+          - generic [ref=e33]: Азиз-Истаравшан(Оптовый)
+          - generic [ref=e34]: Нет активного профиля
+        - link "Азия Фарм Нет активного профиля" [ref=e35] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/300/import-profile
+          - generic [ref=e36]: Азия Фарм
+          - generic [ref=e37]: Нет активного профиля
+        - link "Азия Фарм Активный профиль" [ref=e38] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/55/import-profile
+          - generic [ref=e39]: Азия Фарм
+          - generic [ref=e40]: Активный профиль
+        - link "Амири Нет активного профиля" [ref=e41] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/22/import-profile
+          - generic [ref=e42]: Амири
+          - generic [ref=e43]: Нет активного профиля
+        - link "Аптека Абдурахмон Нет активного профиля" [ref=e44] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/297/import-profile
+          - generic [ref=e45]: Аптека Абдурахмон
+          - generic [ref=e46]: Нет активного профиля
+        - link "Аптека Даво + Нет активного профиля" [ref=e47] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/31/import-profile
+          - generic [ref=e48]: Аптека Даво +
+          - generic [ref=e49]: Нет активного профиля
+        - link "Билол Нет активного профиля" [ref=e50] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/24/import-profile
+          - generic [ref=e51]: Билол
+          - generic [ref=e52]: Нет активного профиля
+        - link "Вориси Сино Активный профиль" [ref=e53] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/18/import-profile
+          - generic [ref=e54]: Вориси Сино
+          - generic [ref=e55]: Активный профиль
+        - link "Дармон Активный профиль" [ref=e56] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/16/import-profile
+          - generic [ref=e57]: Дармон
+          - generic [ref=e58]: Активный профиль
+        - link "Дармонбахш Нет активного профиля" [ref=e59] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/7/import-profile
+          - generic [ref=e60]: Дармонбахш
+          - generic [ref=e61]: Нет активного профиля
+        - link "Дорухонаи JSB (Сухроб ТБШ) Нет активного профиля" [ref=e62] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/41/import-profile
+          - generic [ref=e63]: Дорухонаи JSB (Сухроб ТБШ)
+          - generic [ref=e64]: Нет активного профиля
+        - link "Дорухонаи АКТИВ-ФАРМ Нет активного профиля" [ref=e65] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/39/import-profile
+          - generic [ref=e66]: Дорухонаи АКТИВ-ФАРМ
+          - generic [ref=e67]: Нет активного профиля
+        - link "Дорухонаи Авиценна Нет активного профиля" [ref=e68] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/38/import-profile
+          - generic [ref=e69]: Дорухонаи Авиценна
+          - generic [ref=e70]: Нет активного профиля
+        - link "Дорухонаи Анис Нет активного профиля" [ref=e71] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/45/import-profile
+          - generic [ref=e72]: Дорухонаи Анис
+          - generic [ref=e73]: Нет активного профиля
+        - link "Дорухонаи Бестфарм Нет активного профиля" [ref=e74] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/48/import-profile
+          - generic [ref=e75]: Дорухонаи Бестфарм
+          - generic [ref=e76]: Нет активного профиля
+        - link "Дорухонаи Вита Фарма Нет активного профиля" [ref=e77] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/47/import-profile
+          - generic [ref=e78]: Дорухонаи Вита Фарма
+          - generic [ref=e79]: Нет активного профиля
+        - link "Дорухонаи Даво Нет активного профиля" [ref=e80] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/51/import-profile
+          - generic [ref=e81]: Дорухонаи Даво
+          - generic [ref=e82]: Нет активного профиля
+        - link "Дорухонаи Дармон Нет активного профиля" [ref=e83] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/33/import-profile
+          - generic [ref=e84]: Дорухонаи Дармон
+          - generic [ref=e85]: Нет активного профиля
+        - link "Дорухонаи Мухаммад А Нет активного профиля" [ref=e86] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/49/import-profile
+          - generic [ref=e87]: Дорухонаи Мухаммад А
+          - generic [ref=e88]: Нет активного профиля
+        - link "Дорухонаи Олами Дорухо Нет активного профиля" [ref=e89] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/42/import-profile
+          - generic [ref=e90]: Дорухонаи Олами Дорухо
+          - generic [ref=e91]: Нет активного профиля
+        - link "Дорухонаи Сифат фарма Нет активного профиля" [ref=e92] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/50/import-profile
+          - generic [ref=e93]: Дорухонаи Сифат фарма
+          - generic [ref=e94]: Нет активного профиля
+        - link "Дорухонаи Соф-Фарм Нет активного профиля" [ref=e95] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/35/import-profile
+          - generic [ref=e96]: Дорухонаи Соф-Фарм
+          - generic [ref=e97]: Нет активного профиля
+        - link "Дорухонаи Табобат Нет активного профиля" [ref=e98] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/46/import-profile
+          - generic [ref=e99]: Дорухонаи Табобат
+          - generic [ref=e100]: Нет активного профиля
+        - link "Дорухонаи Хушбахтиён Нет активного профиля" [ref=e101] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/43/import-profile
+          - generic [ref=e102]: Дорухонаи Хушбахтиён
+          - generic [ref=e103]: Нет активного профиля
+        - link "Дорухонаи Шифои Сино Нет активного профиля" [ref=e104] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/44/import-profile
+          - generic [ref=e105]: Дорухонаи Шифои Сино
+          - generic [ref=e106]: Нет активного профиля
+        - link "Дорухонаи Эконом Нет активного профиля" [ref=e107] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/53/import-profile
+          - generic [ref=e108]: Дорухонаи Эконом
+          - generic [ref=e109]: Нет активного профиля
+        - link "Зам-Зам Активный профиль" [ref=e110] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/10/import-profile
+          - generic [ref=e111]: Зам-Зам
+          - generic [ref=e112]: Активный профиль
+        - link "Имдоди-Шифо №1 Нет активного профиля" [ref=e113] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/20/import-profile
+          - generic [ref=e114]: Имдоди-Шифо №1
+          - generic [ref=e115]: Нет активного профиля
+        - link "Истиклол Активный профиль" [ref=e116] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/27/import-profile
+          - generic [ref=e117]: Истиклол
+          - generic [ref=e118]: Активный профиль
+        - link "Казфарма Активный профиль" [ref=e119] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/4/import-profile
+          - generic [ref=e120]: Казфарма
+          - generic [ref=e121]: Активный профиль
+        - link "Канзи Шифо Активный профиль" [ref=e122] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/13/import-profile
+          - generic [ref=e123]: Канзи Шифо
+          - generic [ref=e124]: Активный профиль
+        - link "Карим Фарм Активный профиль" [ref=e125] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/12/import-profile
+          - generic [ref=e126]: Карим Фарм
+          - generic [ref=e127]: Активный профиль
+        - link "Мерос Фарма Активный профиль" [ref=e128] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/30/import-profile
+          - generic [ref=e129]: Мерос Фарма
+          - generic [ref=e130]: Активный профиль
+        - link "Мехр-Фарм Нет активного профиля" [ref=e131] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/34/import-profile
+          - generic [ref=e132]: Мехр-Фарм
+          - generic [ref=e133]: Нет активного профиля
+        - link "Мижгона Активный профиль" [ref=e134] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/19/import-profile
+          - generic [ref=e135]: Мижгона
+          - generic [ref=e136]: Активный профиль
+        - link "Мин Активный профиль" [ref=e137] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/23/import-profile
+          - generic [ref=e138]: Мин
+          - generic [ref=e139]: Активный профиль
+        - link "Мухаммад Нет активного профиля" [ref=e140] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/36/import-profile
+          - generic [ref=e141]: Мухаммад
+          - generic [ref=e142]: Нет активного профиля
+        - link "НурФарма Активный профиль" [ref=e143] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/14/import-profile
+          - generic [ref=e144]: НурФарма
+          - generic [ref=e145]: Активный профиль
+        - link "ООО \"Эмити-Интернешнл\" (Оптовый) Нет активного профиля" [ref=e146] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/303/import-profile
+          - generic [ref=e147]: ООО "Эмити-Интернешнл" (Оптовый)
+          - generic [ref=e148]: Нет активного профиля
+        - link "ООО Эконом Активный профиль" [ref=e149] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/25/import-profile
+          - generic [ref=e150]: ООО Эконом
+          - generic [ref=e151]: Активный профиль
+        - link "Осон-Фарм Активный профиль" [ref=e152] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/15/import-profile
+          - generic [ref=e153]: Осон-Фарм
+          - generic [ref=e154]: Активный профиль
+        - link "ОсонФарм - Аличон Активный профиль" [ref=e155] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/11/import-profile
+          - generic [ref=e156]: ОсонФарм - Аличон
+          - generic [ref=e157]: Активный профиль
+        - link "Пойтахт Нет активного профиля" [ref=e158] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/32/import-profile
+          - generic [ref=e159]: Пойтахт
+          - generic [ref=e160]: Нет активного профиля
+        - link "Роял Оптовый Активный профиль" [ref=e161] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/298/import-profile
+          - generic [ref=e162]: Роял Оптовый
+          - generic [ref=e163]: Активный профиль
+        - link "Саховат Активный профиль" [ref=e164] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/9/import-profile
+          - generic [ref=e165]: Саховат
+          - generic [ref=e166]: Активный профиль
+        - link "Сино-Фарм Активный профиль" [ref=e167] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/29/import-profile
+          - generic [ref=e168]: Сино-Фарм
+          - generic [ref=e169]: Активный профиль
+        - link "Сифат Активный профиль" [ref=e170] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/5/import-profile
+          - generic [ref=e171]: Сифат
+          - generic [ref=e172]: Активный профиль
+        - link "Сифат-Фарма Нет активного профиля" [ref=e173] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/52/import-profile
+          - generic [ref=e174]: Сифат-Фарма
+          - generic [ref=e175]: Нет активного профиля
+        - link "Солим Фарм(Оптовый) Нет активного профиля" [ref=e176] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/304/import-profile
+          - generic [ref=e177]: Солим Фарм(Оптовый)
+          - generic [ref=e178]: Нет активного профиля
+        - link "Соф Фарм Активный профиль" [ref=e179] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/8/import-profile
+          - generic [ref=e180]: Соф Фарм
+          - generic [ref=e181]: Активный профиль
+        - link "Тестовый администратор Нет активного профиля" [ref=e182] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/57/import-profile
+          - generic [ref=e183]: Тестовый администратор
+          - generic [ref=e184]: Нет активного профиля
+        - link "Тестовый поставщик Нет активного профиля" [ref=e185] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/3/import-profile
+          - generic [ref=e186]: Тестовый поставщик
+          - generic [ref=e187]: Нет активного профиля
+        - link "Томирис Душанбе Нет активного профиля" [ref=e188] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/37/import-profile
+          - generic [ref=e189]: Томирис Душанбе
+          - generic [ref=e190]: Нет активного профиля
+        - link "Томирис Истаравшан Нет активного профиля" [ref=e191] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/28/import-profile
+          - generic [ref=e192]: Томирис Истаравшан
+          - generic [ref=e193]: Нет активного профиля
+        - link "Фарм Мед ул.Мир Активный профиль" [ref=e194] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/17/import-profile
+          - generic [ref=e195]: Фарм Мед ул.Мир
+          - generic [ref=e196]: Активный профиль
+        - link "Фарм-Плюс Активный профиль" [ref=e197] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/26/import-profile
+          - generic [ref=e198]: Фарм-Плюс
+          - generic [ref=e199]: Активный профиль
+        - link "Форс Активный профиль" [ref=e200] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/21/import-profile
+          - generic [ref=e201]: Форс
+          - generic [ref=e202]: Активный профиль
+        - link "ЧДММ Кавсар Тичорат Нет активного профиля" [ref=e203] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/40/import-profile
+          - generic [ref=e204]: ЧДММ Кавсар Тичорат
+          - generic [ref=e205]: Нет активного профиля
+        - link "Эмити-Интернешнл Активный профиль" [ref=e206] [cursor=pointer]:
+          - /url: https://oapteka24.test/admin/suppliers/6/import-profile
+          - generic [ref=e207]: Эмити-Интернешнл
+          - generic [ref=e208]: Активный профиль
+    - generic [ref=e210]:
+      - generic [ref=e211]:
+        - generic [ref=e212]: Поставщик
+        - combobox "Поставщик" [ref=e213]:
+          - option "Выберите поставщика" [selected]
+          - option "Азиз-Истаравшан(Оптовый)"
+          - option "Азия Фарм"
+          - option "Азия Фарм"
+          - option "Амири"
+          - option "Аптека Абдурахмон"
+          - option "Аптека Даво +"
+          - option "Билол"
+          - option "Вориси Сино"
+          - option "Дармон"
+          - option "Дармонбахш"
+          - option "Дорухонаи JSB (Сухроб ТБШ)"
+          - option "Дорухонаи АКТИВ-ФАРМ"
+          - option "Дорухонаи Авиценна"
+          - option "Дорухонаи Анис"
+          - option "Дорухонаи Бестфарм"
+          - option "Дорухонаи Вита Фарма"
+          - option "Дорухонаи Даво"
+          - option "Дорухонаи Дармон"
+          - option "Дорухонаи Мухаммад А"
+          - option "Дорухонаи Олами Дорухо"
+          - option "Дорухонаи Сифат фарма"
+          - option "Дорухонаи Соф-Фарм"
+          - option "Дорухонаи Табобат"
+          - option "Дорухонаи Хушбахтиён"
+          - option "Дорухонаи Шифои Сино"
+          - option "Дорухонаи Эконом"
+          - option "Зам-Зам"
+          - option "Имдоди-Шифо №1"
+          - option "Истиклол"
+          - option "Казфарма"
+          - option "Канзи Шифо"
+          - option "Карим Фарм"
+          - option "Мерос Фарма"
+          - option "Мехр-Фарм"
+          - option "Мижгона"
+          - option "Мин"
+          - option "Мухаммад"
+          - option "НурФарма"
+          - option "ООО \"Эмити-Интернешнл\" (Оптовый)"
+          - option "ООО Эконом"
+          - option "Осон-Фарм"
+          - option "ОсонФарм - Аличон"
+          - option "Пойтахт"
+          - option "Роял Оптовый"
+          - option "Саховат"
+          - option "Сино-Фарм"
+          - option "Сифат"
+          - option "Сифат-Фарма"
+          - option "Солим Фарм(Оптовый)"
+          - option "Соф Фарм"
+          - option "Тестовый администратор"
+          - option "Тестовый поставщик"
+          - option "Томирис Душанбе"
+          - option "Томирис Истаравшан"
+          - option "Фарм Мед ул.Мир"
+          - option "Фарм-Плюс"
+          - option "Форс"
+          - option "ЧДММ Кавсар Тичорат"
+          - option "Эмити-Интернешнл"
+      - generic [ref=e214]:
+        - generic [ref=e215]: Файл CSV, TSV, XLS или XLSX
+        - button "Файл CSV, TSV, XLS или XLSX" [ref=e217]
+      - generic [ref=e218]:
+        - generic [ref=e219]: Дата публикации (необязательно)
+        - textbox "Дата публикации (необязательно)" [ref=e221]
+        - paragraph [ref=e222]: Иначе — дата из файла или день загрузки.
+      - button "Загрузить" [ref=e223]
+    - generic [ref=e224]:
+      - heading "История импорта" [level=2] [ref=e225]
+      - navigation "Источники импорта" [ref=e226]:
+        - link "Почта и файлы" [ref=e227] [cursor=pointer]:
+          - /url: https://oapteka24.test/price-list-imports?tab=files
+        - link "iCorp и PriceList.tj" [ref=e228] [cursor=pointer]:
+          - /url: https://oapteka24.test/price-list-imports?tab=services
+      - 'generic "История импорта: таблица с горизонтальной прокруткой" [ref=e229]':
+        - table [ref=e230]:
+          - rowgroup [ref=e231]:
+            - row [ref=e232]:
+              - columnheader "Файл / источник" [ref=e233]
+              - columnheader "Поставщик" [ref=e234]
+              - columnheader "Статус" [ref=e235]
+              - columnheader "Строки" [ref=e236]
+              - columnheader "Дата" [ref=e237]
+              - columnheader "Подробности" [ref=e238]
+          - rowgroup [ref=e240]:
+            - row [ref=e241]:
+              - cell [ref=e242]:
+                - paragraph [ref=e243]: prices.xlsx
+                - paragraph [ref=e244]: PriceList.tj
+              - cell "ОсонФарм - Аличон" [ref=e245]
+              - cell "Активен Каталог опубликован." [ref=e246]:
+                - generic [ref=e247]: Активен
+                - paragraph [ref=e248]: Каталог опубликован.
+              - cell "894 / 0 ош." [ref=e249]
+              - cell "18.11.2026 14:55" [ref=e250]
+              - cell [ref=e251]:
+                - link "Открыть" [ref=e252] [cursor=pointer]:
+                  - /url: https://oapteka24.test/price-list-imports/273
+            - row [ref=e253]:
+              - cell [ref=e254]:
+                - paragraph [ref=e255]: prices.xlsx
+                - paragraph [ref=e256]: PriceList.tj
+              - cell "Азия Фарм" [ref=e257]
+              - cell "Активен Каталог опубликован." [ref=e258]:
+                - generic [ref=e259]: Активен
+                - paragraph [ref=e260]: Каталог опубликован.
+              - cell "4127 / 0 ош." [ref=e261]
+              - cell "18.11.2026 14:52" [ref=e262]
+              - cell [ref=e263]:
+                - link "Открыть" [ref=e264] [cursor=pointer]:
+                  - /url: https://oapteka24.test/price-list-imports/272
+            - row [ref=e265]:
+              - cell [ref=e266]:
+                - paragraph [ref=e267]: iCorp
+                - paragraph [ref=e268]: Файл ещё не получен
+              - cell "Солим Фарм(Оптовый)" [ref=e269]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43." [ref=e270]':
+                - generic [ref=e271]: Загрузка
+                - paragraph [ref=e272]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43."
+              - cell "0 / —" [ref=e273]
+              - cell "18.11.2026 14:38" [ref=e274]
+              - cell [ref=e275]:
+                - link "Открыть" [ref=e276] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/304?tab=history
+            - row [ref=e277]:
+              - cell [ref=e278]:
+                - paragraph [ref=e279]: PriceList.tj
+                - paragraph [ref=e280]: Файл ещё не получен
+              - cell "ООО Эконом" [ref=e281]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03." [ref=e282]':
+                - generic [ref=e283]: Загрузка
+                - paragraph [ref=e284]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03."
+              - cell "0 / —" [ref=e285]
+              - cell "18.11.2026 14:38" [ref=e286]
+              - cell [ref=e287]:
+                - link "Открыть" [ref=e288] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/25?tab=history
+            - row [ref=e289]:
+              - cell [ref=e290]:
+                - paragraph [ref=e291]: PriceList.tj
+                - paragraph [ref=e292]: Файл ещё не получен
+              - cell "Мухаммад" [ref=e293]
+              - cell "Без изменений Активный каталог сохранён. Подробности доступны в истории синхронизации." [ref=e294]:
+                - generic [ref=e295]: Без изменений
+                - paragraph [ref=e296]: Активный каталог сохранён. Подробности доступны в истории синхронизации.
+              - cell "0 / —" [ref=e297]
+              - cell "18.11.2026 14:38" [ref=e298]
+              - cell [ref=e299]:
+                - link "Открыть" [ref=e300] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/36?tab=history
+            - row [ref=e301]:
+              - cell [ref=e302]:
+                - paragraph [ref=e303]: iCorp
+                - paragraph [ref=e304]: Файл ещё не получен
+              - cell "ООО \"Эмити-Интернешнл\" (Оптовый)" [ref=e305]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43." [ref=e306]':
+                - generic [ref=e307]: Загрузка
+                - paragraph [ref=e308]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43."
+              - cell "0 / —" [ref=e309]
+              - cell "18.11.2026 14:38" [ref=e310]
+              - cell [ref=e311]:
+                - link "Открыть" [ref=e312] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/303?tab=history
+            - row [ref=e313]:
+              - cell [ref=e314]:
+                - paragraph [ref=e315]: PriceList.tj
+                - paragraph [ref=e316]: Файл ещё не получен
+              - cell "Азиз-Истаравшан(Оптовый)" [ref=e317]
+              - cell "Без изменений Активный каталог сохранён. Подробности доступны в истории синхронизации." [ref=e318]:
+                - generic [ref=e319]: Без изменений
+                - paragraph [ref=e320]: Активный каталог сохранён. Подробности доступны в истории синхронизации.
+              - cell "0 / —" [ref=e321]
+              - cell "18.11.2026 14:38" [ref=e322]
+              - cell [ref=e323]:
+                - link "Открыть" [ref=e324] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/301?tab=history
+            - row [ref=e325]:
+              - cell [ref=e326]:
+                - paragraph [ref=e327]: PriceList.tj
+                - paragraph [ref=e328]: Файл ещё не получен
+              - cell "Саховат" [ref=e329]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03." [ref=e330]':
+                - generic [ref=e331]: Загрузка
+                - paragraph [ref=e332]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03."
+              - cell "0 / —" [ref=e333]
+              - cell "18.11.2026 14:38" [ref=e334]
+              - cell [ref=e335]:
+                - link "Открыть" [ref=e336] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/9?tab=history
+            - row [ref=e337]:
+              - cell [ref=e338]:
+                - paragraph [ref=e339]: iCorp
+                - paragraph [ref=e340]: Файл ещё не получен
+              - cell "Мин" [ref=e341]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43." [ref=e342]':
+                - generic [ref=e343]: Загрузка
+                - paragraph [ref=e344]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43."
+              - cell "0 / —" [ref=e345]
+              - cell "18.11.2026 14:38" [ref=e346]
+              - cell [ref=e347]:
+                - link "Открыть" [ref=e348] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/23?tab=history
+            - row [ref=e349]:
+              - cell [ref=e350]:
+                - paragraph [ref=e351]: PriceList.tj
+                - paragraph [ref=e352]: Файл ещё не получен
+              - cell "Азия Фарм" [ref=e353]
+              - cell "Без изменений Активный каталог сохранён. Подробности доступны в истории синхронизации." [ref=e354]:
+                - generic [ref=e355]: Без изменений
+                - paragraph [ref=e356]: Активный каталог сохранён. Подробности доступны в истории синхронизации.
+              - cell "0 / —" [ref=e357]
+              - cell "18.11.2026 14:38" [ref=e358]
+              - cell [ref=e359]:
+                - link "Открыть" [ref=e360] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/300?tab=history
+            - row [ref=e361]:
+              - cell [ref=e362]:
+                - paragraph [ref=e363]: PriceList.tj
+                - paragraph [ref=e364]: Файл ещё не получен
+              - cell "Эмити-Интернешнл" [ref=e365]
+              - cell "Без изменений Активный каталог сохранён. Подробности доступны в истории синхронизации." [ref=e366]:
+                - generic [ref=e367]: Без изменений
+                - paragraph [ref=e368]: Активный каталог сохранён. Подробности доступны в истории синхронизации.
+              - cell "0 / —" [ref=e369]
+              - cell "18.11.2026 14:38" [ref=e370]
+              - cell [ref=e371]:
+                - link "Открыть" [ref=e372] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/6?tab=history
+            - row [ref=e373]:
+              - cell [ref=e374]:
+                - paragraph [ref=e375]: iCorp
+                - paragraph [ref=e376]: Файл ещё не получен
+              - cell "Мерос Фарма" [ref=e377]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43." [ref=e378]':
+                - generic [ref=e379]: Загрузка
+                - paragraph [ref=e380]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43."
+              - cell "0 / —" [ref=e381]
+              - cell "18.11.2026 14:38" [ref=e382]
+              - cell [ref=e383]:
+                - link "Открыть" [ref=e384] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/30?tab=history
+            - row [ref=e385]:
+              - cell [ref=e386]:
+                - paragraph [ref=e387]: iCorp
+                - paragraph [ref=e388]: Файл ещё не получен
+              - cell "Карим Фарм" [ref=e389]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43." [ref=e390]':
+                - generic [ref=e391]: Загрузка
+                - paragraph [ref=e392]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43."
+              - cell "0 / —" [ref=e393]
+              - cell "18.11.2026 14:38" [ref=e394]
+              - cell [ref=e395]:
+                - link "Открыть" [ref=e396] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/12?tab=history
+            - row [ref=e397]:
+              - cell [ref=e398]:
+                - paragraph [ref=e399]: iCorp
+                - paragraph [ref=e400]: Файл ещё не получен
+              - cell "Казфарма" [ref=e401]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43." [ref=e402]':
+                - generic [ref=e403]: Загрузка
+                - paragraph [ref=e404]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 14:43."
+              - cell "0 / —" [ref=e405]
+              - cell "18.11.2026 14:38" [ref=e406]
+              - cell [ref=e407]:
+                - link "Открыть" [ref=e408] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/4?tab=history
+            - row [ref=e409]:
+              - cell [ref=e410]:
+                - paragraph [ref=e411]: PriceList.tj
+                - paragraph [ref=e412]: Файл ещё не получен
+              - cell "Истиклол" [ref=e413]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03." [ref=e414]':
+                - generic [ref=e415]: Загрузка
+                - paragraph [ref=e416]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03."
+              - cell "0 / —" [ref=e417]
+              - cell "18.11.2026 14:38" [ref=e418]
+              - cell [ref=e419]:
+                - link "Открыть" [ref=e420] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/27?tab=history
+            - row [ref=e421]:
+              - cell [ref=e422]:
+                - paragraph [ref=e423]: PriceList.tj
+                - paragraph [ref=e424]: Файл ещё не получен
+              - cell "Имдоди-Шифо №1" [ref=e425]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03." [ref=e426]':
+                - generic [ref=e427]: Загрузка
+                - paragraph [ref=e428]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03."
+              - cell "0 / —" [ref=e429]
+              - cell "18.11.2026 14:38" [ref=e430]
+              - cell [ref=e431]:
+                - link "Открыть" [ref=e432] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/20?tab=history
+            - row [ref=e433]:
+              - cell [ref=e434]:
+                - paragraph [ref=e435]: PriceList.tj
+                - paragraph [ref=e436]: Файл ещё не получен
+              - cell "Зам-Зам" [ref=e437]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03." [ref=e438]':
+                - generic [ref=e439]: Загрузка
+                - paragraph [ref=e440]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03."
+              - cell "0 / —" [ref=e441]
+              - cell "18.11.2026 14:38" [ref=e442]
+              - cell [ref=e443]:
+                - link "Открыть" [ref=e444] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/10?tab=history
+            - row [ref=e445]:
+              - cell [ref=e446]:
+                - paragraph [ref=e447]: PriceList.tj
+                - paragraph [ref=e448]: Файл ещё не получен
+              - cell "Дармонбахш" [ref=e449]
+              - cell "Без изменений Активный каталог сохранён. Подробности доступны в истории синхронизации." [ref=e450]:
+                - generic [ref=e451]: Без изменений
+                - paragraph [ref=e452]: Активный каталог сохранён. Подробности доступны в истории синхронизации.
+              - cell "0 / —" [ref=e453]
+              - cell "18.11.2026 14:38" [ref=e454]
+              - cell [ref=e455]:
+                - link "Открыть" [ref=e456] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/7?tab=history
+            - row [ref=e457]:
+              - cell [ref=e458]:
+                - paragraph [ref=e459]: PriceList.tj
+                - paragraph [ref=e460]: Файл ещё не получен
+              - cell "Билол" [ref=e461]
+              - 'cell "Загрузка После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03." [ref=e462]':
+                - generic [ref=e463]: Загрузка
+                - paragraph [ref=e464]: "После получения файла здесь появится обработка прайс-листа. Следующая попытка: 18.11.2026 15:03."
+              - cell "0 / —" [ref=e465]
+              - cell "18.11.2026 14:38" [ref=e466]
+              - cell [ref=e467]:
+                - link "Открыть" [ref=e468] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/24?tab=history
+            - row [ref=e469]:
+              - cell [ref=e470]:
+                - paragraph [ref=e471]: PriceList.tj
+                - paragraph [ref=e472]: Файл ещё не получен
+              - cell "Сифат" [ref=e473]
+              - cell "Загрузка После получения файла здесь появится обработка прайс-листа." [ref=e474]:
+                - generic [ref=e475]: Загрузка
+                - paragraph [ref=e476]: После получения файла здесь появится обработка прайс-листа.
+              - cell "2050 / 4850" [ref=e477]
+              - cell "18.11.2026 14:38" [ref=e478]
+              - cell [ref=e479]:
+                - link "Открыть" [ref=e480] [cursor=pointer]:
+                  - /url: https://oapteka24.test/admin/supplier-sync/suppliers/5?tab=history
+      - navigation "Pagination Navigation" [ref=e482]:
+        - generic [ref=e483]:
+          - paragraph [ref=e484]: Showing 1 to 20 of 46 results
+          - generic [ref=e485]:
+            - button "&laquo; Previous" [disabled] [ref=e486]:
+              - generic [aria-hidden] [ref=e487]: ‹
+            - generic [ref=e488]: "1"
+            - link "Go to page 2" [ref=e489] [cursor=pointer]:
+              - /url: https://oapteka24.test/price-list-imports?tab=services&page=2
+              - text: "2"
+            - link "Go to page 3" [ref=e490] [cursor=pointer]:
+              - /url: https://oapteka24.test/price-list-imports?tab=services&page=3
+              - text: "3"
+            - link "Next &raquo;" [ref=e491] [cursor=pointer]:
+              - /url: https://oapteka24.test/price-list-imports?tab=services&page=2
+              - generic [aria-hidden] [ref=e492]: ›
+      - status [ref=e493]: Статус обновляется автоматически.
+      - link "Обновить статус" [ref=e494] [cursor=pointer]:
+        - /url: https://oapteka24.test/price-list-imports?page=1&tab=services
+  - contentinfo [ref=e495]:
+    - generic [ref=e496]:
+      - navigation "Правовые документы" [ref=e497]:
+        - heading "Правовые документы" [level=2] [ref=e498]
+        - generic [ref=e499]:
+          - link "Политика конфиденциальности" [ref=e500] [cursor=pointer]:
+            - /url: https://oapteka24.test/privacy-policy
+          - link "Условия использования" [ref=e501] [cursor=pointer]:
+            - /url: https://oapteka24.test/terms-of-service
+      - navigation "Контакты" [ref=e502]:
+        - heading "Контакты" [level=2] [ref=e503]
+        - list [ref=e504]:
+          - listitem [ref=e505]:
+            - link "info@oapteka.app" [ref=e506] [cursor=pointer]:
+              - /url: mailto:info@oapteka.app
+          - listitem [ref=e511]:
+            - 'link "Телефон: +992989999292" [ref=e512] [cursor=pointer]':
+              - /url: tel:+992989999292
+          - listitem [ref=e516]:
+            - 'link "WhatsApp: +992989999292" [ref=e517] [cursor=pointer]':
+              - /url: https://wa.me/992989999292
+      - region "Приложение для Android" [ref=e522]:
+        - heading "Приложение для Android" [level=2] [ref=e523]
+        - link "Скачать для Android" [ref=e524] [cursor=pointer]:
+          - /url: https://oapteka24.test/downloads/OAPTEKA_1.0.3.apk
+        - paragraph [ref=e527]: APK · версия 1.0.3
+  - link "Вопросы — связаться в WhatsApp" [ref=e528] [cursor=pointer]:
+    - /url: https://wa.me/992989999292
+    - text: Вопросы

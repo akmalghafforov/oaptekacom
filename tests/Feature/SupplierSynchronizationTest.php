@@ -7,6 +7,7 @@ use App\Enums\PriceListImportStatus;
 use App\Jobs\CommitPriceListImport;
 use App\Jobs\SynchronizeSupplier;
 use App\Models\AuditEvent;
+use App\Models\ExternalDownload;
 use App\Models\ExternalSupplierPartner;
 use App\Models\GmailImportReceipt;
 use App\Models\Organization;
@@ -17,6 +18,7 @@ use App\Models\SupplierSyncAttempt;
 use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
 use App\Models\User;
+use App\Services\ExternalPriceDownload;
 use App\Services\ExternalPriceWorkbook;
 use App\Services\ExternalSupplierDirectory;
 use App\Services\IcorpCredentials;
@@ -414,11 +416,20 @@ class SupplierSynchronizationTest extends TestCase
         $run = app(SupplierSynchronizationService::class)->request($config->supplier);
         app(SupplierSynchronizationService::class)->process($run->fresh());
 
+        if (! $validationFailure) {
+            $download = ExternalDownload::firstOrFail();
+            $this->assertSame('retry', $download->status);
+            for ($retry = 0; $retry < 3; $retry++) {
+                $this->travelTo($download->fresh()->next_retry_at);
+                app(ExternalPriceDownload::class)->process($download->id);
+                app(SupplierSynchronizationService::class)->process($run->fresh());
+            }
+        }
         $this->assertSame('completed', $run->fresh()->status);
         $this->assertSame('pricelist_tj', $run->fresh()->selected_source);
         $this->assertSame($validationFailure ? 'validation_failed' : 'transport', $run->attempts()->where('source', 'icorp')->firstOrFail()->reason);
         $this->assertSame('Душанбе', $icorpPartner->fresh()->metadata['city']);
-        Http::assertSentCount(3);
+        Http::assertSentCount($validationFailure ? 3 : 6);
     }
 
     public function test_configured_mailbox_receipt_uses_its_own_profile_and_records_sync_history(): void

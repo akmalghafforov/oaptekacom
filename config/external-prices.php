@@ -1,6 +1,14 @@
 <?php
 
 return [
+    'lifecycle' => [
+        'network_retry_delays' => [300, 600, 1200],
+        'retry_jitter' => 0.2,
+        'recovery_hours' => (int) env('EXTERNAL_IMPORT_RECOVERY_HOURS', 24),
+        'start_per_minute' => (int) env('EXTERNAL_IMPORT_START_PER_MINUTE', 10),
+        'download_per_minute' => (int) env('EXTERNAL_IMPORT_DOWNLOAD_PER_MINUTE', 20),
+        'poll_per_minute' => (int) env('EXTERNAL_IMPORT_POLL_PER_MINUTE', 60),
+    ],
     'browser_node' => env('SUPPLIER_BROWSER_NODE', 'node'),
     'browser_executable' => env('PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH'),
     'pricelist_tj' => [

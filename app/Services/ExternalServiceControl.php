@@ -50,11 +50,15 @@ class ExternalServiceControl
             if ($response->status() === 429) {
                 $retry = $response->header('Retry-After');
                 try {
-                    $seconds = is_numeric($retry) ? (int) $retry : (int) ceil(now()->diffInSeconds(CarbonImmutable::parse($retry)));
+                    $seconds = is_string($retry) && preg_match('/^\d+$/', $retry) ? min((float) $retry, 86400 * 365) : (is_string($retry) && trim($retry) !== '' ? (int) ceil(now()->diffInSeconds(CarbonImmutable::parse($retry))) : 3600);
                 } catch (\Throwable) {
                     $seconds = 3600;
                 }
-                $state->update(['status' => 'cooldown', 'reason' => 'rate_limited', 'cooldown_until' => now()->addSeconds(max(3600, $seconds))]);
+                $until = now()->addSeconds(max(3600, (int) $seconds));
+                if ($state->cooldown_until && $state->cooldown_until->gt($until)) {
+                    $until = $state->cooldown_until;
+                }
+                $state->update(['status' => 'cooldown', 'reason' => 'rate_limited', 'cooldown_until' => $until]);
                 $this->incident($source, 'rate_limited');
                 throw new ExternalServiceUnavailable('rate_limited', max(3600, $seconds));
             }
@@ -102,8 +106,8 @@ class ExternalServiceControl
 
     public function retryDelay(int $retry): int
     {
-        $base = [300, 600, 1200][$retry - 1] ?? 21600;
+        $base = config('external-prices.lifecycle.network_retry_delays', [300, 600, 1200])[$retry - 1] ?? 21600;
 
-        return $base + ($retry <= 3 ? random_int(0, (int) ($base * .2)) : 0);
+        return $base + ($retry <= 3 ? random_int(0, (int) ($base * (float) config('external-prices.lifecycle.retry_jitter', .2))) : 0);
     }
 }

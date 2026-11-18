@@ -49,3 +49,9 @@ suppliers:setup-automatic defaults to dry run and uses the organization lock. On
 
 ## Honor authorized local iCorp takeover
 The user explicitly authorized always signing out the competing iCorp device on November 18. The local installation sets ICORP_TAKE_OVER=true; IcorpClient::connect honors this on every connection, superseding the earlier no-takeover rule for this installation. Preserve shared account locks and audits. Other installations retain the default false policy unless separately authorized; production deployment remains outside this task.
+
+## Recover failed listing snapshots through the hourly import entry point
+Schedule suppliers:import-external hourly with single-server and overlap guards; keep suppliers:sync every minute in the existing Docker scheduler. Only explicit --retry-failed-listings may reset a failed current-hour snapshot, under the shared source account lock after availability checks, clearing partial pages with an audit. Preserve cooldowns, download retry budgets and verified checkpoints. Queued work is not successful catalog publication.
+
+## Keep local import workers large enough and PostgreSQL cache locks independent
+Local Docker import workers need a 512M PHP limit to package the observed 4850-row workbook; preserve checkpoints when restarting. The local app, queue and scheduler use DB_CACHE_LOCK_CONNECTION=pgsql_locks, which shares the PostgreSQL configuration but opens a separate connection. Laravel database-lock contention catches a duplicate INSERT; sharing the supplier transaction connection otherwise aborts that transaction on PostgreSQL. Verify contention in isolated PostgreSQL tests, not array-cache tests.

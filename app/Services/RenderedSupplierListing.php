@@ -14,12 +14,24 @@ use Symfony\Component\Process\Process;
 
 class RenderedSupplierListing
 {
-    public function scan(string $source): ?ExternalListingRun
+    public function scan(string $source, bool $retryFailed = false): ?ExternalListingRun
     {
         abort_unless(in_array($source, ['icorp', 'pricelist_tj'], true), 422);
 
-        return Cache::lock('external-prices:'.$source, 140)->block(1, function () use ($source): ?ExternalListingRun {
+        return Cache::lock('external-prices:'.$source, 140)->block(1, function () use ($source, $retryFailed): ?ExternalListingRun {
             $run = ExternalListingRun::firstOrCreate(['source' => $source, 'scan_hour' => now()->startOfHour()]);
+            if ($retryFailed && $run->status === 'failed') {
+                app(ExternalServiceControl::class)->assertAvailable($source);
+                if (ExternalServiceState::findOrFail($source)->status !== 'ready') {
+                    throw new ExternalServiceUnavailable('source_not_ready');
+                }
+                DB::transaction(function () use ($run): void {
+                    $before = $run->only(['status', 'reason', 'retry_count', 'next_retry_at']);
+                    $before['partial_pages'] = count($run->pages ?? []);
+                    $run->update(['status' => 'pending', 'pages' => [], 'reason' => null, 'retry_count' => 0, 'next_retry_at' => null, 'completed_at' => null]);
+                    app(AuditLogger::class)->log('external_listing.retry', $run, $before, $run->only(['status', 'retry_count']));
+                });
+            }
             if (in_array($run->status, ['completed', 'failed'], true) || $run->next_retry_at?->isFuture()) {
                 return $run;
             }

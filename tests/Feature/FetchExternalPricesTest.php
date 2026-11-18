@@ -2,10 +2,14 @@
 
 namespace Tests\Feature;
 
-use App\Models\SupplierImportProfile;
+use App\Jobs\SynchronizeSupplier;
+use App\Models\ExternalSupplierPartner;
+use App\Models\SupplierSynchronization;
+use App\Services\PriceListTjClient;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Sleep;
 use Tests\TestCase;
@@ -45,28 +49,23 @@ class FetchExternalPricesTest extends TestCase
         Http::assertSentCount(1);
     }
 
-    public function test_downloads_only_eligible_suppliers_and_stages_them_without_creating_profiles(): void
+    public function test_configured_suppliers_join_system_queue_without_downloading_or_creating_profiles(): void
     {
         $this->configure();
-        SupplierImportProfile::factory()->create()->supplier->update(['name' => 'Активный']);
-        $this->fakeDirectory();
-        $excluded = $this->exclusionFile([['name' => 'Отправляет']]);
-
+        Queue::fake([SynchronizeSupplier::class]);
+        $configuration = SupplierSynchronization::factory()->create(['automatic_enabled' => true, 'settings_confirmed' => true]);
+        $partner = ExternalSupplierPartner::factory()->create(['source' => 'pricelist_tj',
+            'supplier_organization_id' => $configuration->supplier_organization_id, 'profile_active' => true]);
+        $excluded = $this->exclusionFile([]);
         try {
-            $this->artisan('external-prices:fetch', ['source' => 'pricelist_tj', '--exclude' => $excluded])->assertSuccessful();
-
-            $files = Storage::disk('local')->allFiles('external-prices/runs');
-            $reportPath = collect($files)->first(fn (string $path): bool => str_ends_with($path, '/report.json'));
-            $report = json_decode(Storage::disk('local')->get($reportPath), true);
-            $this->assertSame(['skip', 'skip', 'extracted'], array_column($report, 'outcome'));
-            $this->assertSame(['active_import_profile', 'already_sends_price_list', 'supplier_not_registered'], array_column($report, 'reason'));
-            $data = json_decode(Storage::disk('local')->get($report[2]['file']), true);
-            $this->assertSame('Новый', $data['company']['name']);
-            $this->assertSame(10, $data['items'][0]['price']);
-            $this->assertDatabaseCount('organizations', 1);
-            $this->assertDatabaseCount('supplier_import_profiles', 1);
+            $this->artisan('external-prices:fetch', ['source' => 'pricelist_tj', '--exclude' => $excluded])
+                ->expectsOutputToContain('1 supplier imports queued')->assertSuccessful();
+            $this->assertDatabaseHas('external_import_queue_items', ['lane_id' => 'system', 'requested_by' => null]);
+            $this->assertDatabaseCount('supplier_import_profiles', 0);
             $this->assertDatabaseCount('price_list_imports', 0);
-            Http::assertSentCount(2);
+            $this->assertSame([], Storage::disk('local')->allFiles('external-prices/runs'));
+            Http::assertNothingSent();
+            Queue::assertPushed(SynchronizeSupplier::class);
         } finally {
             unlink($excluded);
         }
@@ -76,20 +75,14 @@ class FetchExternalPricesTest extends TestCase
     {
         $this->configure();
         $this->fakeDirectory(failPrices: true);
-        $excluded = $this->exclusionFile([['name' => 'Активный'], ['name' => 'Отправляет']]);
-
         try {
-            $this->artisan('external-prices:fetch', ['source' => 'pricelist_tj', '--exclude' => $excluded])->assertFailed();
-
-            $files = Storage::disk('local')->allFiles('external-prices/runs');
-            $this->assertCount(2, $files);
-            $reportPath = collect($files)->first(fn (string $path): bool => str_ends_with($path, '/report.json'));
-            $report = json_decode(Storage::disk('local')->get($reportPath), true);
-            $this->assertSame('failed', $report[2]['outcome']);
-            $this->assertArrayNotHasKey('file', $report[2]);
-        } finally {
-            unlink($excluded);
+            app(PriceListTjClient::class)->prices('new');
+            $this->fail('An incomplete supplier list was returned.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('row count', $exception->getMessage());
         }
+        $this->assertSame([], Storage::disk('local')->allFiles('external-prices/runs'));
+        Http::assertSentCount(1);
     }
 
     public function test_rejects_malformed_exclusions_without_connecting_to_the_service(): void

@@ -6,6 +6,7 @@ use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowDisposition;
 use App\Models\PriceListImport;
 use App\Models\SupplierSyncAttempt;
+use App\Services\ExternalImportQueue;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CatalogFingerprint;
 use App\Services\PriceList\CategoryCandidateExtractor;
@@ -22,7 +23,12 @@ class FinalizePriceListImportPreview implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(public readonly PriceListImport $import) {}
+    public readonly int $generation;
+
+    public function __construct(public readonly PriceListImport $import, ?int $generation = null)
+    {
+        $this->generation = $generation ?? app(ExternalImportQueue::class)->importGeneration($this->import);
+    }
 
     public int $timeout = 120;
 
@@ -34,7 +40,7 @@ class FinalizePriceListImportPreview implements ShouldQueue
 
     public function retryUntil(): \DateTimeInterface
     {
-        return now()->addHours(2);
+        return app(ExternalImportQueue::class)->importRetryDeadline($this->import);
     }
 
     public function middleware(): array
@@ -47,6 +53,11 @@ class FinalizePriceListImportPreview implements ShouldQueue
     }
 
     public function handle(CategoryCandidateExtractor $candidates): void
+    {
+        app(ExternalImportQueue::class)->executeImport($this->import, ($this->generation ?? 1), fn () => $this->handleOwned($candidates));
+    }
+
+    private function handleOwned(CategoryCandidateExtractor $candidates): void
     {
         $import = $this->import->fresh();
         if ($import->status !== PriceListImportStatus::Processing) {
@@ -99,6 +110,11 @@ class FinalizePriceListImportPreview implements ShouldQueue
     }
 
     public function failed(?\Throwable $exception): void
+    {
+        app(ExternalImportQueue::class)->executeImport($this->import, ($this->generation ?? 1), fn () => $this->failedOwned($exception));
+    }
+
+    private function failedOwned(?\Throwable $exception): void
     {
         PriceListImport::whereKey($this->import->id)->whereIn('status', [PriceListImportStatus::Processing, PriceListImportStatus::Preview])->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'parsing', 'failed_at' => now(), 'failure_message' => 'Import finalization failed.']);
     }

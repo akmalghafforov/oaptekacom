@@ -18,6 +18,7 @@ use App\Models\SupplierSynchronization;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\CartMaintenance;
+use App\Services\ExternalImportQueue;
 use App\Services\SupplierSourcePolicy;
 use App\Services\SupplierVersions;
 use Illuminate\Database\Eloquent\Collection;
@@ -42,10 +43,22 @@ class ImportActivator
 
     public function reconcileStagedOffers(PriceListImport $import): void
     {
+        $queue = app(ExternalImportQueue::class);
+        $queue->executeImport($import, $queue->importGeneration($import), fn () => $this->reconcileStagedOffersOwned($import));
+    }
+
+    private function reconcileStagedOffersOwned(PriceListImport $import): void
+    {
         $import->offers()->whereNotIn('source_row', $this->eligibleRows($import)->select('source_row'))->delete();
     }
 
     public function materialize(PriceListImport $import, int $firstRowId, int $lastRowId, ?int $actorId = null): void
+    {
+        $queue = app(ExternalImportQueue::class);
+        $queue->executeImport($import, $queue->importGeneration($import), fn () => $this->materializeOwned($import, $firstRowId, $lastRowId, $actorId));
+    }
+
+    private function materializeOwned(PriceListImport $import, int $firstRowId, int $lastRowId, ?int $actorId = null): void
     {
         $changed = PriceListImport::query()->whereKey($import->id)->where('status', PriceListImportStatus::Preview)
             ->update(['status' => PriceListImportStatus::Committing]);
@@ -159,6 +172,17 @@ class ImportActivator
 
     /** @return array{import: PriceListImport, superseded_import_id: int|null} */
     public function commit(PriceListImport $import, ?User $actor = null): array
+    {
+        $queue = app(ExternalImportQueue::class);
+        $result = $queue->executeImport($import, $queue->importGeneration($import), fn () => $this->commitOwned($import, $actor));
+        if ($result === null) {
+            throw ValidationException::withMessages(['import' => 'Ожидается очередь публикации.']);
+        }
+
+        return $result;
+    }
+
+    private function commitOwned(PriceListImport $import, ?User $actor = null): array
     {
         return DB::transaction(function () use ($import, $actor): array {
             $supplier = Organization::query()->lockForUpdate()->findOrFail($import->supplier_organization_id);

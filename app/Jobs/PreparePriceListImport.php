@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\PriceListImportStatus;
 use App\Models\PriceListImport;
+use App\Services\ExternalImportQueue;
 use App\Services\PriceList\ImportLayoutDetector;
 use App\Services\PriceList\ValueNormalizer;
 use App\Services\PriceList\WorkbookReader;
@@ -17,6 +18,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 use RuntimeException;
 use Throwable;
@@ -29,7 +31,12 @@ class PreparePriceListImport implements ShouldQueue
 
     public array $backoff = [30, 120, 300];
 
-    public function __construct(public readonly PriceListImport $import) {}
+    public readonly int $generation;
+
+    public function __construct(public readonly PriceListImport $import, ?int $generation = null)
+    {
+        $this->generation = $generation ?? app(ExternalImportQueue::class)->importGeneration($this->import);
+    }
 
     public int $timeout = 120;
 
@@ -37,7 +44,7 @@ class PreparePriceListImport implements ShouldQueue
 
     public function retryUntil(): \DateTimeInterface
     {
-        return now()->addHours(2);
+        return app(ExternalImportQueue::class)->importRetryDeadline($this->import);
     }
 
     public function middleware(): array
@@ -50,6 +57,11 @@ class PreparePriceListImport implements ShouldQueue
     }
 
     public function handle(WorkbookReader $reader, ValueNormalizer $normalizer, ?ImportLayoutDetector $layoutDetector = null): void
+    {
+        app(ExternalImportQueue::class)->executeImport($this->import, ($this->generation ?? 1), fn () => $this->handleOwned($reader, $normalizer, $layoutDetector));
+    }
+
+    private function handleOwned(WorkbookReader $reader, ValueNormalizer $normalizer, ?ImportLayoutDetector $layoutDetector = null): void
     {
         $layoutDetector ??= app(ImportLayoutDetector::class);
         $import = $this->import->fresh();
@@ -102,7 +114,11 @@ class PreparePriceListImport implements ShouldQueue
             $jobs[] = new ProcessPriceListImportChunk($import, $row, min($row + (int) config('price-list-imports.chunk_size') - 1, $highestDataRow));
         }
         $jobs[] = new FinalizePriceListImportPreview($import);
-        Bus::chain($jobs)->onQueue(config('price-list-imports.queue'))->dispatch();
+        if (in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)) {
+            DB::afterCommit(fn () => Bus::chain($jobs)->onQueue(config('price-list-imports.queue'))->dispatch());
+        } else {
+            Bus::chain($jobs)->onQueue(config('price-list-imports.queue'))->dispatch();
+        }
     }
 
     /** @return array{date: ?CarbonImmutable, precision: ?string, origin: ?string} */
@@ -164,6 +180,11 @@ class PreparePriceListImport implements ShouldQueue
     }
 
     public function failed(?Throwable $exception): void
+    {
+        app(ExternalImportQueue::class)->executeImport($this->import, ($this->generation ?? 1), fn () => $this->failedOwned($exception));
+    }
+
+    private function failedOwned(?Throwable $exception): void
     {
         $this->import->newQuery()->whereKey($this->import->id)->whereIn('status', [PriceListImportStatus::Pending, PriceListImportStatus::Processing])->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'preparation', 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
     }

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\PriceListImportStatus;
 use App\Models\PriceListImport;
+use App\Services\ExternalImportQueue;
 use App\Services\PriceList\ImportProcessor;
 use App\Services\PriceList\WorkbookReader;
 use Illuminate\Bus\Queueable;
@@ -22,7 +23,12 @@ class ProcessPriceListImportChunk implements ShouldQueue
 
     public array $backoff = [30, 120, 300];
 
-    public function __construct(public readonly PriceListImport $import, public readonly int $startRow, public readonly int $endRow) {}
+    public readonly int $generation;
+
+    public function __construct(public readonly PriceListImport $import, public readonly int $startRow, public readonly int $endRow, ?int $generation = null)
+    {
+        $this->generation = $generation ?? app(ExternalImportQueue::class)->importGeneration($this->import);
+    }
 
     public int $timeout = 120;
 
@@ -30,7 +36,7 @@ class ProcessPriceListImportChunk implements ShouldQueue
 
     public function retryUntil(): \DateTimeInterface
     {
-        return now()->addHours(2);
+        return app(ExternalImportQueue::class)->importRetryDeadline($this->import);
     }
 
     public function middleware(): array
@@ -44,6 +50,11 @@ class ProcessPriceListImportChunk implements ShouldQueue
 
     public function handle(WorkbookReader $reader, ImportProcessor $processor): void
     {
+        app(ExternalImportQueue::class)->executeImport($this->import, ($this->generation ?? 1), fn () => $this->handleOwned($reader, $processor));
+    }
+
+    private function handleOwned(WorkbookReader $reader, ImportProcessor $processor): void
+    {
         $import = $this->import->fresh();
         if ($import->status !== PriceListImportStatus::Processing) {
             return;
@@ -53,6 +64,11 @@ class ProcessPriceListImportChunk implements ShouldQueue
     }
 
     public function failed(?Throwable $exception): void
+    {
+        app(ExternalImportQueue::class)->executeImport($this->import, ($this->generation ?? 1), fn () => $this->failedOwned($exception));
+    }
+
+    private function failedOwned(?Throwable $exception): void
     {
         $this->import->newQuery()->whereKey($this->import->id)->where('status', PriceListImportStatus::Processing)->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'parsing', 'failed_at' => now(), 'failure_message' => mb_substr($exception?->getMessage() ?? 'Неизвестная ошибка', 0, 2000)]);
     }

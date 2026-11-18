@@ -148,3 +148,98 @@ test('hidden tabs make no status requests and repeated failures eventually stop'
     assert.equal(requests, 6);
     assert.equal(cleared, true);
 });
+
+function monitoredPanel(fetch) {
+    let sequence = 0;
+    const timers = new Map();
+    const listeners = {};
+    const documentListeners = {};
+    const feedback = {};
+    const renders = [];
+    const panel = {
+        dataset: {statusUrl: '/queue', watchNew: '1'},
+        ownerDocument: {hidden: false, addEventListener: (name, callback) => { documentListeners[name] = callback; }},
+        querySelector: () => feedback,
+    };
+    const browser = {
+        fetch,
+        setTimeout: (callback, delay) => { const id = ++sequence; timers.set(id, {callback, delay}); return id; },
+        clearTimeout: id => timers.delete(id),
+        addEventListener: (name, callback) => { listeners[name] = callback; },
+    };
+    const stop = initializeImportProgress(panel, browser, (_, entries) => renders.push(entries));
+    const tick = delay => {
+        const next = [...timers.entries()].find(([, timer]) => delay === undefined || timer.delay === delay);
+        assert.ok(next, `Missing timer at ${delay}`);
+        timers.delete(next[0]);
+        return next[1].callback();
+    };
+    return {panel, timers, listeners, documentListeners, renders, feedback, tick, stop};
+}
+
+const progressResponse = revision => ({ok: true, json: async () => ({revision, entries: [{active: true, label: String(revision)}]})});
+
+test('visibility changes do not overlap an existing status request', async () => {
+    let resolve;
+    let requests = 0;
+    const state = monitoredPanel(() => {requests++; return new Promise(done => {resolve = done;});});
+    const pending = state.tick(3000);
+    state.documentListeners.visibilitychange();
+    state.documentListeners.visibilitychange();
+    assert.equal(requests, 1);
+    resolve(progressResponse(1));
+    await pending;
+    assert.equal(state.renders.length, 1);
+    assert.equal(state.timers.size, 1);
+    state.stop();
+});
+
+test('polling ignores a response with an older server revision', async () => {
+    const responses = [progressResponse(8), progressResponse(7)];
+    const state = monitoredPanel(async () => responses.shift());
+    await state.tick(3000);
+    await state.tick(3000);
+    assert.equal(state.renders.length, 1);
+    assert.equal(state.renders[0][0].label, '8');
+    state.stop();
+});
+
+test('a timed out request preserves displayed state and schedules recovery', async () => {
+    const state = monitoredPanel((_, {signal}) => new Promise((resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')));
+    }));
+    const pending = state.tick(3000);
+    state.tick(15000);
+    await pending;
+    assert.equal(state.renders.length, 0);
+    assert.match(state.feedback.textContent, /Данные устарели/);
+    assert.equal([...state.timers.values()][0].delay, 6000);
+    state.stop();
+});
+
+test('upstream polling rate limits respect Retry-After across visibility changes', async () => {
+    let requests = 0;
+    const state = monitoredPanel(async () => {
+        requests++;
+        return {ok: false, status: 429, headers: {get: () => '120'}};
+    });
+    await state.tick(3000);
+    assert.equal([...state.timers.values()][0].delay, 120000);
+    state.documentListeners.visibilitychange();
+    assert.equal(requests, 1);
+    assert.equal(state.renders.length, 0);
+    state.stop();
+});
+
+test('page restoration restarts monitoring after an obsolete in-flight response settles', async () => {
+    let resolve;
+    const state = monitoredPanel(() => new Promise(done => {resolve = done;}));
+    const pending = state.tick(3000);
+    state.listeners.pagehide();
+    state.listeners.pageshow({persisted: true});
+    resolve(progressResponse(2));
+    await pending;
+    assert.equal(state.renders.length, 0);
+    assert.equal([...state.timers.values()][0].delay, 0);
+    state.stop();
+});

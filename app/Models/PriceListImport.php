@@ -76,4 +76,9 @@ class PriceListImport extends Model
             'duplicate_confirmed_at' => 'datetime', 'source_published_at' => 'datetime', 'source_metadata' => 'array',
         ];
     }
+
+    public function syncAttempts(): HasMany
+    {
+        return $this->hasMany(SupplierSyncAttempt::class);
+    }
 }

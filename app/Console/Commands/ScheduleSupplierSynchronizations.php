@@ -16,6 +16,7 @@ use App\Models\PriceListImport;
 use App\Models\SupplierSyncAttempt;
 use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
+use App\Services\ExternalImportQueue;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\SupplierSynchronizationService;
 use App\Services\SupplierVersions;
@@ -35,6 +36,7 @@ class ScheduleSupplierSynchronizations extends Command
 
             return self::SUCCESS;
         }
+        app(ExternalImportQueue::class)->reconcile();
         if ($this->option('directories')) {
             foreach (['icorp', 'pricelist_tj'] as $source) {
                 RefreshExternalSupplierDirectory::dispatch($source)->onQueue(config('price-list-imports.queue'));
@@ -60,7 +62,7 @@ class ScheduleSupplierSynchronizations extends Command
                     return;
                 }
                 if (in_array($download->status, ['cooldown', 'paused'], true)) {
-                    $download->update(['status' => 'retry', 'retry_count' => 0]);
+                    $download->update(['status' => 'retry']);
                 }
                 DownloadExternalPricePage::dispatch($download->id)->onQueue(config('price-list-imports.queue'));
             });
@@ -79,7 +81,10 @@ class ScheduleSupplierSynchronizations extends Command
             });
         PriceListImport::whereIn('source_type', ['icorp', 'pricelist_tj'])
             ->whereIn('status', [PriceListImportStatus::Pending, PriceListImportStatus::Processing, PriceListImportStatus::Committing])
-            ->where('updated_at', '<', now()->subMinutes(15))->eachById(function (PriceListImport $import) use ($service): void {
+            ->where(function ($query): void {
+                $query->whereHas('syncAttempts.run.queueItem', fn ($query) => $query->whereNull('heartbeat_at')->orWhere('heartbeat_at', '<', now()->subMinutes(15)))
+                    ->orWhere(fn ($query) => $query->whereDoesntHave('syncAttempts.run.queueItem')->where('updated_at', '<', now()->subMinutes(15)));
+            })->eachById(function (PriceListImport $import) use ($service): void {
                 $lock = Cache::lock('laravel-queue-overlap:price-list-stage:'.$import->id, 140);
                 if ($lock->get()) {
                     try {

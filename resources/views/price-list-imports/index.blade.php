@@ -38,6 +38,32 @@
     </x-ui.card>
 
     <x-ui.card class="mt-6" data-import-progress data-progress-layout="table" data-status-url="{{ route('price-list-imports.index', ['tab' => $tab, 'page' => $history->currentPage()]) }}" data-watch-new="1" data-show-source="{{ $tab === 'services' ? '1' : '0' }}">
+        @if($queueSummary)
+            <section aria-label="Очередь внешних прайс-листов" class="mb-6 space-y-4">
+                <h2 class="font-bold">Очередь прайс-листов</h2>
+                <dl class="flex flex-wrap gap-4">
+                    @foreach(['waiting' => 'Ожидают', 'processing' => 'Обрабатываются', 'succeeded' => 'Завершены', 'skipped' => 'Без изменений / пропущены', 'failed' => 'Ошибки', 'blocked' => 'Требуют проверки'] as $key => $label)
+                        <div><dt class="text-sm text-muted">{{ $label }}</dt><dd class="font-semibold" data-queue-count="{{ $key }}">{{ $queueSummary['counts'][$key] }}</dd></div>
+                    @endforeach
+                </dl>
+                <div data-queue-groups aria-live="polite">
+                    @foreach($queueSummary['groups'] as $group)
+                        <p class="text-sm text-muted">Завершено {{ $group['finished'] }} из {{ $group['total'] }} · Успешно: {{ $group['succeeded'] }} · Пропущено: {{ $group['skipped'] }} · Ошибок: {{ $group['failed'] }} · Требуют проверки: {{ $group['blocked'] }}</p>
+                    @endforeach
+                </div>
+                <h3 class="font-semibold">Текущий поставщик</h3>
+                <div data-queue-active aria-live="polite" class="space-y-3">
+                    @forelse($queueSummary['active'] as $entry)
+                        <div><p class="font-semibold">{{ $entry['title'] }}</p><p>{{ $entry['lane'] }} · {{ $entry['label'] }}</p><p class="text-sm text-muted">{{ $entry['detail'] }}</p>
+                            <p class="text-sm text-muted">Строки: {{ $entry['processed'] }} / {{ $entry['total'] ?: '—' }} · Страницы: {{ $entry['downloaded_pages'] }} / {{ $entry['total_pages'] ?: '—' }}</p>
+                            <p class="text-sm text-muted">Попытка: {{ $entry['retry_count'] + 1 }} · Следующий повтор: {{ $entry['next_retry_at'] ?? '—' }} · Последняя активность: {{ $entry['heartbeat_at'] ?? '—' }}</p>
+                        </div>
+                    @empty
+                        <p class="text-muted">Нет выполняющихся импортов.</p>
+                    @endforelse
+                </div>
+            </section>
+        @endif
         <h2 class="font-bold">История импорта</h2>
         <nav class="mt-4 flex flex-wrap gap-2" aria-label="Источники импорта">
             @foreach(['files' => 'Почта и файлы', 'services' => 'iCorp и PriceList.tj'] as $key => $label)

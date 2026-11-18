@@ -13,14 +13,17 @@ use App\Jobs\DownloadExternalPricePage;
 use App\Jobs\RefreshExternalSupplierDirectory;
 use App\Models\ExternalAvailability;
 use App\Models\ExternalDownload;
+use App\Models\ExternalImportQueueItem;
 use App\Models\ExternalServiceIncident;
 use App\Models\ExternalServiceState;
 use App\Models\ExternalSupplierPartner;
 use App\Models\Organization;
 use App\Models\PriceListImport;
+use App\Models\SupplierSyncAttempt;
 use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
 use App\Services\AuditLogger;
+use App\Services\ExternalImportQueue;
 use App\Services\ExternalServiceControl;
 use App\Services\ExternalServiceUnavailable;
 use App\Services\ExternalSupplierDirectory;
@@ -304,7 +307,12 @@ class SupplierSynchronizationController extends Controller
     public function retryDownload(Request $request, ExternalDownload $download, AuditLogger $audit): RedirectResponse
     {
         abort_unless(app(SupplierVersions::class)->enabled(), 422);
-        DB::transaction(function () use ($download, $audit): void {
+        DB::transaction(function () use ($download, $audit, $request): void {
+            $queueRun = SupplierSyncAttempt::findOrFail($download->supplier_sync_attempt_id)->run;
+            $queueItem = ExternalImportQueueItem::find($queueRun->execution_queue_item_id);
+            if ($queueItem) {
+                DB::table('external_import_queue_lanes')->where('id', $queueItem->lane_id)->lockForUpdate()->first();
+            }
             $supplier = Organization::whereKey($download->supplier_organization_id)->lockForUpdate()->firstOrFail();
             $download = ExternalDownload::whereKey($download->id)->lockForUpdate()->firstOrFail();
             abort_unless(in_array($download->status, ['failed', 'cancelled'], true) && ! $download->worker_token, 422);
@@ -321,7 +329,18 @@ class SupplierSynchronizationController extends Controller
                 && $partner->supplier_organization_id === $supplier->id && $partner->source === $download->source && $partner->external_id === $download->external_id && $partner->profile_active, 422);
             $before = $download->only(['status', 'retry_count', 'snapshot']);
             $snapshot = array_replace($download->snapshot, ['configuration_version' => $configuration->version, 'profile_version' => $partner->profile_version, 'profile' => $partner->profile_configuration]);
-            $download->update(['status' => 'retry', 'retry_count' => 0, 'next_retry_at' => null, 'reason' => null, 'snapshot' => $snapshot]);
+            $attempt = SupplierSyncAttempt::findOrFail($download->supplier_sync_attempt_id);
+            $attempt->run->update(['configuration_snapshot' => $configuration->toArray()]);
+            app(ExternalImportQueue::class)->retry($attempt->run, $request->user()->id);
+            $changed = ($download->snapshot['configuration_version'] ?? null) !== $configuration->version || ($download->snapshot['profile_version'] ?? null) !== $partner->profile_version;
+            $reset = [];
+            if ($changed || $download->reason === 'extraction') {
+                DB::table('external_download_pages')->where('external_download_id', $download->id)->delete();
+                $reset = ['next_page' => 1, 'received_rows' => 0, 'total_rows' => null, 'total_pages' => null, 'company' => null, 'account_discount' => null];
+            }
+            $download->update(array_replace($reset, ['status' => 'retry', 'retry_count' => 0, 'next_retry_at' => null, 'reason' => null, 'snapshot' => $snapshot]));
+            $attempt = SupplierSyncAttempt::findOrFail($download->supplier_sync_attempt_id);
+            $attempt->update(['status' => 'queued', 'reason' => null, 'retry_count' => 0, 'next_retry_at' => null]);
             $claim->update(['state' => 'reserved']);
             DownloadExternalPricePage::dispatch($download->id)->onQueue(config('price-list-imports.queue'))->afterCommit();
             $audit->log('supplier_download.retry_requested', $download, $before, $download->only(['status', 'retry_count', 'snapshot']));
@@ -448,6 +467,10 @@ class SupplierSynchronizationController extends Controller
             $import->update(['source_published_at' => $date, 'inventory_at' => $date, 'source_date_precision' => $data['precision'],
                 'source_metadata' => array_replace($import->source_metadata ?? [], ['date_confirmed_by' => $request->user()->id, 'date_evidence' => $data['evidence'], 'confirmed_precision' => $data['precision']])]);
             $audit->log('supplier_sync.date_confirmed', $import, $before, ['published_at' => $date->toIso8601String(), 'evidence' => $data['evidence']]);
+            $queueRun = app(ExternalImportQueue::class)->runForImport($import);
+            if ($queueRun && ExternalImportQueueItem::find($queueRun->execution_queue_item_id)?->state === 'blocked' && app(SupplierSourcePolicy::class)->reason($import) === null) {
+                app(ExternalImportQueue::class)->retry($queueRun, $request->user()->id);
+            }
             app(ActivationDispatcher::class)->dispatch($import, $request->user()->id);
         }, 3);
 
@@ -497,6 +520,10 @@ class SupplierSynchronizationController extends Controller
                 'actor_id' => $request->user()->id, 'evidence' => $data['evidence'], 'reviewed_at' => now()->toIso8601String(),
             ]])]);
             $audit->log('supplier_sync.conflict_resolved', $import, $before ?? [], $import->source_metadata);
+            $queueRun = app(ExternalImportQueue::class)->runForImport($import);
+            if ($queueRun && ExternalImportQueueItem::find($queueRun->execution_queue_item_id)?->state === 'blocked' && app(SupplierSourcePolicy::class)->reason($import) === null) {
+                app(ExternalImportQueue::class)->retry($queueRun, $request->user()->id);
+            }
             app(ActivationDispatcher::class)->dispatch($import, $request->user()->id);
         }, 3);
 
