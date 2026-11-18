@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ApproveSupplierMappingRequest;
 use App\Http\Requests\UpdateExternalSupplierProfileRequest;
 use App\Http\Requests\UpdateSupplierSynchronizationRequest;
+use App\Jobs\DownloadExternalPricePage;
 use App\Jobs\RefreshExternalSupplierDirectory;
 use App\Models\ExternalAvailability;
 use App\Models\ExternalDownload;
@@ -31,13 +32,16 @@ use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CatalogFingerprint;
 use App\Services\PriceList\SampleWorkbookReader;
 use App\Services\PriceListTjClient;
+use App\Services\SupplierAutomaticSetup;
 use App\Services\SupplierDirectoryContext;
 use App\Services\SupplierImportSettings;
+use App\Services\SupplierInboxEvidence;
 use App\Services\SupplierMappingApproval;
 use App\Services\SupplierSourcePolicy;
 use App\Services\SupplierSuggestionMatcher;
 use App\Services\SupplierSynchronizationService;
 use App\Services\SupplierSynchronizationStatus;
+use App\Services\SupplierVersions;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -85,7 +89,8 @@ class SupplierSynchronizationController extends Controller
         $suppliers = Organization::where('type', OrganizationType::Wholesaler)
             ->when($request->filled('supplier_q'), fn ($query) => $query->where('name', 'like', '%'.$request->string('supplier_q').'%'))
             ->when($request->filled('supplier_status'), fn ($query) => $query->whereIn('id', $supplierStatuses->filter(fn (array $status): bool => $request->input('supplier_status') === 'attention' ? $status['attention'] : $status['state'] === $request->input('supplier_status'))->keys()))
-            ->orderBy('name')->orderBy('id')->paginate(25, ['id', 'name'], 'supplier_page')->withQueryString();
+            ->with('activePriceListImport')->orderBy('name')->orderBy('id')->paginate(25, ['*'], 'supplier_page')->withQueryString();
+        $listingDates = ExternalAvailability::orderByDesc('last_checked_at')->orderByDesc('id')->get()->unique('external_supplier_partner_id')->keyBy('external_supplier_partner_id');
         $statuses = collect(['icorp', 'pricelist_tj'])->mapWithKeys(fn (string $source): array => [$source => Cache::get('external-prices:status:'.$source, ['status' => 'unknown'])]);
 
         try {
@@ -94,7 +99,7 @@ class SupplierSynchronizationController extends Controller
             $icorpLogin = '';
         }
 
-        return view('admin.supplier-synchronizations.index', compact('supplierStatuses', 'icorpLogin', 'tab', 'partners', 'suppliers', 'allSuppliers', 'suggestions', 'statuses', 'directoryCounts', 'mappedPartners', 'configurations', 'reviewSuggestions', 'allPartners', 'partnerEvidence', 'supplierEvidence', 'restoredReview'));
+        return view('admin.supplier-synchronizations.index', compact('listingDates', 'supplierStatuses', 'icorpLogin', 'tab', 'partners', 'suppliers', 'allSuppliers', 'suggestions', 'statuses', 'directoryCounts', 'mappedPartners', 'configurations', 'reviewSuggestions', 'allPartners', 'partnerEvidence', 'supplierEvidence', 'restoredReview'));
     }
 
     public function approve(ApproveSupplierMappingRequest $request, SupplierMappingApproval $approval): RedirectResponse
@@ -283,16 +288,65 @@ class SupplierSynchronizationController extends Controller
         $observations = ExternalAvailability::whereIn('external_supplier_partner_id', $partners->pluck('id'))->orderByDesc('last_checked_at')->orderByDesc('id')->get()->unique('external_supplier_partner_id');
         $incidents = ExternalServiceIncident::whereIn('source', $serviceStates->pluck('source'))->whereNull('resolved_at')->get();
 
-        $activeDateNeedsReview = $configuration->usesNewestAvailable() && $supplier->activePriceListImport
+        $activeDateNeedsReview = ! app(SupplierVersions::class)->enabled() && $configuration->usesNewestAvailable() && $supplier->activePriceListImport
             && app(NewestSupplierCandidates::class)->publicationReason($supplier->activePriceListImport) !== null;
-        $conflictReviews = $configuration->reviewsConflicts() && $tab === 'review' ? $previews->mapWithKeys(fn (PriceListImport $preview): array => [$preview->id => [
+        $conflictReviews = ! app(SupplierVersions::class)->enabled() && $configuration->reviewsConflicts() && $tab === 'review' ? $previews->mapWithKeys(fn (PriceListImport $preview): array => [$preview->id => [
             'token' => app(NewestSupplierCandidates::class)->comparisonToken($preview, $configuration),
             'others' => app(NewestSupplierCandidates::class)->reviewComparisons($preview, $configuration),
             'differences' => collect(app(NewestSupplierCandidates::class)->reviewComparisons($preview, $configuration))->mapWithKeys(fn (PriceListImport $other): array => [$other->id => app(CatalogFingerprint::class)->difference($preview, $other)]),
         ]]) : collect();
+        $automaticSetup = app(SupplierAutomaticSetup::class)->status($supplier);
         $settingsData = $tab === 'sources' ? app(SupplierImportProfileController::class)->workspaceData($request, $supplier->id, app(SampleWorkbookReader::class)) : [];
 
-        return view('admin.supplier-synchronizations.show', array_merge($settingsData, compact('activeDateNeedsReview', 'conflictReviews', 'supplierStatus', 'supplier', 'configuration', 'partners', 'runs', 'previews', 'tab', 'sources', 'reviewReasons', 'serviceStates', 'downloads', 'observations', 'incidents')));
+        return view('admin.supplier-synchronizations.show', array_merge($settingsData, compact('automaticSetup', 'activeDateNeedsReview', 'conflictReviews', 'supplierStatus', 'supplier', 'configuration', 'partners', 'runs', 'previews', 'tab', 'sources', 'reviewReasons', 'serviceStates', 'downloads', 'observations', 'incidents')));
+    }
+
+    public function retryDownload(Request $request, ExternalDownload $download, AuditLogger $audit): RedirectResponse
+    {
+        abort_unless(app(SupplierVersions::class)->enabled(), 422);
+        DB::transaction(function () use ($download, $audit): void {
+            $supplier = Organization::whereKey($download->supplier_organization_id)->lockForUpdate()->firstOrFail();
+            $download = ExternalDownload::whereKey($download->id)->lockForUpdate()->firstOrFail();
+            abort_unless(in_array($download->status, ['failed', 'cancelled'], true) && ! $download->worker_token, 422);
+            $observation = ExternalAvailability::findOrFail($download->external_availability_id);
+            abort_if(app(SupplierVersions::class)->freshnessReason($supplier, $observation->published_at) !== null
+                || app(SupplierInboxEvidence::class)->exists($supplier->id, $observation->published_at), 422);
+            $claim = app(SupplierVersions::class)->claim($supplier, $observation->published_at, $download->source);
+            abort_unless($claim && $claim->external_download_id === $download->id, 422);
+            $configuration = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->firstOrFail();
+            $partner = ExternalSupplierPartner::findOrFail($download->snapshot['partner_id']);
+            $state = ExternalServiceState::findOrFail($download->source);
+            abort_unless($supplier->external_fetch_enabled && $configuration->automatic_enabled && ! $configuration->paused
+                && $state->status !== 'paused' && ! $state->cooldown_until?->isFuture()
+                && $partner->supplier_organization_id === $supplier->id && $partner->source === $download->source && $partner->external_id === $download->external_id && $partner->profile_active, 422);
+            $before = $download->only(['status', 'retry_count', 'snapshot']);
+            $snapshot = array_replace($download->snapshot, ['configuration_version' => $configuration->version, 'profile_version' => $partner->profile_version, 'profile' => $partner->profile_configuration]);
+            $download->update(['status' => 'retry', 'retry_count' => 0, 'next_retry_at' => null, 'reason' => null, 'snapshot' => $snapshot]);
+            $claim->update(['state' => 'reserved']);
+            DownloadExternalPricePage::dispatch($download->id)->onQueue(config('price-list-imports.queue'))->afterCommit();
+            $audit->log('supplier_download.retry_requested', $download, $before, $download->only(['status', 'retry_count', 'snapshot']));
+        }, 3);
+
+        return back()->with('success', 'Повтор существующей попытки поставлен в очередь.');
+    }
+
+    public function externalFetching(Request $request, Organization $supplier, AuditLogger $audit): RedirectResponse
+    {
+        $data = $request->validate(['external_fetch_enabled' => ['required', 'boolean'], 'exclusion_reason' => ['nullable', 'string', 'max:255'], 'expected_version' => ['required', 'integer', 'min:0']]);
+        DB::transaction(function () use ($supplier, $data, $audit): void {
+            $supplier = Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
+            abort_unless($supplier->type === OrganizationType::Wholesaler, 404);
+            $configuration = SupplierSynchronization::firstOrNew(['supplier_organization_id' => $supplier->id]);
+            if ((int) ($configuration->version ?? 0) !== (int) $data['expected_version']) {
+                throw ValidationException::withMessages(['expected_version' => 'Настройки изменились. Обновите страницу.']);
+            }
+            $before = $supplier->only(['external_fetch_enabled', 'external_fetch_exclusion_reason', 'external_fetch_overridden']);
+            $supplier->update(['external_fetch_enabled' => $data['external_fetch_enabled'], 'external_fetch_exclusion_reason' => $data['external_fetch_enabled'] ? null : ($data['exclusion_reason'] ?? 'administrator'), 'external_fetch_overridden' => true]);
+            $configuration->fill(['selection_mode' => 'daily_versions', 'sources' => SupplierSynchronization::defaultSources(), 'automatic_enabled' => $data['external_fetch_enabled'], 'paused' => false, 'settings_confirmed' => true, 'selected_source' => null, 'workflow_policy' => null, 'fetch_interval_minutes' => 60, 'freshness_hours' => 24, 'version' => ($configuration->version ?? 0) + 1])->save();
+            $audit->log('supplier_external_fetch.overridden', $supplier, $before, $supplier->only(['external_fetch_enabled', 'external_fetch_exclusion_reason', 'external_fetch_overridden']));
+        }, 3);
+
+        return back()->with('success', 'Настройки внешней загрузки сохранены. Почта и ручная загрузка доступны независимо.');
     }
 
     public function update(UpdateSupplierSynchronizationRequest $request, Organization $supplier, SupplierImportSettings $settings): RedirectResponse
@@ -382,6 +436,8 @@ class SupplierSynchronizationController extends Controller
 
     public function confirmDate(Request $request, PriceListImport $import, AuditLogger $audit): RedirectResponse
     {
+
+        abort_if(app(SupplierVersions::class)->enabled(), 422, 'Одна версия в день; замена одинаковой даты недоступна.');
         $data = $this->publicationConfirmation($request);
         DB::transaction(function () use ($import, $data, $request, $audit): void {
             Organization::whereKey($import->supplier_organization_id)->lockForUpdate()->firstOrFail();
@@ -400,6 +456,8 @@ class SupplierSynchronizationController extends Controller
 
     public function confirmAvailabilityDate(Request $request, ExternalAvailability $availability, AuditLogger $audit): RedirectResponse
     {
+
+        abort_if(app(SupplierVersions::class)->enabled(), 422, 'Даты берутся только из списка поставщиков.');
         $request->validate(['version_key' => ['required', 'string']], $this->validationMessages());
         $data = $this->publicationConfirmation($request) + $request->only('version_key');
         $partner = ExternalSupplierPartner::findOrFail($availability->external_supplier_partner_id);
@@ -421,6 +479,8 @@ class SupplierSynchronizationController extends Controller
 
     public function resolveConflict(Request $request, PriceListImport $import, AuditLogger $audit): RedirectResponse
     {
+
+        abort_if(app(SupplierVersions::class)->enabled(), 422, 'Одна версия в день; замена одинаковой даты недоступна.');
         $data = $request->validate(['comparison_token' => ['required', 'string', 'size:64'], 'evidence' => ['required', 'string', 'max:1000']], $this->validationMessages());
         DB::transaction(function () use ($request, $import, $data, $audit): void {
             Organization::whereKey($import->supplier_organization_id)->lockForUpdate()->firstOrFail();

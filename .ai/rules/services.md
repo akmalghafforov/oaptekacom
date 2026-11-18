@@ -2,6 +2,7 @@
 paths:
   - 'app/Services/*DatabasePull*.php'
   - app/Services/database_pull_remote.py
+  - app/Services/rendered_supplier_listing.mjs
 ---
 
 # Services
@@ -17,3 +18,9 @@ The production pg_hba policy accepts password-authenticated Unix sockets and the
 
 ## Preserve production data throughout database pulls and local recovery
 Production export must remain read-only: set default_transaction_read_only=on for remote PostgreSQL sessions and verify transaction_read_only during discovery. Export uses pg_dump only; all database recreation, restore and recovery belong to the validated local target. Reject a Docker source container that is also the local target. Maintain tests proving production fixtures remain unchanged through success, export/backup failures and local recovery failures.
+
+## Keep rendered supplier keys and wait for card pagination
+PriceList-TJ card keys are text supplier IDs, not numeric-only IDs. Reject unresolved and pagination keys rather than borrowing an ancestor key. Wait for supplier card content to change between pages; page indicators change before data and networkidle can hang on unrelated requests.
+
+## Dismiss the PriceList-TJ listing notice before pagination
+The rendered companies listing can show a promotional notice whose overlay intercepts pagination clicks. Dismiss its visible Не сейчас button through the UI before advancing; never force-click through overlays or use supplier/catalog routes to work around listing failures.

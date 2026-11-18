@@ -17,7 +17,6 @@ use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
 use App\Services\PriceList\ProductCategoryRuleSetResolver;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -30,6 +29,7 @@ class SupplierPriceListIngestor
     public function ingestGmailReceipt(GmailImportReceipt $receipt, StoredImportFile $file): array
     {
         $result = DB::transaction(function () use ($receipt, $file): array {
+            Organization::whereKey($receipt->supplier_organization_id)->lockForUpdate()->firstOrFail();
             $receipt = GmailImportReceipt::whereKey($receipt->id)->lockForUpdate()->firstOrFail();
             if ($receipt->price_list_import_id) {
                 return ['outcome' => 'duplicate', 'import' => PriceListImport::findOrFail($receipt->price_list_import_id)];
@@ -62,7 +62,7 @@ class SupplierPriceListIngestor
             if ($import->sha256 === $file->sha256) {
                 GmailImportContentClaim::firstOrCreate(['supplier_organization_id' => $supplier->id, 'sha256' => $file->sha256], ['price_list_import_id' => $import->id]);
             }
-            $receipt->update(['supplier_import_profile_id' => $profile->id, 'price_list_import_id' => $import->id, 'status' => $existing ? 'duplicate' : 'accepted', 'reason' => $existing ? $duplicateReason : null]);
+            $receipt->update(['supplier_import_profile_id' => $profile->id, 'price_list_import_id' => $import->id, 'status' => $import->failure_stage === 'version_skipped' ? 'skipped' : ($existing ? 'duplicate' : 'accepted'), 'reason' => $import->failure_stage === 'version_skipped' ? $import->failure_message : ($existing ? $duplicateReason : null)]);
 
             return ['outcome' => $existing ? 'duplicate' : 'accepted', 'import' => $import];
         }, 3);
@@ -94,7 +94,7 @@ class SupplierPriceListIngestor
 
     private function ingestLocked(Organization $supplier, StoredImportFile $file, IngestionContext $context): PriceListImport
     {
-        if ($context->source !== PriceListImportSource::Manual && Cache::get('supplier-imports:dispatch-paused', false)) {
+        if ($context->source !== PriceListImportSource::Manual && app(SupplierVersions::class)->paused()) {
             throw ValidationException::withMessages(['file' => 'Новые импорты приостановлены на время переключения источников.']);
         }
         $profile = $supplier->importProfile()->where('is_active', true)->lockForUpdate()->first();
@@ -114,7 +114,7 @@ class SupplierPriceListIngestor
             $ruleSet = app(ProductCategoryRuleSetResolver::class)->current();
             $sourceMetadata = $context->sourceMetadata;
             if ($context->source === PriceListImportSource::Email && ($sync = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->first()) && ($sync->settings_confirmed || $sync->usesExclusiveSource() || $sync->usesNewestAvailable())) {
-                $sourceMetadata = ['configuration_version' => $sync->version, 'trigger' => 'mailbox', 'profile_hash' => SupplierSourcePolicy::profileHash($profile->configuration)];
+                $sourceMetadata = array_replace($sourceMetadata ?? [], ['configuration_version' => $sync->version, 'trigger' => 'mailbox', 'profile_hash' => SupplierSourcePolicy::profileHash($profile->configuration)]);
             }
             $duplicate = PriceListImport::query()
                 ->whereBelongsTo($supplier, 'supplier')
@@ -138,6 +138,18 @@ class SupplierPriceListIngestor
                 $run = SupplierSyncRun::create(['supplier_organization_id' => $supplier->id, 'trigger' => 'mailbox',
                     'configuration_snapshot' => $sync->toArray(), 'status' => 'processing']);
                 $run->attempts()->create(['source' => 'email', 'price_list_import_id' => $import->id, 'status' => 'processing']);
+            }
+            $versions = app(SupplierVersions::class);
+            if ($versions->enabled()) {
+                $publication = $versions->publication($file->originalFilename, $import->profile_snapshot, $context->receivedAt ?? $import->created_at, $context->sourcePublishedAt);
+                $import->update(['source_published_at' => $publication['date'], 'source_date_precision' => $context->sourceDatePrecision ?? $publication['precision'],
+                    'source_metadata' => array_replace($import->source_metadata ?? [], ['publication_origin' => $context->sourcePublishedAt ? ($context->sourceMetadata['publication_origin'] ?? 'supplied') : $publication['origin']])]);
+                $deferCell = $publication['origin'] === 'arrival' && ($import->profile_snapshot['inventory']['source'] ?? null) === 'cell';
+                if (! $deferCell && ($reason = $versions->attach($import))) {
+                    $import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'version_skipped', 'failure_message' => $reason, 'failed_at' => now()]);
+
+                    return $import;
+                }
             }
             PreparePriceListImport::dispatch($import)->onQueue(config('price-list-imports.queue'))->afterCommit();
 

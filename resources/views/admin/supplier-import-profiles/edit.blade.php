@@ -47,7 +47,7 @@
             <p class="self-end pb-3 text-sm text-muted">Готовый профиль разрешает разбор файла. Использование почты и автоматическое обновление включаются отдельно в настройках.</p>
         </div>
     </x-ui.card>
-    <x-ui.card><h2 class="font-bold">Дата публикации прайс-листа</h2><p class="mt-2 text-sm text-muted">Укажите, где поставщик записывает дату. Без надёжной даты новый режим запросит проверку; время получения письма не используется как дата публикации.</p>
+    <x-ui.card><h2 class="font-bold">Дата публикации прайс-листа</h2><p class="mt-2 text-sm text-muted">Укажите, где поставщик записывает дату. Если дата не найдена в файле, используется календарный день получения в Душанбе.</p>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
             <x-ui.select name="publication_source" :restore="$restoringEmail" label="Где находится дата">@foreach(['review' => 'Подтверждать вручную', 'cell' => 'В ячейке таблицы', 'filename' => 'В имени файла'] as $key => $label)<option value="{{ $key }}" @selected($emailValue('publication_source', $profile->configuration['inventory']['source'] ?? 'review') === $key)>{{ $label }}</option>@endforeach</x-ui.select>
             <x-ui.input name="publication_cell" :restore="$restoringEmail" label="Ячейка с датой, например C1" :value="$profile->configuration['inventory']['cell'] ?? ''" />

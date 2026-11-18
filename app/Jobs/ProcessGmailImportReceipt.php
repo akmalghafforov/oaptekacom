@@ -6,6 +6,7 @@ use App\Models\GmailImportReceipt;
 use App\Services\GmailApiException;
 use App\Services\GmailException;
 use App\Services\GmailImportIntake;
+use App\Services\SupplierVersions;
 use Google\Service\Exception as GoogleException;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -29,7 +30,7 @@ class ProcessGmailImportReceipt implements ShouldQueue
 
     public function handle(GmailImportIntake $intake): void
     {
-        if (! config('gmail-imports.enabled') || Cache::get('supplier-imports:dispatch-paused', false)) {
+        if (! config('gmail-imports.enabled') || app(SupplierVersions::class)->paused()) {
             return;
         }
         $lock = Cache::store(config('session.block_store'))->lock('gmail-receipt:'.$this->receiptId, 120);

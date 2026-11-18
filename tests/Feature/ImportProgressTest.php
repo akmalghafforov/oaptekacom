@@ -3,12 +3,15 @@
 namespace Tests\Feature;
 
 use App\Enums\PriceListImportStatus;
+use App\Models\ExternalDownload;
 use App\Models\Organization;
 use App\Models\PriceListImport;
+use App\Models\SupplierSyncAttempt;
 use App\Models\SupplierSyncRun;
 use App\Models\User;
 use App\Services\ExternalPriceWorkbook;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class ImportProgressTest extends TestCase
@@ -32,6 +35,29 @@ class ImportProgressTest extends TestCase
         $this->getJson(route('price-list-imports.index', ['tab' => 'services']))->assertJsonPath('entries.0.import_id', $import->id);
         $import->update(['status' => PriceListImportStatus::Completed]);
         $this->getJson(route('price-list-imports.show', $import))->assertJsonPath('entries.0.active', false)->assertJsonPath('entries.0.detail', 'Каталог опубликован.');
+    }
+
+    #[TestWith(['downloading', 1000, '26 / 1000'])]
+    #[TestWith(['retry', 1000, '26 / 1000'])]
+    #[TestWith(['downloading', null, '26 / —'])]
+    public function test_service_download_row_counts_are_visible_and_refresh(string $status, ?int $total, string $expectedRows): void
+    {
+        $run = SupplierSyncRun::factory()->create(['status' => 'downloading', 'configuration_snapshot' => ['selected_source' => null]]);
+        SupplierSyncAttempt::factory()->for($run, 'run')->create(['source' => 'icorp', 'status' => 'failed']);
+        $attempt = SupplierSyncAttempt::factory()->for($run, 'run')->create(['source' => 'pricelist_tj', 'status' => 'downloading']);
+        $download = ExternalDownload::create(['supplier_sync_attempt_id' => $attempt->id, 'supplier_organization_id' => $run->supplier_organization_id,
+            'source' => 'pricelist_tj', 'external_id' => 'supplier-key', 'version_key' => str_repeat('a', 64), 'snapshot' => [],
+            'status' => $status, 'received_rows' => 26, 'total_rows' => $total]);
+        $this->actingAs(User::factory()->admin()->create(['two_factor_confirmed_at' => now()]));
+
+        $this->get(route('price-list-imports.index', ['tab' => 'services']))->assertOk()->assertSee($expectedRows);
+        $this->getJson(route('price-list-imports.index', ['tab' => 'services']))
+            ->assertJsonPath('entries.0.rows', $expectedRows)->assertJsonPath('entries.0.processed', 26)
+            ->assertJsonPath('entries.0.total', $total ?? 0)->assertJsonPath('entries.0.source', 'pricelist_tj');
+
+        $download->update(['received_rows' => 52]);
+        $this->getJson(route('price-list-imports.index', ['tab' => 'services']))
+            ->assertJsonPath('entries.0.rows', '52 / '.($total ?? '—'))->assertJsonPath('entries.0.processed', 52);
     }
 
     public function test_progress_remains_scoped_to_the_authenticated_supplier(): void

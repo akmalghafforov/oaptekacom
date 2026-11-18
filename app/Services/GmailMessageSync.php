@@ -92,7 +92,7 @@ class GmailMessageSync
             return;
         }
         $data = $this->reader->read($message, fn (string $attachment): string => $gmail->users_messages_attachments->get('me', $id, $attachment)->getData() ?? '');
-        $receivedAt = $message->getInternalDate() ? Carbon::createFromTimestampMs((int) $message->getInternalDate()) : now();
+        $receivedAt = $message->getInternalDate() ? Carbon::createFromTimestampMs((int) $message->getInternalDate())->setTimezone('Asia/Dushanbe') : now();
         GmailMessage::firstOrCreate($identity, ['received_at' => $receivedAt, 'sender' => $data['from'], 'subject' => $data['subject'], 'snippet' => $data['snippet'], 'unread' => $data['unread'], 'attachment_manifest' => $data['attachments'], 'plain_body' => $data['plain'], 'html_body' => $data['html'], 'synced_at' => now()]);
     }
 }

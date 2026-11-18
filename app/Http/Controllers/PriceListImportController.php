@@ -10,8 +10,11 @@ use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
 use App\Enums\SupplierFileType;
+use App\Http\Controllers\Admin\SupplierImportProfileController;
 use App\Http\Requests\StorePriceListImportRequest;
+use App\Http\Requests\StoreSupplierImportProfileSampleRequest;
 use App\Jobs\PreparePriceListImport;
+use App\Models\ExternalDownload;
 use App\Models\Medicine;
 use App\Models\Organization;
 use App\Models\PriceListImport;
@@ -25,9 +28,11 @@ use App\Services\ImportFileValidator;
 use App\Services\ImportProgress;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CategorizationReportExporter;
+use App\Services\PriceList\SampleWorkbookReader;
 use App\Services\SupplierPriceListIngestor;
 use App\Services\SupplierSourcePolicy;
 use App\Services\SupplierSynchronizationService;
+use App\Services\SupplierVersions;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -73,8 +78,15 @@ class PriceListImportController extends Controller
         $items = $history->getCollection();
         $imports = PriceListImport::with('supplier')->withCount('rows')->findMany($items->where('kind', 'import')->pluck('id'))->keyBy('id');
         $runs = SupplierSyncRun::with(['supplier', 'attempts'])->findMany($items->where('kind', 'run')->pluck('id'))->keyBy('id');
-        $history->setCollection($items->map(function ($item) use ($imports, $runs, $progress, $request): array {
-            $entry = $item->kind === 'import' ? $progress->import($imports[$item->id]) : $progress->run($runs[$item->id]);
+        $downloads = ExternalDownload::whereIn('supplier_sync_attempt_id', $runs->flatMap(fn (SupplierSyncRun $run): array => $run->attempts->modelKeys()))->get()->keyBy('supplier_sync_attempt_id');
+        $history->setCollection($items->map(function ($item) use ($imports, $runs, $downloads, $progress, $request): array {
+            if ($item->kind === 'import') {
+                $entry = $progress->import($imports[$item->id]);
+            } else {
+                $run = $runs[$item->id];
+                $download = $run->attempts->map(fn ($attempt) => $downloads->get($attempt->id))->filter()->sortByDesc('id')->first();
+                $entry = $progress->run($run, $download);
+            }
             if ($item->kind === 'run' && ! $request->user()->isAdminMode()) {
                 $entry['url'] = null;
             }
@@ -95,6 +107,13 @@ class PriceListImportController extends Controller
             : $request->user()->activeOrganization();
         abort_unless($supplier?->type === OrganizationType::Wholesaler, 404);
         if (! $supplier->importProfile()->where('is_active', true)->exists()) {
+            if ($request->user()->isAdminMode()) {
+                $sampleRequest = StoreSupplierImportProfileSampleRequest::createFrom($request);
+                $sampleRequest->files->set('sample', $request->file('file'));
+                app(SupplierImportProfileController::class)->storeSample($sampleRequest, $supplier->id, app(SampleWorkbookReader::class));
+
+                return redirect()->route('admin.supplier-sync.show', [$supplier, 'tab' => 'sources'])->with('success', 'Файл сохранён как образец. Настройте профиль и затем загрузите прайс для публикации.');
+            }
             throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
         }
         $upload = $request->file('file');
@@ -102,7 +121,11 @@ class PriceListImportController extends Controller
         $extension = strtolower($upload->getClientOriginalExtension());
         $path = $upload->storeAs('price-list-imports/'.$supplier->id, Str::uuid().'.'.$extension, config('price-list-imports.disk'));
         $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $upload->getClientOriginalName(), $upload->getMimeType() ?: 'application/octet-stream', $upload->getSize(), hash_file('sha256', Storage::disk(config('price-list-imports.disk'))->path($path)));
-        $import = $ingestor->ingest($supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))));
+        $import = $ingestor->ingest($supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone')), sourcePublishedAt: $request->filled('published_date') ? CarbonImmutable::parse($request->validated('published_date'), 'Asia/Dushanbe') : null));
+
+        if ($import->failure_stage === 'version_skipped') {
+            return redirect()->route('price-list-imports.show', $import)->with('warning', 'Файл сохранён, но версия уже импортирована или обрабатывается.');
+        }
 
         return redirect()->route('price-list-imports.show', $import)->with('success', 'Файл принят и поставлен в очередь автоматической обработки и публикации.');
     }
@@ -142,10 +165,14 @@ class PriceListImportController extends Controller
         $importModel = $this->scoped($request, $import);
         $this->authorize('retry', $importModel);
         abort_unless($importModel->status === PriceListImportStatus::Failed, 422);
-        if (in_array($importModel->source_type->value, ['icorp', 'pricelist_tj'], true)) {
+        if (! app(SupplierVersions::class)->enabled() && in_array($importModel->source_type->value, ['icorp', 'pricelist_tj'], true)) {
             app(SupplierSynchronizationService::class)->request($importModel->supplier);
 
             return back()->with('success', 'Новая загрузка выбранного источника поставлена в очередь.');
+        }
+        abort_if($importModel->failure_stage === 'version_skipped', 422, 'Версия уже импортирована или обрабатывается.');
+        if (app(SupplierVersions::class)->enabled()) {
+            abort_if(app(SupplierVersions::class)->attach($importModel) !== null, 422, 'Версия уже импортирована или занята другим импортом.');
         }
         $activationFailure = in_array($importModel->failure_stage, ['activation', 'activation_materialization', 'activation_cutover'], true);
         $importModel->update([
@@ -179,7 +206,7 @@ class PriceListImportController extends Controller
         $path = 'price-list-imports/'.$importModel->supplier_organization_id.'/'.Str::uuid().'.'.$extension;
         abort_unless($disk->copy($importModel->file_path, $path), 500);
         $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $importModel->original_filename, $importModel->mime_type, $disk->size($path), $importModel->sha256);
-        $replay = $ingestor->ingest($importModel->supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))));
+        $replay = $ingestor->ingest($importModel->supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone')), sourcePublishedAt: CarbonImmutable::instance($importModel->source_published_at ?? $importModel->inventory_at ?? $importModel->received_at ?? $importModel->created_at)));
 
         return redirect()->route('price-list-imports.show', $replay)->with('success', 'Повторная обработка исходного файла запущена с текущим профилем поставщика. Результаты предыдущего импорта сохранены в истории.');
     }

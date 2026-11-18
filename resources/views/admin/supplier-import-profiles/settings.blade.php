@@ -1,3 +1,6 @@
+@if(app(\App\Services\SupplierVersions::class)->enabled())
+    @include('admin.supplier-import-profiles.daily-settings')
+@else
 @php
     $restoring = old('_sync_form') === 'settings-'.$supplier->id;
     $value = fn ($key, $default = null) => $restoring ? old($key, $default) : $default;
@@ -42,3 +45,5 @@
         <form data-sync-submit method="post" action="{{ route('admin.supplier-sync.fetch', $supplier) }}" class="mt-4">@csrf <x-mode-version /><x-ui.button :disabled="$supplier->status !== 'active' || $dispatchPaused">Проверить новые прайсы</x-ui.button></form>
     @endif
 </x-ui.card>
+
+@endif

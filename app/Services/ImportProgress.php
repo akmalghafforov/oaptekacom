@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\PriceListImportSource;
+use App\Models\ExternalDownload;
 use App\Models\PriceListImport;
 use App\Models\SupplierSyncAttempt;
 use App\Models\SupplierSyncRun;
@@ -16,6 +17,7 @@ class ImportProgress
         $processed = (int) $import->rows_count;
         $reason = $status === 'preview' ? app(SupplierSourcePolicy::class)->reason($import) : null;
         $detail = match (true) {
+            $import->failure_stage === 'version_skipped' => 'Пропущен: этот или более новый день уже импортирован либо версия обрабатывается.',
             $status === 'failed' => 'Импорт завершился с ошибкой. Активный каталог сохранён.',
             $reason === 'source_not_selected' => 'Выбран другой источник. Активный каталог сохранён.',
             in_array($reason, ['configuration_changed', 'mapping_changed', 'profile_changed'], true) => 'Настройки изменились. Запустите новый импорт.',
@@ -32,7 +34,7 @@ class ImportProgress
         };
 
         return ['id' => 'import-'.$import->id, 'import_id' => $import->id, 'title' => $import->supplier->name.' · '.$import->source_type->label().' · №'.$import->id,
-            'reason' => $reason, 'label' => $reason === 'unchanged_content' ? 'Без изменений' : ($reason && str_starts_with($reason, 'review_') ? 'Требуется проверка' : $import->status->label()), 'detail' => $detail, 'active' => in_array($status, ['pending', 'processing', 'committing'], true) || ($status === 'preview' && $reason === null),
+            'reason' => $reason, 'label' => $import->failure_stage === 'version_skipped' ? 'Пропущен' : ($reason === 'unchanged_content' ? 'Без изменений' : ($reason && str_starts_with($reason, 'review_') ? 'Требуется проверка' : $import->status->label())), 'detail' => $detail, 'active' => in_array($status, ['pending', 'processing', 'committing'], true) || ($status === 'preview' && $reason === null),
             'filename' => $import->original_filename, 'source' => $import->source_type->value,
             'source_label' => $import->source_type->value === 'pricelist_tj' ? 'PriceList.tj' : $import->source_type->label(),
             'supplier' => $import->supplier->name, 'status' => $status,
@@ -41,9 +43,9 @@ class ImportProgress
     }
 
     /** @return array<string, mixed> */
-    public function run(SupplierSyncRun $run): array
+    public function run(SupplierSyncRun $run, ?ExternalDownload $download = null): array
     {
-        $source = $run->configuration_snapshot['selected_source'] ?? $run->attempts->first(fn (SupplierSyncAttempt $attempt): bool => in_array($attempt->source, [PriceListImportSource::Icorp->value, PriceListImportSource::PriceListTj->value], true))?->source;
+        $source = $download?->source ?? $run->selected_source ?? $run->configuration_snapshot['selected_source'] ?? $run->attempts->first(fn (SupplierSyncAttempt $attempt): bool => in_array($attempt->source, [PriceListImportSource::Icorp->value, PriceListImportSource::PriceListTj->value], true))?->source;
         $sourceLabel = $source === 'icorp' ? 'iCorp' : ($source === 'pricelist_tj' ? 'PriceList.tj' : 'Внешний источник');
         $active = $run->active_supplier_id !== null;
         $label = match ($run->status) {
@@ -82,8 +84,8 @@ class ImportProgress
         return ['id' => 'run-'.$run->id, 'import_id' => null, 'title' => $run->supplier->name.' · '.$sourceLabel,
             'label' => $label, 'detail' => $detail,
             'filename' => null, 'source' => $source, 'source_label' => $sourceLabel, 'supplier' => $run->supplier->name,
-            'status' => $label === 'Ошибка загрузки' ? 'failed' : $run->status, 'rows' => null, 'date' => $run->created_at->copy()->timezone('Asia/Dushanbe')->format('d.m.Y H:i'),
-            'active' => $active && ! in_array($run->status, ['review', 'failed', 'skipped', 'unchanged', 'completed'], true), 'processed' => 0, 'total' => 0,
+            'status' => $label === 'Ошибка загрузки' ? 'failed' : $run->status, 'rows' => ($download?->received_rows ?? 0).' / '.($download?->total_rows ?? '—'), 'date' => $run->created_at->copy()->timezone('Asia/Dushanbe')->format('d.m.Y H:i'),
+            'active' => $active && ! in_array($run->status, ['review', 'failed', 'skipped', 'unchanged', 'completed'], true), 'processed' => (int) ($download?->received_rows ?? 0), 'total' => (int) ($download?->total_rows ?? 0),
             'url' => route('admin.supplier-sync.show', [$run->supplier_organization_id, 'tab' => 'history'])];
     }
 }

@@ -22,6 +22,11 @@ class ExternalSupplierDirectory
 {
     public function refresh(string $source): void
     {
+        if (app(SupplierVersions::class)->enabled()) {
+            app(RenderedSupplierListing::class)->scan($source);
+
+            return;
+        }
         abort_unless(in_array($source, ['icorp', 'pricelist_tj'], true), 422);
         Cache::lock('external-prices:'.$source, 7200)->block(1, function () use ($source): void {
             try {
@@ -76,6 +81,11 @@ class ExternalSupplierDirectory
 
     public function refreshAvailabilityPage(string $source): void
     {
+        if (app(SupplierVersions::class)->enabled()) {
+            app(RenderedSupplierListing::class)->scan($source);
+
+            return;
+        }
         $control = app(ExternalServiceControl::class);
         $token = (string) Str::uuid();
         $state = DB::transaction(function () use ($source, $token): ?ExternalServiceState {
@@ -165,7 +175,7 @@ class ExternalSupplierDirectory
     }
 
     /** @param list<array<string, mixed>> $partners */
-    private function storeAvailability(string $source, array $partners): void
+    public function storeAvailability(string $source, array $partners): void
     {
         Validator::make(['partners' => $partners], [
             'partners' => ['present', 'array', 'list'], 'partners.*.external_id' => ['required', 'string', 'max:255', 'distinct:strict'],
@@ -174,17 +184,23 @@ class ExternalSupplierDirectory
         foreach ($partners as $entry) {
             $partner = ExternalSupplierPartner::where('source', $source)->where('external_id', $entry['external_id'])->lockForUpdate()->first()
                 ?? new ExternalSupplierPartner(['source' => $source, 'external_id' => $entry['external_id']]);
-            $partner->fill(['name' => $entry['name'], 'phones' => $entry['phones'], 'metadata' => $partner->directoryMetadata($entry), 'discovered_at' => now()])->save();
+            $partner->fill(['name' => $entry['name'], 'phones' => $entry['phones'] !== [] ? $entry['phones'] : ($partner->phones ?? []), 'metadata' => $partner->directoryMetadata($entry), 'discovered_at' => now()])->save();
         }
-        ExternalServiceState::whereKey($source)->update(['directory' => $partners, 'directory_checked_at' => now(), 'next_check_at' => now()->addHour(), 'retry_count' => 0]);
+        ExternalServiceState::whereKey($source)->update(['directory' => $partners, 'directory_checked_at' => now(), 'next_check_at' => now()->addHour(), 'retry_count' => 0, 'last_checked_at' => now(), 'last_success_at' => now(), 'status' => 'ready', 'reason' => null, 'cooldown_until' => null]);
         foreach (ExternalSupplierPartner::where('source', $source)->get() as $partner) {
             $evidence = collect($partners)->firstWhere('external_id', $partner->external_id);
-            $available = $evidence !== null && ($source !== 'icorp' || ! empty($evidence['catalog_id']));
+            $available = $evidence !== null && ($evidence['available'] ?? ($source !== 'icorp' || ! empty($evidence['catalog_id'])));
             $publication = ExternalPriceWorkbook::publicationDate($evidence['published_at'] ?? null);
             $evidence ??= ['external_id' => $partner->external_id, 'missing' => true];
             $version = hash('sha256', json_encode([$partner->external_id, $evidence['published_at'] ?? null, $evidence['catalog_id'] ?? null, $available], JSON_THROW_ON_ERROR));
             $confirmed = ExternalAvailability::where('external_supplier_partner_id', $partner->id)->where('version_key', $version)->first();
-            if ($confirmed && isset($confirmed->evidence['confirmed_published_at'])) {
+            if (app(SupplierVersions::class)->enabled() && $confirmed) {
+                $legacy = $confirmed->evidence['legacy_confirmation'] ?? $confirmed->evidence;
+                if (isset($legacy['confirmed_published_at'])) {
+                    $evidence['legacy_confirmation'] = array_intersect_key($legacy, array_flip(['confirmed_published_at', 'date_confirmed_by', 'date_evidence']));
+                }
+            }
+            if (! app(SupplierVersions::class)->enabled() && $confirmed && isset($confirmed->evidence['confirmed_published_at'])) {
                 $publication = ['date' => $confirmed->published_at, 'precision' => $confirmed->date_precision];
                 $evidence = array_replace($evidence, array_intersect_key($confirmed->evidence, array_flip(['confirmed_published_at', 'date_confirmed_by', 'date_evidence'])));
             }

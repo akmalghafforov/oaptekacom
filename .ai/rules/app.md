@@ -40,3 +40,12 @@ Supplier import settings belong to Import Profile; mapping alone must neither se
 
 ## Opt in explicitly to newest available supplier lists
 selection_mode=newest_available is the approved exception to exclusive source selection. Only explicitly enabled sources are eligible; compare reliable publication intervals before priority, and recheck under the supplier activation lock. Freshness is monitoring only in this mode. Null mode retains existing selected_source and conversion behavior. Mapping never enables loading. External fetching uses durable global download ownership, service pacing and pauses; only audited administrator recovery can reconnect.
+
+## Use daily supplier versions after the approved listing rollout
+The approved November 18 daily-version workflow supersedes exclusive-source, publication-interval, freshness-age and equal-date conflict rules after suppliers:rollout-versions. Version identity is supplier ID plus published calendar day in Asia/Dushanbe; newest day wins and pricelist_tj wins ties. Reserve stored inbox deliveries before external downloads, share claims and the supplier lock across manual/email/external ingestion and activation, and advance the successful-day watermark only inside successful cutover. Listing scans use rendered listing routes only, complete atomic source/hour snapshots, and shared account locks; never probe supplier/catalog pages for dates. Exclusions affect external fetching only; administrator overrides survive daily calendar-month email evidence refresh. Keep rollout paused until backfill, listing-only checks and restored iCorp authentication succeed.
+
+## Preserve explicit supplier stops in bulk automatic setup
+suppliers:setup-automatic defaults to dry run and uses the organization lock. Only fill missing external profiles on active, mapped, externally enabled suppliers; preserve custom/inactive profiles and confirmed administrator disables or pauses. Rollout uses the same setup so it cannot silently re-enable an override.
+
+## Honor authorized local iCorp takeover
+The user explicitly authorized always signing out the competing iCorp device on November 18. The local installation sets ICORP_TAKE_OVER=true; IcorpClient::connect honors this on every connection, superseding the earlier no-takeover rule for this installation. Preserve shared account locks and audits. Other installations retain the default false policy unless separately authorized; production deployment remains outside this task.

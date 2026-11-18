@@ -31,7 +31,8 @@
                     @foreach($suppliers as $supplier)<option value="{{ $supplier->id }}">{{ $supplier->name }}</option>@endforeach
                 </x-ui.select>
             @endif
-            <x-ui.input name="file" type="file" label="Файл CSV, XLS или XLSX" accept=".csv,.xls,.xlsx" required />
+            <x-ui.input name="file" type="file" label="Файл CSV, TSV, XLS или XLSX" accept=".csv,.tsv,.xls,.xlsx" required />
+            <x-ui.input name="published_date" type="date" label="Дата публикации (необязательно)" :max="now('Asia/Dushanbe')->toDateString()" hint="Иначе — дата из файла или день загрузки." />
             <x-ui.button>Загрузить</x-ui.button>
         </form>
     </x-ui.card>

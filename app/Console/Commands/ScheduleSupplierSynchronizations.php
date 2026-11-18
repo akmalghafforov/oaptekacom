@@ -9,6 +9,7 @@ use App\Jobs\PreparePriceListImport;
 use App\Jobs\RefreshExternalSupplierDirectory;
 use App\Jobs\SynchronizeSupplier;
 use App\Models\ExternalDownload;
+use App\Models\ExternalListingRun;
 use App\Models\ExternalServiceIncident;
 use App\Models\ExternalServiceState;
 use App\Models\PriceListImport;
@@ -17,6 +18,7 @@ use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\SupplierSynchronizationService;
+use App\Services\SupplierVersions;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 
@@ -28,7 +30,7 @@ class ScheduleSupplierSynchronizations extends Command
 
     public function handle(SupplierSynchronizationService $service): int
     {
-        if (Cache::get('supplier-imports:dispatch-paused', false)) {
+        if (app(SupplierVersions::class)->paused()) {
             $this->warn('Supplier import dispatch is paused for source conversion.');
 
             return self::SUCCESS;
@@ -39,6 +41,11 @@ class ScheduleSupplierSynchronizations extends Command
             }
 
             return self::SUCCESS;
+        }
+        if (app(SupplierVersions::class)->enabled()) {
+            ExternalListingRun::where('scan_hour', now()->startOfHour())->whereIn('status', ['pending', 'scanning'])
+                ->where(fn ($query) => $query->whereNull('next_retry_at')->orWhere('next_retry_at', '<=', now()))
+                ->eachById(fn ($run) => RefreshExternalSupplierDirectory::dispatch($run->source)->onQueue(config('price-list-imports.queue')));
         }
         ExternalServiceState::whereIn('source', ['icorp', 'pricelist_tj'])->whereNotNull('directory_progress')
             ->where(fn ($query) => $query->whereNull('directory_lease_expires_at')->orWhere('directory_lease_expires_at', '<=', now()))
@@ -92,9 +99,11 @@ class ScheduleSupplierSynchronizations extends Command
         SupplierSyncRun::whereNotNull('active_supplier_id')->where(fn ($query) => $query->whereNull('next_retry_at')->orWhere('next_retry_at', '<=', now()))->where(function ($query): void {
             $query->whereNull('lease_expires_at')->orWhere('lease_expires_at', '<=', now());
         })->eachById(fn (SupplierSyncRun $run) => SynchronizeSupplier::dispatch($run->id)->onQueue(config('price-list-imports.queue')));
-        SupplierSynchronization::where('automatic_enabled', true)->where('paused', false)
-            ->where(fn ($query) => $query->whereNull('next_check_at')->orWhere('next_check_at', '<=', now()))
-            ->with('supplier')->eachById(fn (SupplierSynchronization $config) => $service->request($config->supplier, 'automatic'));
+        if (! app(SupplierVersions::class)->enabled()) {
+            SupplierSynchronization::where('automatic_enabled', true)->where('paused', false)
+                ->where(fn ($query) => $query->whereNull('next_check_at')->orWhere('next_check_at', '<=', now()))
+                ->with('supplier')->eachById(fn (SupplierSynchronization $config) => $service->request($config->supplier, 'automatic'));
+        }
         PriceListImport::where('source_type', 'email')->whereNotNull('source_metadata')->where('status', PriceListImportStatus::Preview)
             ->eachById(fn (PriceListImport $import) => app(ActivationDispatcher::class)->dispatch($import));
 

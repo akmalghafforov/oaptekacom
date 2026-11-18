@@ -46,6 +46,34 @@ class SupplierSourcePolicy
 
     public function reason(PriceListImport $import, ?Organization $supplier = null): ?string
     {
+        if (app(SupplierVersions::class)->enabled()) {
+            $supplier ??= $import->supplier;
+            if ($supplier->status !== 'active') {
+                return 'inactive_supplier';
+            }
+            if ($reason = app(SupplierVersions::class)->reason($import, $supplier)) {
+                return $reason;
+            }
+            if (in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)) {
+                $config = $this->configuration($import);
+                $metadata = $import->source_metadata ?? [];
+                $partner = ExternalSupplierPartner::find($metadata['partner_id'] ?? null);
+                if (! $supplier->external_fetch_enabled || ! $config || $config->paused || ! $config->automatic_enabled) {
+                    return 'external_fetch_disabled';
+                }
+                if (($metadata['configuration_version'] ?? null) !== $config->version) {
+                    return 'configuration_changed';
+                }
+                if (! $partner || $partner->supplier_organization_id !== $supplier->id || $partner->source !== $import->source_type->value || $partner->external_id !== ($metadata['external_id'] ?? null)) {
+                    return 'mapping_changed';
+                }
+                if (! $partner->profile_active || $partner->profile_version !== ($metadata['profile_version'] ?? null)) {
+                    return 'profile_changed';
+                }
+            }
+
+            return $this->validationReason($import);
+        }
         $config = $this->configuration($import);
         if (! $config && in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)) {
             return 'configuration_missing';

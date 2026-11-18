@@ -11,3 +11,6 @@ Schedule::command('telegram:reconcile-reviews')->everyMinute()->withoutOverlappi
 
 Schedule::command('suppliers:sync')->everyMinute()->withoutOverlapping();
 Schedule::command('suppliers:sync --directories')->daily()->withoutOverlapping();
+
+Schedule::command('suppliers:scan-listings --dispatch')->hourly()->onOneServer()->withoutOverlapping();
+Schedule::command('suppliers:assess-email')->daily()->timezone('Asia/Dushanbe')->onOneServer()->withoutOverlapping();

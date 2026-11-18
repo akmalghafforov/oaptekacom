@@ -15,6 +15,8 @@ use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierSyncAttempt;
 use App\Models\SupplierSynchronization;
+use App\Models\SupplierVersionClaim;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -30,14 +32,27 @@ class ExternalPriceDownload
     public function start(SupplierSyncAttempt $attempt, SupplierSynchronization $config, ExternalSupplierPartner $partner, ?ExternalAvailability $observation = null): void
     {
         $evidence = $observation?->evidence ?? $partner->metadata ?? [];
-        $version = $observation?->version_key ?? hash('sha256', json_encode([$partner->external_id, $evidence, $config->version, $attempt->supplier_sync_run_id], JSON_THROW_ON_ERROR));
+        $version = app(SupplierVersions::class)->enabled() && $observation?->published_at ? hash('sha256', $config->supplier_organization_id.'|'.$partner->source.'|'.app(SupplierVersions::class)->day($observation->published_at)) : $observation?->version_key ?? hash('sha256', json_encode([$partner->external_id, $evidence, $config->version, $attempt->supplier_sync_run_id], JSON_THROW_ON_ERROR));
         $download = DB::transaction(function () use ($attempt, $config, $partner, $observation, $evidence, $version): ExternalDownload {
-            Organization::whereKey($config->supplier_organization_id)->lockForUpdate()->firstOrFail();
+            $supplier = Organization::whereKey($config->supplier_organization_id)->lockForUpdate()->firstOrFail();
+            if (app(SupplierVersions::class)->enabled()) {
+                if (! $supplier->external_fetch_enabled || ! $observation?->published_at || app(SupplierVersions::class)->freshnessReason($supplier, $observation->published_at)) {
+                    throw new ExternalServiceUnavailable('ineligible_version');
+                }
+                if (app(SupplierInboxEvidence::class)->exists($supplier->id, $observation->published_at)) {
+                    app(SupplierInboxEvidence::class)->reserve($supplier, $observation->published_at);
+                    throw new ExternalServiceUnavailable('reserved_for_inbox');
+                }
+                $claim = app(SupplierVersions::class)->claim($supplier, $observation->published_at, $partner->source);
+                if (! $claim) {
+                    throw new ExternalServiceUnavailable('version_owned');
+                }
+            }
             $download = ExternalDownload::firstOrNew(['supplier_organization_id' => $config->supplier_organization_id, 'source' => $partner->source, 'version_key' => $version]);
             if ($download->exists) {
                 $original = SupplierSyncAttempt::findOrFail($download->supplier_sync_attempt_id);
-                if ($download->snapshot['configuration_version'] === $config->version) {
-                    $attempt->update(['status' => $download->status === 'completed' ? ($original->price_list_import_id ? 'processing' : 'skipped') : ($download->status === 'failed' ? 'failed' : 'downloading'),
+                if (app(SupplierVersions::class)->enabled() || $download->snapshot['configuration_version'] === $config->version) {
+                    $attempt->update(['status' => $download->status === 'completed' ? ($original->price_list_import_id ? 'processing' : 'skipped') : (in_array($download->status, ['failed', 'cancelled'], true) ? 'failed' : 'downloading'),
                         'price_list_import_id' => $original->price_list_import_id, 'reason' => $download->reason ?? 'version_claimed']);
 
                     return $download;
@@ -51,6 +66,9 @@ class ExternalPriceDownload
                 'snapshot' => ['configuration_version' => $config->version, 'partner_id' => $partner->id, 'profile_version' => $partner->profile_version, 'profile' => $partner->profile_configuration, 'evidence' => $evidence],
                 'status' => 'pending', 'next_page' => 1, 'received_rows' => 0, 'total_rows' => null, 'total_pages' => null, 'company' => null,
                 'worker_token' => null, 'worker_expires_at' => null, 'retry_count' => 0, 'next_retry_at' => null, 'reason' => null])->save();
+            if (isset($claim)) {
+                $claim->update(['external_download_id' => $download->id]);
+            }
             $attempt->update(['status' => 'downloading', 'reason' => null]);
 
             return $download;
@@ -65,6 +83,19 @@ class ExternalPriceDownload
         $config = SupplierSynchronization::where('supplier_organization_id', $download->supplier_organization_id)->first();
         $partner = ExternalSupplierPartner::find($download->snapshot['partner_id']);
         $attempt = SupplierSyncAttempt::with('run')->findOrFail($download->supplier_sync_attempt_id);
+
+        if (app(SupplierVersions::class)->enabled()) {
+            $supplier = Organization::findOrFail($download->supplier_organization_id);
+            $observation = ExternalAvailability::find($download->external_availability_id);
+            $claim = SupplierVersionClaim::where('external_download_id', $download->id)->first();
+
+            return ! app(SupplierVersions::class)->paused() && $supplier->external_fetch_enabled && $config && ! $config->paused && $config->automatic_enabled
+                && $observation?->published_at && ! app(SupplierVersions::class)->freshnessReason($supplier, $observation->published_at)
+                && $claim && $claim->state !== 'completed' && $claim->source === $download->source
+                && $config->version === $download->snapshot['configuration_version']
+                && $partner && $partner->supplier_organization_id === $supplier->id && $partner->external_id === $download->external_id
+                && $partner->profile_active && $partner->profile_version === $download->snapshot['profile_version'];
+        }
 
         return $config && $config->version === $download->snapshot['configuration_version'] && in_array($download->source, $config->enabledSources(), true)
             && ($attempt->run->trigger === 'manual' || (! $config->paused && $config->automatic_enabled))
@@ -97,6 +128,17 @@ class ExternalPriceDownload
             if (! $this->configured($download)) {
                 throw new ExternalServiceUnavailable('configuration_changed');
             }
+            if (app(SupplierVersions::class)->enabled() && $download->next_page === 1) {
+                app(SupplierInboxEvidence::class)->reconcileStored();
+                $observation = ExternalAvailability::findOrFail($download->external_availability_id);
+                if (app(SupplierInboxEvidence::class)->exists($download->supplier_organization_id, $observation->published_at)) {
+                    DB::transaction(function () use ($download): void {
+                        Organization::whereKey($download->supplier_organization_id)->lockForUpdate()->firstOrFail();
+                        SupplierVersionClaim::where('external_download_id', $download->id)->whereNull('price_list_import_id')->update(['source' => 'email', 'external_download_id' => null]);
+                    });
+                    throw new ExternalServiceUnavailable('reserved_for_inbox');
+                }
+            }
             $this->control->assertAvailable($download->source);
             SupplierSyncAttempt::whereKey($download->supplier_sync_attempt_id)->update(['status' => 'downloading', 'next_retry_at' => null]);
             if ($download->total_pages !== null && $download->next_page === $download->total_pages + 1) {
@@ -120,7 +162,14 @@ class ExternalPriceDownload
                     || $current->total_pages !== $page['total_pages'] || $current->account_discount !== $page['account_discount'])) {
                     throw new RuntimeException('catalog_changed');
                 }
-                if ($current->next_page === 1 && $current->external_availability_id) {
+                if (app(SupplierVersions::class)->enabled() && $current->next_page === 1 && $current->external_availability_id) {
+                    $observation = ExternalAvailability::findOrFail($current->external_availability_id);
+                    $published = ExternalPriceWorkbook::publicationDate($page['company']['published_at'] ?? $page['company']['lastPriceUpdate'] ?? null);
+                    if ($published['date'] && app(SupplierVersions::class)->day($published['date']) !== app(SupplierVersions::class)->day($observation->published_at)) {
+                        throw new RuntimeException('catalog_changed');
+                    }
+                }
+                if (! app(SupplierVersions::class)->enabled() && $current->next_page === 1 && $current->external_availability_id) {
                     $observation = ExternalAvailability::findOrFail($current->external_availability_id);
                     $published = ExternalPriceWorkbook::publicationDate($page['company']['published_at'] ?? $page['company']['lastPriceUpdate'] ?? null);
                     if (($published['date']?->toDateTimeString() !== ExternalPriceWorkbook::publicationDate($observation->evidence['published_at'] ?? null)['date']?->toDateTimeString()) || $published['precision'] !== ExternalPriceWorkbook::publicationDate($observation->evidence['published_at'] ?? null)['precision']) {
@@ -193,6 +242,9 @@ class ExternalPriceDownload
         try {
             $duplicate = PriceListImport::where('supplier_organization_id', $download->supplier_organization_id)->where('source_type', $download->source)
                 ->where('source_fingerprint', $fingerprint)->whereIn('status', [PriceListImportStatus::Completed, PriceListImportStatus::Superseded])->exists();
+            if (app(SupplierVersions::class)->enabled()) {
+                $duplicate = false;
+            }
             if (! $duplicate) {
                 $file = $workbook->store(array_values($items));
             }
@@ -205,13 +257,17 @@ class ExternalPriceDownload
                 }
                 $attempt = SupplierSyncAttempt::with('run')->findOrFail($current->supplier_sync_attempt_id);
                 $publication = ExternalPriceWorkbook::publicationDate($current->snapshot['evidence']['confirmed_published_at'] ?? $current->company['published_at'] ?? $current->company['lastPriceUpdate'] ?? null);
-                if (isset($current->snapshot['evidence']['confirmed_published_at'], $current->snapshot['evidence']['confirmed_precision'])) {
+                if (app(SupplierVersions::class)->enabled()) {
+                    $observation = ExternalAvailability::findOrFail($current->external_availability_id);
+                    $publication = ['date' => CarbonImmutable::instance($observation->published_at), 'precision' => $observation->date_precision];
+                }
+                if (! app(SupplierVersions::class)->enabled() && isset($current->snapshot['evidence']['confirmed_published_at'], $current->snapshot['evidence']['confirmed_precision'])) {
                     $publication['precision'] = $current->snapshot['evidence']['confirmed_precision'];
                 }
                 $metadata = ['partner_id' => $current->snapshot['partner_id'], 'external_id' => $current->external_id, 'profile_version' => $current->snapshot['profile_version'],
                     'configuration_version' => $current->snapshot['configuration_version'], 'trigger' => $attempt->run->trigger, 'fingerprint' => $fingerprint,
                     'published_at' => $publication['date']?->toIso8601String(), 'date_precision' => $publication['precision'], 'extracted_at' => now()->toIso8601String(),
-                    'company' => $current->company, 'account_discount' => $current->account_discount, 'download_id' => $current->id, ...array_intersect_key($current->snapshot['evidence'], array_flip(['date_confirmed_by', 'date_evidence']))];
+                    'publication_origin' => 'listing', 'listing_evidence' => $current->snapshot['evidence'], 'company' => $current->company, 'account_discount' => $current->account_discount, 'download_id' => $current->id, ...array_intersect_key($current->snapshot['evidence'], array_flip(['date_confirmed_by', 'date_evidence']))];
                 $attempt->update(['metadata' => $metadata]);
                 if ($duplicate) {
                     $attempt->update(['status' => 'skipped', 'reason' => 'unchanged_content']);
@@ -244,15 +300,15 @@ class ExternalPriceDownload
         }
         $attempt = SupplierSyncAttempt::findOrFail($current->supplier_sync_attempt_id);
         $busy = $exception instanceof LockTimeoutException || in_array($reason, ['download_busy', 'lease_lost'], true);
-        $transient = $reason === 'transport';
+        $transient = $reason === 'transport' || (app(SupplierVersions::class)->enabled() && $reason === 'rate_limited');
         $state = ExternalServiceState::findOrFail($download->source);
         $retry = $current->retry_count + ($transient ? 1 : 0);
         $delay = $busy ? 60 : ($exception instanceof ExternalServiceUnavailable && $exception->retryAfter ? $exception->retryAfter : $this->control->retryDelay($retry));
         $next = now()->addSeconds($delay);
         $status = match (true) {
-            $reason === 'configuration_changed' => 'cancelled',
+            in_array($reason, ['configuration_changed', 'reserved_for_inbox', 'ineligible_version', 'version_owned'], true) => 'cancelled',
             $busy, $transient && $retry <= 3 => 'retry',
-            $transient => 'cooldown',
+            $transient => app(SupplierVersions::class)->enabled() ? 'failed' : 'cooldown',
             $state->status === 'paused' => 'paused',
             in_array($reason, ['service_cooldown', 'rate_limited', 'pacing_wait'], true) => 'retry',
             default => 'failed',
@@ -260,6 +316,15 @@ class ExternalPriceDownload
         $current->update(['status' => $status, 'reason' => $reason, 'retry_count' => $retry, 'next_retry_at' => in_array($status, ['retry', 'cooldown'], true) ? $next : null]);
         $attempt->update(['status' => in_array($status, ['retry', 'cooldown', 'paused'], true) ? $status : 'failed', 'reason' => $reason, 'retry_count' => $retry,
             'next_retry_at' => $current->next_retry_at, 'metadata' => array_replace($attempt->metadata ?? [], ['failure' => $exception instanceof IcorpFailure ? $exception->diagnostic() : ['stage' => 'download', 'code' => $reason, 'http_status' => null]])]);
+        if (app(SupplierVersions::class)->enabled() && in_array($status, ['failed', 'cancelled'], true)) {
+            DB::transaction(function () use ($current): void {
+                Organization::whereKey($current->supplier_organization_id)->lockForUpdate()->firstOrFail();
+                SupplierVersionClaim::where('external_download_id', $current->id)->whereNull('price_list_import_id')->update(['state' => 'failed']);
+            });
+        }
+        if (app(SupplierVersions::class)->enabled() && $reason === 'extraction') {
+            $this->control->pause($download->source, $reason);
+        }
         if ($transient && $retry > 3) {
             $state->update(['cooldown_until' => $next, 'reason' => 'retry_exhausted']);
             $this->control->incident($download->source, 'retry_exhausted');

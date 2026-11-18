@@ -8,6 +8,7 @@ use App\Http\Requests\StoreSupplierImportProfileSampleRequest;
 use App\Http\Requests\UpdateExternalSupplierProfileRequest;
 use App\Http\Requests\UpdateSupplierImportProfileRequest;
 use App\Http\Requests\UpdateSupplierSynchronizationRequest;
+use App\Models\AuditEvent;
 use App\Models\ExternalSupplierPartner;
 use App\Models\Organization;
 use App\Models\SupplierImportProfile;
@@ -20,6 +21,7 @@ use App\Services\IcorpFailure;
 use App\Services\PriceList\ProfileValidator;
 use App\Services\PriceList\SampleWorkbookReader;
 use App\Services\SupplierImportSettings;
+use App\Services\SupplierVersions;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -88,9 +90,10 @@ class SupplierImportProfileController extends Controller
             $icorpLogin = '';
         }
         $connectionStatuses = collect(['icorp', 'pricelist_tj'])->mapWithKeys(fn (string $source): array => [$source => Cache::get('external-prices:status:'.$source, ['status' => 'unknown'])]);
-        $dispatchPaused = Cache::get('supplier-imports:dispatch-paused', false);
+        $dispatchPaused = app(SupplierVersions::class)->paused();
+        $externalFetchAudit = AuditEvent::where('subject_type', Organization::class)->where('subject_id', $organization->id)->whereIn('event', ['supplier_external_fetch.overridden', 'supplier_external_fetch.seeded'])->latest('id')->limit(20)->get();
 
-        return compact('icorpLogin', 'connectionStatuses', 'unmappedPartners', 'organization', 'profile', 'senderEmails', 'preview', 'draft', 'configuration', 'partners', 'sources', 'readiness', 'dispatchPaused');
+        return compact('externalFetchAudit', 'icorpLogin', 'connectionStatuses', 'unmappedPartners', 'organization', 'profile', 'senderEmails', 'preview', 'draft', 'configuration', 'partners', 'sources', 'readiness', 'dispatchPaused');
     }
 
     public function storeSample(StoreSupplierImportProfileSampleRequest $request, int $supplier, SampleWorkbookReader $reader): RedirectResponse

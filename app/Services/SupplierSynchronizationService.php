@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Enums\PriceListImportStatus;
 use App\Jobs\SynchronizeSupplier;
 use App\Models\ExternalAvailability;
+use App\Models\ExternalDownload;
+use App\Models\ExternalListingRun;
 use App\Models\ExternalServiceState;
 use App\Models\ExternalSupplierPartner;
 use App\Models\Organization;
@@ -24,23 +26,23 @@ class SupplierSynchronizationService
 {
     public function request(Organization $supplier, string $trigger = 'manual', ?int $expectedVersion = null, ?string $expectedSource = null): SupplierSyncRun
     {
-        if (Cache::get('supplier-imports:dispatch-paused', false)) {
+        if (app(SupplierVersions::class)->paused()) {
             throw ValidationException::withMessages(['selected_source' => 'Новые импорты приостановлены на время переключения источников.']);
         }
 
         return DB::transaction(function () use ($supplier, $trigger, $expectedVersion, $expectedSource): SupplierSyncRun {
             $supplier = Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
-            if (Cache::get('supplier-imports:dispatch-paused', false)) {
+            if (app(SupplierVersions::class)->paused()) {
                 throw ValidationException::withMessages(['selected_source' => 'Новые импорты приостановлены на время переключения источников.']);
             }
             $config = SupplierSynchronization::where('supplier_organization_id', $supplier->id)->firstOrFail();
-            if ($expectedVersion !== null && ($config->version !== $expectedVersion || $config->selected_source !== $expectedSource)) {
+            if (! app(SupplierVersions::class)->enabled() && $expectedVersion !== null && ($config->version !== $expectedVersion || $config->selected_source !== $expectedSource)) {
                 throw ValidationException::withMessages(['expected_version' => 'Настройки источника изменились. Обновите страницу перед импортом.']);
             }
-            if ($expectedVersion !== null && ($supplier->status !== 'active' || app(SupplierImportSettings::class)->readinessReason($supplier, $config->selected_source, true) !== null)) {
+            if (! app(SupplierVersions::class)->enabled() && $expectedVersion !== null && ($supplier->status !== 'active' || app(SupplierImportSettings::class)->readinessReason($supplier, $config->selected_source, true) !== null)) {
                 throw ValidationException::withMessages(['expected_source' => 'Импорт недоступен. Проверьте статус поставщика, сопоставление, профиль и подключение источника.']);
             }
-            if (($config->usesExclusiveSource() || ! $config->settings_confirmed) && $trigger === 'manual' && app(SupplierImportSettings::class)->readinessReason($supplier, $config->selected_source) !== null) {
+            if (! app(SupplierVersions::class)->enabled() && ($config->usesExclusiveSource() || ! $config->settings_confirmed) && $trigger === 'manual' && app(SupplierImportSettings::class)->readinessReason($supplier, $config->selected_source) !== null) {
                 throw ValidationException::withMessages(['selected_source' => 'Настройте выбранный источник в профиле импорта перед ручной загрузкой.']);
             }
             $run = SupplierSyncRun::where('active_supplier_id', $supplier->id)->first();
@@ -113,6 +115,11 @@ class SupplierSynchronizationService
     private function advance(SupplierSyncRun $run): void
     {
         $config = SupplierSynchronization::where('supplier_organization_id', $run->supplier_organization_id)->firstOrFail();
+        if (app(SupplierVersions::class)->enabled()) {
+            $this->advanceDaily($run, $config);
+
+            return;
+        }
         if (($run->trigger !== 'manual' && ($config->paused || ! $config->automatic_enabled)) || $run->configuration_snapshot['version'] !== $config->version) {
             $this->finish($run, 'skipped', $config->paused ? 'paused' : 'configuration_changed');
             if ($run->trigger === 'manual' && $run->configuration_snapshot['version'] !== $config->version) {
@@ -387,6 +394,123 @@ class SupplierSynchronizationService
         }
         $needsReview = $run->attempts()->where('status', 'review')->exists();
         $this->finish($run, $needsReview ? 'review' : 'unchanged', $needsReview ? 'review_pending' : 'no_eligible_candidate');
+    }
+
+    private function advanceDaily(SupplierSyncRun $run, SupplierSynchronization $config): void
+    {
+        $supplier = $run->supplier->fresh();
+        if (app(SupplierVersions::class)->paused() || ! $supplier->external_fetch_enabled || $supplier->status !== 'active' || ! $config->automatic_enabled || $config->paused) {
+            $this->finish($run, 'skipped', 'external_fetch_disabled');
+
+            return;
+        }
+        if (($run->configuration_snapshot['version'] ?? null) !== $config->version) {
+            $this->finish($run, 'skipped', 'configuration_changed');
+
+            return;
+        }
+        foreach ($run->attempts()->with('import')->get() as $attempt) {
+            if ($attempt->import && in_array($attempt->import->status, [PriceListImportStatus::Completed, PriceListImportStatus::Superseded], true)) {
+                $this->finish($run, 'completed', 'activated', $attempt->source);
+
+                return;
+            }
+            if ($attempt->import?->source_published_at && app(SupplierVersions::class)->freshnessReason($supplier, $attempt->import->source_published_at) === 'already_imported_day') {
+                DB::transaction(function () use ($supplier, $attempt): void {
+                    Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
+                    PriceListImport::whereKey($attempt->price_list_import_id)->whereNotIn('status', [PriceListImportStatus::Completed, PriceListImportStatus::Superseded])
+                        ->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'version_skipped', 'failure_message' => 'already_imported_day', 'failed_at' => now()]);
+                    $attempt->update(['status' => 'skipped', 'reason' => 'already_imported_day']);
+                });
+                $this->finish($run, 'unchanged', 'already_imported_day');
+
+                return;
+            }
+            if ($attempt->import?->status === PriceListImportStatus::Preview && ($reason = app(SupplierSourcePolicy::class)->reason($attempt->import)) !== null) {
+                if ($reason === 'validation_failed') {
+                    DB::transaction(function () use ($supplier, $attempt): void {
+                        Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
+                        $attempt->import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'validation', 'failure_message' => 'validation_failed', 'failed_at' => now()]);
+                        $attempt->update(['status' => 'failed', 'reason' => 'validation_failed']);
+                    });
+
+                    continue;
+                }
+                $attempt->update(['status' => 'skipped', 'reason' => $reason]);
+                $this->finish($run, 'skipped', $reason);
+
+                return;
+            }
+            if ($attempt->import && in_array($attempt->import->status, [PriceListImportStatus::Pending, PriceListImportStatus::Processing, PriceListImportStatus::Preview, PriceListImportStatus::Committing], true)) {
+                app(ActivationDispatcher::class)->dispatch($attempt->import);
+                $run->update(['status' => 'processing']);
+
+                return;
+            }
+            if (in_array($attempt->status, ['downloading', 'retry', 'cooldown', 'paused'], true)) {
+                $run->update(['status' => 'downloading', 'next_retry_at' => $attempt->next_retry_at]);
+
+                return;
+            }
+        }
+        $versions = app(SupplierVersions::class);
+        $entries = [];
+        $partners = ExternalSupplierPartner::where('supplier_organization_id', $supplier->id)->get()->keyBy('source');
+        foreach (['pricelist_tj', 'icorp'] as $source) {
+            $partner = $partners->get($source);
+            $runEvidence = ExternalListingRun::where('source', $source)->where('scan_hour', now()->startOfHour())->where('status', 'completed')->first();
+            $state = ExternalServiceState::find($source);
+            $observation = $partner ? ExternalAvailability::where('external_supplier_partner_id', $partner->id)->where('last_checked_at', '>=', now()->startOfHour())->orderByDesc('last_checked_at')->orderByDesc('id')->first() : null;
+            $reason = match (true) {
+                ! $partner => 'unmapped',
+                ! $partner->profile_active || ! $partner->profile_configuration => 'missing_profile',
+                $state?->status === 'paused' => $state->reason ?? 'source_paused',
+                $state?->cooldown_until?->isFuture() => 'service_cooldown',
+                ! $runEvidence || ($observation?->evidence['listing_run_id'] ?? null) !== $runEvidence->id => 'listing_unavailable',
+                ! $observation?->available => 'price_list_unavailable',
+                ! $observation->published_at => 'missing_listing_date',
+                default => $versions->freshnessReason($supplier, $observation->published_at),
+            };
+            if ($reason) {
+                $attempt = $run->attempts()->firstOrCreate(['source' => $source]);
+                if (! in_array($attempt->status, ['failed', 'activated'], true)) {
+                    $attempt->update(['status' => 'skipped', 'reason' => $reason]);
+                }
+
+                continue;
+            }
+            $key = hash('sha256', $supplier->id.'|'.$source.'|'.$versions->day($observation->published_at));
+            if ($existing = ExternalDownload::where('supplier_organization_id', $supplier->id)->where('source', $source)->where('version_key', $key)->first()) {
+                $run->attempts()->firstOrCreate(['source' => $source], ['status' => 'skipped', 'reason' => 'version_attempt_recorded', 'metadata' => ['download_id' => $existing->id]]);
+
+                continue;
+            }
+            $entries[] = ['partner' => $partner, 'observation' => $observation, 'day' => $versions->day($observation->published_at)];
+        }
+        usort($entries, fn (array $a, array $b): int => strcmp($b['day'], $a['day']) ?: (($a['partner']->source === 'pricelist_tj' ? 0 : 1) <=> ($b['partner']->source === 'pricelist_tj' ? 0 : 1)));
+        $run->update(['decision' => ['mode' => 'daily_versions', 'candidates' => array_map(fn (array $entry): array => ['source' => $entry['partner']->source, 'day' => $entry['day']], $entries)]]);
+        foreach ($entries as $entry) {
+            if (app(SupplierInboxEvidence::class)->exists($supplier->id, $entry['observation']->published_at)) {
+                app(SupplierInboxEvidence::class)->reserve($supplier, $entry['observation']->published_at);
+                $this->finish($run, 'unchanged', 'reserved_for_inbox', 'email');
+
+                return;
+            }
+            $attempt = $run->attempts()->firstOrCreate(['source' => $entry['partner']->source]);
+            try {
+                app(ExternalPriceDownload::class)->start($attempt, $config, $entry['partner'], $entry['observation']);
+            } catch (ExternalServiceUnavailable $exception) {
+                $attempt->update(['status' => 'skipped', 'reason' => $exception->reason]);
+
+                continue;
+            }
+            if ($attempt->fresh()->status === 'downloading') {
+                $run->update(['status' => 'downloading', 'selected_source' => $entry['partner']->source]);
+
+                return;
+            }
+        }
+        $this->finish($run, 'unchanged', 'no_eligible_candidate');
     }
 
     private function finish(SupplierSyncRun $run, string $status, string $reason, ?string $source = null): void

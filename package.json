@@ -18,6 +18,7 @@
         "@laravel/multiplex": "^0.4.1"
     },
     "dependencies": {
-        "pdfjs-dist": "^6.5.438"
+        "pdfjs-dist": "^6.5.438",
+        "playwright": "1.65.1"
     }
 }

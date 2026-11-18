@@ -9,6 +9,7 @@ use App\Models\SupplierSynchronization;
 use App\Models\SupplierSyncRun;
 use App\Services\AuditLogger;
 use App\Services\SupplierImportSettings;
+use App\Services\SupplierVersions;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,11 @@ class ConvertSupplierSources extends Command
 
     public function handle(SupplierImportSettings $settings, AuditLogger $audit): int
     {
+        if (app(SupplierVersions::class)->enabled()) {
+            $this->error('Exclusive-source conversion is retired after daily-version rollout.');
+
+            return self::FAILURE;
+        }
         if (collect(['apply', 'rollback', 'pause', 'resume'])->filter(fn (string $option): bool => (bool) $this->option($option))->count() > 1) {
             $this->error('Use one action at a time.');
 

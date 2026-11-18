@@ -57,7 +57,7 @@ class SupplierSynchronizationStatus
             return $entry;
         })->all();
         if ($run && ! $imports->contains(fn (PriceListImport $import): bool => $run->attempts->contains('price_list_import_id', $import->id))) {
-            array_unshift($entries, $this->progress->run($run));
+            array_unshift($entries, $this->progress->run($run, $download && $run->attempts->contains('id', $download->supplier_sync_attempt_id) ? $download : null));
         }
         $retry = $run?->active_supplier_id ? $run->next_retry_at : null;
         $retry ??= $run?->active_supplier_id ? $download?->next_retry_at : null;

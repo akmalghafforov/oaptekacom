@@ -175,6 +175,7 @@ class IcorpClient
 
     public function connect(bool $takeOver = false): void
     {
+        $takeOver = $takeOver || (bool) config('external-prices.icorp.take_over', false);
         $this->recovering = true;
         try {
             $credentials = app(IcorpCredentials::class)->current();

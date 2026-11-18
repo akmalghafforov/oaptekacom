@@ -49,12 +49,15 @@ class GmailImportIntake
 
                 return [];
             }
-            $receipt->update(['sender_email' => $sender, 'received_at' => CarbonImmutable::createFromTimestampMs((int) $message->getInternalDate())]);
+            $receipt->update(['sender_email' => $sender, 'received_at' => CarbonImmutable::createFromTimestampMs((int) $message->getInternalDate())->setTimezone('Asia/Dushanbe')]);
             $parts = [];
             if ($message->getPayload()) {
                 $this->parts($message->getPayload(), $parts);
             }
             $routing = $this->routing($sender, $parts);
+            if (app(SupplierVersions::class)->enabled()) {
+                app(SupplierInboxEvidence::class)->record($receipt->mailbox_email, $receipt->gmail_message_id, $sender, $receipt->received_at, $routing['manifest']);
+            }
             if ($receipt->receipt_scope === 'message') {
                 foreach ($routing['manifest'] as $entry) {
                     if ($entry['reason'] === 'ambiguous_supplier') {
@@ -84,6 +87,9 @@ class GmailImportIntake
             if (($part->getBody()?->getSize() ?? 0) > config('price-list-imports.max_file_kilobytes') * 1024) {
                 $this->skip($receipt, 'invalid_attachment');
 
+                return [];
+            }
+            if (app(SupplierVersions::class)->enabled() && ! app(SupplierInboxEvidence::class)->ready($receipt, $part->getFilename())) {
                 return [];
             }
             $body = $part->getBody();

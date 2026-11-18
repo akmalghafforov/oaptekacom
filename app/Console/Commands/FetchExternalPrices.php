@@ -5,6 +5,8 @@ namespace App\Console\Commands;
 use App\Services\ExternalSupplierEligibility;
 use App\Services\IcorpClient;
 use App\Services\PriceListTjClient;
+use App\Services\RenderedSupplierListing;
+use App\Services\SupplierVersions;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -23,6 +25,16 @@ class FetchExternalPrices extends Command
         $source = $this->argument('source');
         if (! in_array($source, ['pricelist_tj', 'icorp'], true)) {
             $this->error('Choose pricelist_tj or icorp.');
+
+            return self::FAILURE;
+        }
+        if (app(SupplierVersions::class)->enabled()) {
+            if ($this->option('discover')) {
+                app(RenderedSupplierListing::class)->scan($source);
+
+                return self::SUCCESS;
+            }
+            $this->error('Direct extraction is retired. Use suppliers:scan-listings --dispatch for claimed background imports.');
 
             return self::FAILURE;
         }

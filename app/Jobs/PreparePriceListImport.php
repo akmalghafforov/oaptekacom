@@ -8,6 +8,7 @@ use App\Services\PriceList\ImportLayoutDetector;
 use App\Services\PriceList\ValueNormalizer;
 use App\Services\PriceList\WorkbookReader;
 use App\Services\SupplierSourcePolicy;
+use App\Services\SupplierVersions;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -67,12 +68,28 @@ class PreparePriceListImport implements ShouldQueue
             $highestDataRow = $reader->highestDataRow($import, $info['highest_row']);
             $inventoryAt = in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true)
                 ? $import->source_published_at : $this->inventoryAt($import, $reader, $normalizer);
-            $newest = app(SupplierSourcePolicy::class)->configuration($import)?->usesNewestAvailable() ?? false;
-            if ($import->source_type->value === 'email' && $import->source_metadata !== null) {
-                $publication = $newest ? $this->publicationDate($import, $reader, $normalizer) : null;
-                $import->update(['source_published_at' => $newest ? $publication['date'] : $inventoryAt,
-                    'source_date_precision' => $newest ? $publication['precision'] : ((($import->profile_snapshot['inventory']['source'] ?? 'upload_time') === 'upload_time' || ($import->received_at && $import->received_at->equalTo($inventoryAt))) ? 'second' : 'day'),
-                    'source_metadata' => array_replace($import->source_metadata, $newest ? ['publication_origin' => $publication['origin']] : [])]);
+            $versions = app(SupplierVersions::class);
+            if ($versions->enabled()) {
+                if (! in_array($import->source_type->value, ['icorp', 'pricelist_tj'], true) && ($import->source_metadata['publication_origin'] ?? null) === 'arrival') {
+                    $publication = $versions->workbookPublication($import);
+                    if ($publication['date']) {
+                        $versions->resolveWorkbookDay($import, $publication);
+                    }
+                }
+                if ($reason = $versions->attach($import)) {
+                    $import->update(['status' => PriceListImportStatus::Failed, 'failure_stage' => 'version_skipped', 'failure_message' => $reason, 'failed_at' => now()]);
+
+                    return;
+                }
+                $inventoryAt = $import->source_published_at;
+            } else {
+                $newest = app(SupplierSourcePolicy::class)->configuration($import)?->usesNewestAvailable() ?? false;
+                if ($import->source_type->value === 'email' && $import->source_metadata !== null) {
+                    $publication = $newest ? $this->publicationDate($import, $reader, $normalizer) : null;
+                    $import->update(['source_published_at' => $newest ? $publication['date'] : $inventoryAt,
+                        'source_date_precision' => $newest ? $publication['precision'] : ((($import->profile_snapshot['inventory']['source'] ?? 'upload_time') === 'upload_time' || ($import->received_at && $import->received_at->equalTo($inventoryAt))) ? 'second' : 'day'),
+                        'source_metadata' => array_replace($import->source_metadata, $newest ? ['publication_origin' => $publication['origin']] : [])]);
+                }
             }
             $summary = ['worksheets' => $info['worksheets'], 'highest_row' => $highestDataRow, 'highest_column' => $info['highest_column'], 'layout_detection' => ['confidence' => $detection['confidence'], 'warning' => $detection['warning']]];
             $import->update(['status' => PriceListImportStatus::Processing, 'processing_started_at' => now(), 'inventory_at' => $inventoryAt, 'total_rows' => max(0, $highestDataRow - $start + 1), 'summary' => $summary]);

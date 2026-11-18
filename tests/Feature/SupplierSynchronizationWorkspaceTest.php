@@ -280,6 +280,21 @@ class SupplierSynchronizationWorkspaceTest extends TestCase
         $this->assertDatabaseMissing('supplier_synchronizations', ['supplier_organization_id' => $supplier->id]);
     }
 
+    #[TestWith(['history'])]
+    #[TestWith(['overview'])]
+    public function test_history_renders_daily_legacy_and_undated_candidates(string $tab): void
+    {
+        $supplier = Organization::factory()->wholesaler()->create();
+        SupplierSyncRun::factory()->for($supplier, 'supplier')->count(3)->sequence(
+            ['decision' => ['mode' => 'daily_versions', 'candidates' => [['source' => 'icorp', 'day' => '2026-11-18']]]],
+            ['decision' => ['mode' => 'newest_available', 'candidates' => [['source' => 'pricelist_tj', 'published_at' => '2026-11-17T09:30:00+05:00', 'review' => null]]]],
+            ['decision' => ['candidates' => [['source' => 'icorp']]]],
+        )->create(['status' => 'unchanged']);
+
+        $this->actingAs($this->admin())->get(route('admin.supplier-sync.show', [$supplier, 'tab' => $tab]))
+            ->assertOk()->assertSee('18.11.2026')->assertSee('17.11.2026 09:30')->assertSee('Дата неизвестна');
+    }
+
     /** @return array{SupplierSynchronization, ExternalSupplierPartner} */
     private function configured(): array
     {

@@ -9,7 +9,7 @@
         <div class="mt-4">
             <p>{{ $sourceNames[$partners->firstWhere('id', $observation->external_supplier_partner_id)->source] }} · {{ $observation->available ? 'Прайс доступен' : 'Прайс отсутствует' }} · Публикация: {{ $formatDate($observation->published_at) }} · {{ $precisionLabels[$observation->date_precision] ?? 'Требуется подтверждение даты' }}</p>
             <p class="text-sm text-muted">Проверен: {{ $formatDate($observation->last_checked_at) }} · Следующая проверка: {{ $formatDate($observation->next_check_at) }}</p>
-            @if($observation->available && (!$observation->published_at || $observation->published_at->isFuture() || $tab === 'review'))
+            @if(!app(\App\Services\SupplierVersions::class)->enabled() && $observation->available && (!$observation->published_at || $observation->published_at->isFuture() || $tab === 'review'))
                 @php($restoring = old('_sync_form') === 'availability-date-'.$observation->id)
                 <form method="post" action="{{ route('admin.supplier-sync.availability-date', $observation) }}" class="mt-3 grid gap-3 md:grid-cols-3">@csrf <x-mode-version />
                     <input type="hidden" name="_sync_form" value="availability-date-{{ $observation->id }}">
@@ -25,6 +25,9 @@
     @foreach($downloads as $download)
         <p class="mt-4">{{ $sourceNames[$download->source] }} · {{ $labels[$download->status] ?? 'Требуется проверка' }} · {{ $download->received_rows }} / {{ $download->total_rows ?? '—' }} строк · Следующая страница: {{ $download->next_page }}</p>
         <p class="text-sm text-muted">{{ $labels[$download->reason] ?? '' }} · Повторы: {{ $download->retry_count }} · Следующая попытка: {{ $formatDate($download->next_retry_at) }}</p>
+        @if(app(\App\Services\SupplierVersions::class)->enabled() && in_array($download->status, ['failed', 'cancelled']))
+            <form method="post" action="{{ route('admin.supplier-sync.download-retry', $download) }}" class="mt-2">@csrf <x-mode-version /><x-ui.button variant="secondary">Повторить эту попытку</x-ui.button></form>
+        @endif
     @endforeach
     @foreach($incidents as $incident)
         <x-ui.alert type="warning">{{ $sourceNames[$incident->source] }}: {{ $labels[$incident->reason] ?? 'Требуется проверка' }}. {{ $incident->notification_error ? 'Письмо не доставлено; отправка будет повторена.' : ($incident->notified_at ? 'Администраторы уведомлены.' : 'Уведомление в очереди.') }}</x-ui.alert>

@@ -21,14 +21,14 @@
                         @if($dispatchPaused)<p class="text-sm text-warning">Новые импорты временно приостановлены на время переключения источников.</p>@endif
                     </form>
                 @else
-                    <p class="mt-3 text-sm text-muted">{{ $configuration->usesNewestAvailable() ? 'Загрузка выполняется после сравнения публикаций разрешённых источников.' : 'Для импорта выберите этот источник в настройках загрузки и сохраните настройки.' }}</p>
+                    <p class="mt-3 text-sm text-muted">{{ app(\App\Services\SupplierVersions::class)->enabled() ? 'Проверка выполняется каждый час: выбирается самый новый день, при равенстве — PriceList-TJ. Исключения и паузы сохраняются.' : ($configuration->usesNewestAvailable() ? 'Загрузка выполняется после сравнения публикаций разрешённых источников.' : 'Для импорта выберите этот источник в настройках загрузки и сохраните настройки.') }}</p>
                 @endif
             @endif
             @if($source !== 'email')
                 <p class="mt-2 text-sm text-muted">Подключение сервиса: {{ ($connectionStatuses[$source]['status'] ?? 'unknown') === 'connected' ? 'Проверено' : 'Требуется проверка подключения' }}</p>
                 <x-ui.button class="mt-3" type="button" variant="secondary" data-dialog-open :aria-controls="'service-connection-'.$source" aria-haspopup="dialog">Подключение {{ $sourceNames[$source] }}</x-ui.button>
                 <x-ui.dialog :name="'service-connection-'.$source" :title="'Общее подключение '.$sourceNames[$source]" :open-on-load="old('_sync_form') === 'connection-'.$source">
-                    <div class="px-5 pb-5"><p class="text-sm text-muted">Это общее подключение для нескольких поставщиков. Изменение учётных данных влияет на их проверки. Принудительный вход автоматически не выполняется.</p>
+                    <div class="px-5 pb-5"><p class="text-sm text-muted">Это общее подключение для нескольких поставщиков. Изменение учётных данных влияет на их проверки. {{ $source === 'icorp' && config('external-prices.icorp.take_over') ? 'При подключении конкурирующее устройство iCorp будет отключено автоматически.' : 'Принудительный вход автоматически не выполняется.' }}</p>
                     <form method="post" data-sync-submit action="{{ route('admin.supplier-sync.connect', $source) }}" class="mt-4 space-y-3">@csrf <x-mode-version /><input type="hidden" name="_sync_form" value="connection-{{ $source }}">
                         @if($source === 'icorp')<x-ui.input name="phone" id="workspace-icorp-phone" label="Телефон / логин iCorp" :value="$icorpLogin" required autocomplete="username" /><x-ui.input type="password" name="password" id="workspace-icorp-password" label="Пароль iCorp" autocomplete="new-password" hint="Пустое поле сохраняет пароль для того же телефона." />@endif
                         <x-ui.button>Проверить подключение</x-ui.button>

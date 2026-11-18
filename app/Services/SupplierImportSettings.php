@@ -17,6 +17,9 @@ class SupplierImportSettings
     /** @param array<string, mixed> $data */
     public function update(Organization $supplier, array $data): void
     {
+        if (app(SupplierVersions::class)->enabled()) {
+            throw ValidationException::withMessages(['settings' => 'Используйте настройку внешней загрузки. Выбор единственного источника и сравнение версий больше не применяются.']);
+        }
         DB::transaction(function () use ($supplier, $data): void {
             $supplier = Organization::whereKey($supplier->id)->lockForUpdate()->firstOrFail();
             abort_unless($supplier->type === OrganizationType::Wholesaler, 404);

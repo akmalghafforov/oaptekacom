@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\CartMaintenance;
 use App\Services\SupplierSourcePolicy;
+use App\Services\SupplierVersions;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -199,6 +200,9 @@ class ImportActivator
             $candidate->update(['status' => PriceListImportStatus::Completed, 'activated_by' => $actor?->id,
                 'activated_at' => now(), 'failed_at' => null, 'failure_stage' => null, 'failure_message' => null]);
             $supplier->update(['active_price_list_import_id' => $candidate->id]);
+            if (app(SupplierVersions::class)->enabled()) {
+                app(SupplierVersions::class)->complete($candidate, $supplier);
+            }
             foreach (SupplierSyncAttempt::where('price_list_import_id', $candidate->id)->with('run')->get() as $attempt) {
                 $attempt->update(['status' => 'activated', 'reason' => null]);
                 $attempt->run->update(['status' => 'completed', 'reason' => 'activated', 'selected_source' => $candidate->source_type->value, 'active_supplier_id' => null, 'finished_at' => now()]);

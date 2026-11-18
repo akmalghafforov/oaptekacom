@@ -7,6 +7,7 @@ use App\Services\GmailApiException;
 use App\Services\GmailException;
 use App\Services\GmailImportDiscovery;
 use App\Services\GmailMailboxAccess;
+use App\Services\SupplierVersions;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Cache;
@@ -29,7 +30,7 @@ class SyncGmailImports implements ShouldQueue
 
     public function handle(GmailImportDiscovery $discovery, GmailMailboxAccess $access): void
     {
-        if (! config('gmail-imports.enabled') || Cache::get('supplier-imports:dispatch-paused', false)) {
+        if (! config('gmail-imports.enabled') || app(SupplierVersions::class)->paused()) {
             return;
         }
         $lock = Cache::store(config('session.block_store'))->lock('gmail-discovery:'.config('gmail-imports.connection_id'), 120);

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Sleep;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class IcorpClientTest extends TestCase
@@ -121,6 +122,25 @@ class IcorpClientTest extends TestCase
         $this->assertCount(2, (new IcorpClient)->partners());
         Storage::disk('local')->assertExists($this->sessionPath());
         Http::assertSent(fn ($request): bool => $request->url() === 'https://icorp.tech/authorize' && ($request['password'] ?? null) === 'test-password' && $request['auth_mode'] === 'password');
+    }
+
+    #[TestWith([false, 0])]
+    #[TestWith([true, 1])]
+    public function test_connection_respects_configured_takeover_policy(bool $takeOver, int $expectedForce): void
+    {
+        $this->configure();
+        config(['external-prices.icorp.take_over' => $takeOver]);
+        Http::fake([
+            'icorp.tech/login' => Http::response('', 302, ['Location' => '/choose']),
+            'icorp.tech/choose' => Http::response('<meta name="csrf-token" content="entry-csrf"><button data-firm-id="303">Вход</button>'),
+            'icorp.tech/firm-entry' => Http::response(['success' => true]),
+            'icorp.tech/listpartners' => Http::response($this->directory()),
+        ]);
+
+        (new IcorpClient)->connect();
+
+        Http::assertSent(fn ($request): bool => $request->url() === 'https://icorp.tech/firm-entry' && $request['force_firm_session'] === $expectedForce);
+        $this->assertDatabaseHas('external_service_states', ['source' => 'icorp', 'status' => 'ready']);
     }
 
     public function test_session_renewal_never_forces_another_device_out_without_explicit_takeover(): void
@@ -270,7 +290,7 @@ class IcorpClientTest extends TestCase
     {
         Storage::fake('local');
         Http::preventStrayRequests();
-        config(['external-prices.icorp.phone' => '927430570', 'external-prices.icorp.password' => 'test-password', 'external-prices.icorp.firm_id' => '303']);
+        config(['external-prices.icorp.take_over' => false, 'external-prices.icorp.phone' => '927430570', 'external-prices.icorp.password' => 'test-password', 'external-prices.icorp.firm_id' => '303']);
         Storage::disk('local')->put($this->sessionPath(), Crypt::encryptString(json_encode([
             'cookies' => [['Name' => 'session', 'Value' => 'private-cookie', 'Domain' => 'icorp.tech', 'Path' => '/']], 'user_agent' => 'Test browser',
         ], JSON_THROW_ON_ERROR)));

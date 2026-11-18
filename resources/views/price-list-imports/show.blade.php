@@ -1,7 +1,7 @@
 @extends('layouts.app')
 @section('content')
     <x-ui.page-header :title="$import->original_filename" :description="$import->supplier->name.' · загружен '. $import->created_at->format('d.m.Y H:i')">
-        <x-slot:actions><div class="flex flex-wrap gap-2"><a href="{{ route('price-list-imports.download', $import) }}"><x-ui.button type="button" variant="secondary">Скачать исходник</x-ui.button></a><a href="{{ route('price-list-imports.categorization-report', $import) }}"><x-ui.button type="button" variant="secondary">CSV категорий</x-ui.button></a>@if($import->status === \App\Enums\PriceListImportStatus::Failed)<form method="post" action="{{ route('price-list-imports.retry', $import) }}">@csrf <x-mode-version /><x-ui.button>Повторить</x-ui.button></form>@endif
+        <x-slot:actions><div class="flex flex-wrap gap-2"><a href="{{ route('price-list-imports.download', $import) }}"><x-ui.button type="button" variant="secondary">Скачать исходник</x-ui.button></a><a href="{{ route('price-list-imports.categorization-report', $import) }}"><x-ui.button type="button" variant="secondary">CSV категорий</x-ui.button></a>@if($import->status === \App\Enums\PriceListImportStatus::Failed && $import->failure_stage !== 'version_skipped')<form method="post" action="{{ route('price-list-imports.retry', $import) }}">@csrf <x-mode-version /><x-ui.button>Повторить</x-ui.button></form>@endif
             @if(in_array($import->status, [\App\Enums\PriceListImportStatus::Completed, \App\Enums\PriceListImportStatus::Superseded], true) && in_array($import->source_type->value, ['manual', 'email'], true))
                 @can('replay', $import)
                     <form method="post" action="{{ route('price-list-imports.replay', $import) }}">
@@ -17,7 +17,7 @@
     <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         @foreach(['total_rows' => 'Всего', 'valid_rows' => 'Корректные', 'warning_rows' => 'С предупреждением', 'error_rows' => 'Ошибки', 'skipped_rows' => 'Пропущены'] as $field => $label)<x-ui.card><p class="text-sm text-muted">{{ $label }}</p><p class="mt-1 text-2xl font-bold">{{ $import->{$field} }}</p></x-ui.card>@endforeach
     </div>
-    @if($import->failure_message)<x-ui.alert type="danger" class="mt-6">{{ $import->failure_message }}</x-ui.alert>@endif
+    @if($import->failure_stage === 'version_skipped')<x-ui.alert type="warning" class="mt-6">Файл сохранён, но этот или более новый день уже импортирован либо версия обрабатывается. Активный каталог сохранён.</x-ui.alert>@elseif($import->failure_message)<x-ui.alert type="danger" class="mt-6">{{ $import->failure_message }}</x-ui.alert>@endif
     @if($import->source_metadata && $import->status === \App\Enums\PriceListImportStatus::Preview)
         <x-ui.alert type="warning" class="mt-6">@if($sourceReason === 'source_not_selected')Источник исключён: в профиле импорта выбран другой источник. Активный каталог сохранён.@elseif(in_array($sourceReason, ['configuration_changed', 'profile_changed', 'mapping_changed'], true))Настройки изменились. Для публикации нужна новая обработка с текущим профилем.@elseПубликация ожидает проверки даты и настроек выбранного источника.@endif @if(auth()->user()->isAdminMode())<a class="font-semibold underline" href="{{ route('admin.supplier-sync.show', $import->supplier) }}">Открыть синхронизацию поставщика</a>@endif</x-ui.alert>
     @else

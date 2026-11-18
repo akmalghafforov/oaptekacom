@@ -164,10 +164,24 @@
         {{ $partners->links() }}
     @else
         <x-ui.card><h2 class="mb-3 font-bold">Поставщики · {{ $suppliers->total() }}</h2>
-            <div class="table-wrap"><table class="data-table"><thead><tr><th>Поставщик</th><th>Состояние</th><th>Активный источник / публикация</th><th>Последняя публикация</th><th>Следующая проверка</th><th>Действие</th></tr></thead><tbody>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Наш поставщик</th><th>iCorp</th><th>PriceList-TJ</th><th>Внешняя загрузка</th><th>Последний успешный импорт</th><th>Действие</th></tr></thead><tbody>
             @forelse($suppliers as $supplier)
-                @php($summary = $supplierStatuses[$supplier->id])
-                <tr><td class="font-semibold">{{ $supplier->name }}</td><td><x-ui.status-badge :status="$summary['attention'] ? 'pending' : ($summary['state'] === 'configured' ? 'confirmed' : 'pending')" :label="$summary['label']" /></td><td>{{ $summary['active_source'] }}<p class="text-sm text-muted">{{ $summary['publication'] ?? 'Дата неизвестна' }}</p></td><td>{{ $summary['activated_at'] ?? 'Нет данных' }}</td><td>{{ $summary['next_check'] ?? 'Не назначена' }}</td><td><x-ui.button variant="secondary" :href="route('admin.supplier-sync.show', $supplier)">Открыть</x-ui.button></td></tr>
+                <tr>
+                    <td><p class="font-semibold">{{ $supplier->name }}</p><p class="text-sm text-muted">{{ $supplierStatuses[$supplier->id]['label'] }}</p><p class="text-sm text-muted">ID {{ $supplier->id }} · {{ $supplier->city }} · {{ $supplier->phone }}</p></td>
+                    @foreach(['icorp', 'pricelist_tj'] as $source)
+                        @php($mappedPartner = $allPartners->first(fn ($record) => $record->supplier_organization_id === $supplier->id && $record->source === $source))
+                        <td>
+                            @if($mappedPartner)
+                                <p class="font-semibold">{{ $mappedPartner->name }}</p>
+                                <p class="text-sm text-muted">ID {{ $mappedPartner->external_id }} · {{ $mappedPartner->metadata['city'] ?? 'Город не указан' }} · {{ implode(', ', $mappedPartner->phones ?? []) }}</p>
+                                <p class="mt-1 text-sm">Сопоставлено · публикация: {{ $listingDates->get($mappedPartner->id)?->published_at?->timezone('Asia/Dushanbe')->format('d.m.Y') ?? 'Дата отсутствует' }}</p>
+                            @else<span class="text-muted">Нет подтверждённого сопоставления</span>@endif
+                        </td>
+                    @endforeach
+                    <td><p>{{ $supplier->external_fetch_enabled ? 'Включена' : 'Выключена' }}</p><p class="text-sm text-muted">{{ $supplier->external_fetch_exclusion_reason === 'regular_email' ? 'Регулярная почтовая доставка' : $supplier->external_fetch_exclusion_reason }}</p><p class="text-sm text-muted">Почтовых доставок: {{ $supplier->external_fetch_evidence['deliveries'] ?? 'Недостаточно сведений' }}</p></td>
+                    <td>{{ $supplier->activePriceListImport?->source_published_at?->timezone('Asia/Dushanbe')->format('d.m.Y') ?? 'Нет данных' }}<p class="text-sm text-muted">{{ $supplier->activePriceListImport?->activated_at?->timezone('Asia/Dushanbe')->format('d.m.Y H:i') }}</p></td>
+                    <td><x-ui.button variant="secondary" :href="route('admin.supplier-sync.show', $supplier)">Открыть</x-ui.button></td>
+                </tr>
             @empty<tr><td colspan="6"><x-ui.empty-state title="Поставщики не найдены" description="Попробуйте другое название или состояние." /></td></tr>@endforelse
             </tbody></table></div>{{ $suppliers->links() }}
         </x-ui.card>

@@ -90,7 +90,7 @@ class ExternalPriceWorkbook
         if (! is_string($value) || $value === '') {
             return ['date' => null, 'precision' => null];
         }
-        foreach (['!d.m.Y' => 'day', '!Y-m-d' => 'day', '!d.m.Y H:i' => 'minute', '!d.m.Y H:i:s' => 'second', '!Y-m-d\TH:i:sP' => 'second', '!Y-m-d\TH:i:s.uP' => 'second', '!Y-m-d H:i:s' => 'second', '!Y-m-d\TH:i:s' => 'second', '!Y-m-d\TH:i' => 'minute'] as $format => $precision) {
+        foreach (['!d.m.Y' => 'day', '!Y-m-d' => 'day', '!d.m.Y, H:i' => 'minute', '!d.m.Y H:i' => 'minute', '!d.m.Y H:i:s' => 'second', '!Y-m-d\TH:i:sP' => 'second', '!Y-m-d\TH:i:s.uP' => 'second', '!Y-m-d H:i:s' => 'second', '!Y-m-d\TH:i:s' => 'second', '!Y-m-d\TH:i' => 'minute'] as $format => $precision) {
             try {
                 $date = CarbonImmutable::createFromFormat($format, trim($value), config('price-list-imports.timezone'));
                 $errors = CarbonImmutable::getLastErrors();

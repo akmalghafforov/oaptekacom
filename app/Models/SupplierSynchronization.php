@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\SupplierVersions;
 use Database\Factories\SupplierSynchronizationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -22,6 +23,9 @@ class SupplierSynchronization extends Model
     /** @return list<string> */
     public function enabledSources(): array
     {
+        if (app(SupplierVersions::class)->enabled()) {
+            return ['email', 'pricelist_tj', 'icorp'];
+        }
         if ($this->usesExclusiveSource()) {
             return in_array($this->selected_source, array_keys(self::defaultSources()), true) ? [$this->selected_source] : [];
         }
@@ -32,7 +36,7 @@ class SupplierSynchronization extends Model
 
     public function usesExclusiveSource(): bool
     {
-        return ! $this->usesNewestAvailable() && ($this->selected_source !== null || ($this->source_conversion !== null && ! isset($this->source_conversion['rolled_back_at'])) || config('price-list-imports.exclusive_sources'));
+        return ! app(SupplierVersions::class)->enabled() && ! $this->usesNewestAvailable() && ($this->selected_source !== null || ($this->source_conversion !== null && ! isset($this->source_conversion['rolled_back_at'])) || config('price-list-imports.exclusive_sources'));
     }
 
     public function usesNewestAvailable(): bool
@@ -42,7 +46,7 @@ class SupplierSynchronization extends Model
 
     public function reviewsConflicts(): bool
     {
-        return $this->usesNewestAvailable() && ($this->workflow_policy['version'] ?? null) === 1;
+        return ! app(SupplierVersions::class)->enabled() && $this->usesNewestAvailable() && ($this->workflow_policy['version'] ?? null) === 1;
     }
 
     /** @return array<string, array{enabled: bool, priority: int}> */
