@@ -9,7 +9,6 @@ use App\Enums\PriceListImportSource;
 use App\Enums\PriceListImportStatus;
 use App\Enums\PriceListRowAction;
 use App\Enums\PriceListRowDisposition;
-use App\Enums\SupplierFileType;
 use App\Http\Requests\StorePriceListImportRequest;
 use App\Jobs\PreparePriceListImport;
 use App\Models\Medicine;
@@ -20,7 +19,6 @@ use App\Models\ProductCategory;
 use App\Models\SupplierProduct;
 use App\Models\SupplierProductAlias;
 use App\Services\AuditLogger;
-use App\Services\ImportFileValidator;
 use App\Services\PriceList\ActivationDispatcher;
 use App\Services\PriceList\CategorizationReportExporter;
 use App\Services\SupplierPriceListIngestor;
@@ -34,6 +32,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
 
 class PriceListImportController extends Controller
 {
@@ -45,7 +44,16 @@ class PriceListImportController extends Controller
             $query->where('supplier_organization_id', $request->user()->activeOrganizationId());
         }
 
-        return view('price-list-imports.index', ['imports' => $query->paginate(20), 'suppliers' => $request->user()->isAdminMode() ? Organization::where('type', OrganizationType::Wholesaler)->where('status', 'active')->with('importProfile')->orderBy('name')->get() : collect()]);
+        $admin = $request->user()->isAdminMode();
+        $suppliers = Organization::query()->where('type', OrganizationType::Wholesaler)->where('status', 'active')
+            ->when(! $admin, fn ($query) => $query->whereKey($request->user()->activeOrganizationId()))
+            ->with(['manualImportProfiles' => fn ($query) => $query->orderBy('name')->orderBy('id')])->orderBy('name')->get();
+        $uploadOptions = $suppliers->mapWithKeys(fn (Organization $supplier): array => [$supplier->id => [
+            'default' => $supplier->manualImportProfiles->find($supplier->manual_import_profile_id)?->id,
+            'profiles' => $supplier->manualImportProfiles->map->only(['id', 'name']),
+        ]]);
+
+        return view('price-list-imports.index', ['imports' => $query->paginate(20), 'suppliers' => $suppliers, 'uploadOptions' => $uploadOptions]);
     }
 
     public function store(StorePriceListImportRequest $request, SupplierPriceListIngestor $ingestor): RedirectResponse
@@ -54,15 +62,20 @@ class PriceListImportController extends Controller
             ? Organization::query()->where('type', OrganizationType::Wholesaler)->where('status', 'active')->findOrFail($request->integer('supplier_organization_id'))
             : $request->user()->activeOrganization();
         abort_unless($supplier?->type === OrganizationType::Wholesaler, 404);
-        if (! $supplier->importProfile()->where('is_active', true)->exists()) {
-            throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
-        }
         $upload = $request->file('file');
-        app(ImportFileValidator::class)->validate($upload->getRealPath(), $upload->getClientOriginalName(), SupplierFileType::from(strtolower($upload->getClientOriginalExtension())), $supplier->importProfile->configuration);
         $extension = strtolower($upload->getClientOriginalExtension());
         $path = $upload->storeAs('price-list-imports/'.$supplier->id, Str::uuid().'.'.$extension, config('price-list-imports.disk'));
-        $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $upload->getClientOriginalName(), $upload->getMimeType() ?: 'application/octet-stream', $upload->getSize(), hash_file('sha256', Storage::disk(config('price-list-imports.disk'))->path($path)));
-        $import = $ingestor->ingest($supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))));
+        abort_unless($path, 500);
+        $disk = Storage::disk(config('price-list-imports.disk'));
+        try {
+            $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $upload->getClientOriginalName(), $upload->getMimeType() ?: 'application/octet-stream', $upload->getSize(), hash_file('sha256', $disk->path($path)));
+            $import = $ingestor->ingest($supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))), $request->has('supplier_import_profile_id') ? $request->integer('supplier_import_profile_id') : null);
+        } catch (Throwable $exception) {
+            if (! PriceListImport::where('file_path', $path)->exists()) {
+                $disk->delete($path);
+            }
+            throw $exception;
+        }
 
         return redirect()->route('price-list-imports.show', $import)->with('success', 'Файл принят и поставлен в очередь автоматической обработки и публикации.');
     }
@@ -120,7 +133,7 @@ class PriceListImportController extends Controller
         $importModel = $this->scoped($request, $import);
         $this->authorize('replay', $importModel);
         abort_unless(in_array($importModel->status, [PriceListImportStatus::Completed, PriceListImportStatus::Superseded], true), 422);
-        if (! $importModel->supplier->importProfile()->where('is_active', true)->exists()) {
+        if (! $importModel->supplier->manualImportProfiles()->whereKey($importModel->supplier->manual_import_profile_id)->exists()) {
             throw ValidationException::withMessages(['file' => 'Для поставщика не настроен активный профиль импорта.']);
         }
         $disk = Storage::disk(config('price-list-imports.disk'));
@@ -130,8 +143,15 @@ class PriceListImportController extends Controller
         $extension = strtolower(pathinfo($importModel->original_filename, PATHINFO_EXTENSION));
         $path = 'price-list-imports/'.$importModel->supplier_organization_id.'/'.Str::uuid().'.'.$extension;
         abort_unless($disk->copy($importModel->file_path, $path), 500);
-        $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $importModel->original_filename, $importModel->mime_type, $disk->size($path), $importModel->sha256);
-        $replay = $ingestor->ingest($importModel->supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))));
+        try {
+            $stored = new StoredImportFile(config('price-list-imports.disk'), $path, $importModel->original_filename, $importModel->mime_type, $disk->size($path), $importModel->sha256);
+            $replay = $ingestor->ingest($importModel->supplier, $stored, new IngestionContext(PriceListImportSource::Manual, $request->user(), receivedAt: CarbonImmutable::now(config('price-list-imports.timezone'))));
+        } catch (Throwable $exception) {
+            if (! PriceListImport::where('file_path', $path)->exists()) {
+                $disk->delete($path);
+            }
+            throw $exception;
+        }
 
         return redirect()->route('price-list-imports.show', $replay)->with('success', 'Повторная обработка исходного файла запущена с текущим профилем поставщика. Результаты предыдущего импорта сохранены в истории.');
     }

@@ -27,6 +27,6 @@ class SupplierImportProfile extends Model
 
     protected function casts(): array
     {
-        return ['file_type' => SupplierFileType::class, 'is_active' => 'boolean', 'configuration' => 'array', 'sample_metadata' => 'array'];
+        return ['file_type' => SupplierFileType::class, 'is_active' => 'boolean', 'inbox_enabled' => 'boolean', 'manual_enabled' => 'boolean', 'configuration' => 'array', 'sample_metadata' => 'array'];
     }
 }

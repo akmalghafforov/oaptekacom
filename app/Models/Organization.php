@@ -80,6 +80,21 @@ class Organization extends Model
         return $this->hasOne(SupplierImportProfile::class, 'supplier_organization_id');
     }
 
+    public function importProfiles(): HasMany
+    {
+        return $this->hasMany(SupplierImportProfile::class, 'supplier_organization_id');
+    }
+
+    public function inboxImportProfile(): BelongsTo
+    {
+        return $this->belongsTo(SupplierImportProfile::class, 'inbox_import_profile_id');
+    }
+
+    public function manualImportProfiles(): HasMany
+    {
+        return $this->importProfiles()->where('is_active', true)->where('manual_enabled', true);
+    }
+
     public function supplierProducts(): HasMany
     {
         return $this->hasMany(SupplierProduct::class, 'supplier_organization_id');

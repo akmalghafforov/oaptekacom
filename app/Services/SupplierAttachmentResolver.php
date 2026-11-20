@@ -15,14 +15,16 @@ class SupplierAttachmentResolver
     {
         $normalizedFilename = mb_strtolower(Str::squish($filename), 'UTF-8');
 
-        return new Collection(SupplierSenderAddress::with('supplier.importProfile')
+        return new Collection(SupplierSenderAddress::with('supplier.inboxImportProfile')
             ->where('normalized_email', mb_strtolower(trim($sender)))
             ->get()->map(fn (SupplierSenderAddress $address): ?Organization => $address->supplier)
             ->filter(function (?Organization $supplier) use ($normalizedFilename): bool {
                 if (! $supplier) {
                     return false;
                 }
-                $filter = mb_strtolower(Str::squish($supplier->importProfile?->attachment_filename_filter ?? ''), 'UTF-8');
+                $profile = $supplier->inboxImportProfile;
+                $prefix = $profile?->supplier_organization_id === $supplier->id ? $profile->attachment_filename_filter : null;
+                $filter = mb_strtolower(Str::squish($prefix ?? ''), 'UTF-8');
 
                 return str_starts_with($normalizedFilename, $filter);
             })->values()->all());
@@ -30,12 +32,13 @@ class SupplierAttachmentResolver
 
     public function eligibilityReason(Organization $supplier, string $filename): ?string
     {
-        $profile = $supplier->importProfile;
+        $profile = $supplier->inboxImportProfile;
 
         return match (true) {
             $supplier->status !== 'active' || $supplier->type !== OrganizationType::Wholesaler => 'inactive_supplier',
-            ! $profile => 'missing_profile',
+            ! $profile || $profile->supplier_organization_id !== $supplier->id => 'missing_profile',
             ! $profile->is_active => 'inactive_profile',
+            ! $profile->inbox_enabled => 'ineligible_profile',
             strtolower(pathinfo($filename, PATHINFO_EXTENSION)) !== $profile->file_type->value => 'format_mismatch',
             default => null,
         };

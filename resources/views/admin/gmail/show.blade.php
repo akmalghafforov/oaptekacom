@@ -35,7 +35,7 @@
                     </x-ui.select>
                     <x-ui.select name="supplier_organization_id" label="Поставщик" required :autofocus="$selectedPart !== null">
                         <option value="">Выберите поставщика</option>
-                        @foreach($suppliers as $supplier)<option value="{{ $supplier->id }}" @selected((string) old('supplier_organization_id') === (string) $supplier->id)>{{ $supplier->name }}</option>@endforeach
+                        @foreach($suppliers as $supplier)<option value="{{ $supplier->id }}" @selected((string) old('supplier_organization_id') === (string) $supplier->id)>{{ $supplier->name }} · {{ $supplier->inbox_import_profile_id ? 'настроить профиль входящей почты' : 'создать профиль входящей почты' }}</option>@endforeach
                     </x-ui.select>
                     <x-ui.button>Проверить профиль</x-ui.button>
                 </form>

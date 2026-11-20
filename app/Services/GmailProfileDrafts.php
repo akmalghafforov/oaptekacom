@@ -87,7 +87,7 @@ class GmailProfileDrafts
             throw new GmailException('Не удалось подготовить вложение. Проверьте подключение Gmail и повторите попытку.');
         }
         $token = (string) Str::uuid();
-        $request->session()->put('gmail_profile_drafts.'.$token, $metadata + ['user' => $request->user()->id, 'supplier' => $supplier->id, 'connection' => $connection->id, 'mailbox' => mb_strtolower($connection->email), 'message' => $messageId, 'expires' => now()->addDay()->timestamp]);
+        $request->session()->put('gmail_profile_drafts.'.$token, $metadata + ['user' => $request->user()->id, 'supplier' => $supplier->id, 'profile' => $supplier->inbox_import_profile_id, 'connection' => $connection->id, 'mailbox' => mb_strtolower($connection->email), 'message' => $messageId, 'expires' => now()->addDay()->timestamp]);
 
         return $token;
     }

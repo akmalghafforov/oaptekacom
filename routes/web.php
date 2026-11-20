@@ -190,6 +190,8 @@ Route::middleware(['auth', 'active', 'two-factor-confirmed'])->group(function ()
         Route::get('/subscription-payments', [AdminSubscriptionController::class, 'paymentRequests'])->name('admin.subscription-payments.index');
         Route::patch('/subscription-payments/methods', [AdminSubscriptionController::class, 'updatePaymentMethods'])->name('admin.subscription-payments.methods.update');
         Route::post('/subscription-payments/{paymentRequest}/review', [AdminSubscriptionController::class, 'reviewPayment'])->name('admin.subscription-payments.review');
+        Route::get('/suppliers/{supplier}/import-profiles', [SupplierImportProfileController::class, 'index'])->name('admin.supplier-import-profiles.index');
+        Route::put('/suppliers/{supplier}/import-profiles/{channel}', [SupplierImportProfileController::class, 'updateChannel'])->whereIn('channel', ['inbox', 'manual', 'senders'])->name('admin.supplier-import-profiles.channel.update');
         Route::get('/suppliers/{supplier}/import-profile', [SupplierImportProfileController::class, 'edit'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.edit');
         Route::post('/suppliers/{supplier}/import-profile/sample', [SupplierImportProfileController::class, 'storeSample'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.sample.store');
         Route::get('/suppliers/{supplier}/import-profile/sample-preview', [SupplierImportProfileController::class, 'samplePreview'])->middleware(ProtectGmailResponse::class)->name('admin.supplier-import-profiles.sample.preview');

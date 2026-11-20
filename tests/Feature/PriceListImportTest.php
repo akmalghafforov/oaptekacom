@@ -95,6 +95,72 @@ class PriceListImportTest extends TestCase
         Storage::disk('local')->assertExists(PriceListImport::first()->file_path);
     }
 
+    #[TestWith([false])]
+    #[TestWith([true])]
+    public function test_manual_selection_is_scoped_and_snapshot_controls_deduplication_and_parsing(bool $adminMode): void
+    {
+        Storage::fake('local');
+        Queue::fake([PreparePriceListImport::class]);
+        $supplier = Organization::factory()->wholesaler()->create();
+        $actor = $adminMode ? User::factory()->admin()->create(['two_factor_confirmed_at' => now()]) : User::factory()->wholesaler($supplier)->create();
+        $default = SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['name' => 'Manual default']);
+        $mapping = ['name' => 'B', 'price' => 'C'];
+        $alternate = SupplierImportProfile::factory()->for($supplier, 'supplier')->create([
+            'name' => 'Manual alternate',
+            'configuration' => array_replace(ProfileValidator::defaults(), ['mapping' => $mapping]),
+        ]);
+        $inboxOnly = SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['name' => 'Inbox only', 'manual_enabled' => false]);
+        $inactive = SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['is_active' => false]);
+        $foreign = SupplierImportProfile::factory()->create();
+        $supplier->update(['inbox_import_profile_id' => $inboxOnly->id]);
+
+        $this->actingAs($actor);
+        if ($adminMode) {
+            $this->withSession(['_old_input' => ['supplier_organization_id' => $supplier->id]]);
+        }
+        $this->get(route('price-list-imports.index'))->assertOk()
+            ->assertSee('value="'.$default->id.'" selected>Manual default', false)
+            ->assertSee('Manual alternate')->assertDontSee('Inbox only');
+
+        $upload = fn (): array => [
+            'supplier_organization_id' => $supplier->id,
+            'file' => UploadedFile::fake()->createWithContent('prices.csv', "name,alternate,price\nDrug,Aspirin,19.75\n"),
+        ];
+        foreach ([$inboxOnly->id, $inactive->id, $foreign->id, PHP_INT_MAX] as $id) {
+            $this->postJson(route('price-list-imports.store'), $upload() + ['supplier_import_profile_id' => $id])
+                ->assertUnprocessable()->assertJsonValidationErrors('supplier_import_profile_id');
+        }
+        $this->assertSame([], Storage::disk('local')->allFiles('price-list-imports'));
+        $this->post(route('price-list-imports.store'), $upload())->assertRedirect();
+        $this->post(route('price-list-imports.store'), $upload() + ['supplier_import_profile_id' => $alternate->id])->assertRedirect();
+        $this->post(route('price-list-imports.store'), $upload() + ['supplier_import_profile_id' => $alternate->id])->assertRedirect();
+        [$defaultImport, $alternateImport] = PriceListImport::orderBy('id')->get();
+        $this->assertDatabaseCount('price_list_imports', 2);
+        $this->assertSame($default->id, $defaultImport->supplier_import_profile_id);
+        $this->assertSame($alternate->id, $alternateImport->supplier_import_profile_id);
+        $this->assertSame($mapping, $alternateImport->profile_snapshot['mapping']);
+        $this->assertSame('csv', $alternateImport->profile_snapshot['file_type']);
+
+        $payload = serialize(Queue::pushed(PreparePriceListImport::class, fn (PreparePriceListImport $job): bool => $job->import->id === $alternateImport->id)->sole());
+        $alternate->update(['configuration' => array_replace($alternate->configuration, ['mapping' => ['name' => 'A', 'price' => 'C']])]);
+        $this->post(route('price-list-imports.store'), $upload() + ['supplier_import_profile_id' => $alternate->id])->assertRedirect();
+        $this->assertDatabaseCount('price_list_imports', 3);
+        $this->assertCount(3, Storage::disk('local')->allFiles('price-list-imports'));
+        Queue::assertPushed(PreparePriceListImport::class, 3);
+        unserialize($payload)->handle(app(WorkbookReader::class), app(ValueNormalizer::class));
+        $this->assertSame('Aspirin', $alternateImport->rows()->sole()->parsed_values['name']);
+        $this->assertSame($default->id, $supplier->fresh()->manual_import_profile_id);
+        $this->assertSame($inboxOnly->id, $supplier->fresh()->inbox_import_profile_id);
+
+        $supplier->update(['manual_import_profile_id' => null]);
+        $this->postJson(route('price-list-imports.store'), $upload())->assertUnprocessable()->assertJsonValidationErrors('file');
+        $supplier->manualImportProfiles()->update(['manual_enabled' => false]);
+        if ($adminMode) {
+            $this->withSession(['_old_input' => ['supplier_organization_id' => $supplier->id]]);
+        }
+        $this->get(route('price-list-imports.index'))->assertSee('У поставщика нет доступных профилей ручного импорта.');
+    }
+
     public function test_other_supplier_receives_not_found_for_import(): void
     {
         $owner = Organization::factory()->wholesaler()->create();

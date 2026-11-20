@@ -175,6 +175,8 @@ class GmailInboxImportControlsTest extends TestCase
         $this->mailbox();
         $supplier = Organization::factory()->wholesaler()->create();
         $profile = $existing ? SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['configuration' => array_replace(ProfileValidator::defaults(), ['mapping' => ['name' => 'A', 'price' => 'B']])]) : null;
+        $manual = $existing ? SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['name' => 'Manual only', 'inbox_enabled' => false]) : null;
+        $supplier->update(['manual_import_profile_id' => $manual?->id]);
         SupplierSenderAddress::factory()->for($supplier, 'supplier')->create(['email' => 'old@example.com', 'normalized_email' => 'old@example.com']);
         $before = $profile?->fresh()->getAttributes();
         $token = $this->stage($supplier);
@@ -192,7 +194,12 @@ class GmailInboxImportControlsTest extends TestCase
             'sender_emails' => "old@example.com\nprice@example.com", 'attachment_filename_filter' => 'prices',
         ])->assertSessionHasNoErrors()->assertRedirectToRoute('admin.gmail.show', 'abc');
 
-        $saved = $supplier->importProfile()->firstOrFail();
+        $saved = $supplier->fresh()->inboxImportProfile()->firstOrFail();
+        $this->assertSame($manual?->id, $supplier->fresh()->manual_import_profile_id);
+        if ($existing) {
+            $this->assertSame($profile->id, $saved->id);
+            $this->assertNull($manual->fresh()->sample_metadata);
+        }
         $this->assertTrue($saved->is_active);
         $this->assertSame('prices', $saved->attachment_filename_filter);
         $this->assertSame(['name' => 'A', 'price' => 'B'], $saved->configuration['mapping']);

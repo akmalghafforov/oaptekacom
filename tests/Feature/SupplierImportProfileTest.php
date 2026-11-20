@@ -264,6 +264,47 @@ class SupplierImportProfileTest extends TestCase
     }
 
     /** @param array<string, mixed> $overrides @return array<string, mixed> */
+    public function test_profile_samples_and_channel_defaults_are_saved_independently(): void
+    {
+        Storage::fake('local');
+        $admin = User::factory()->admin()->create(['two_factor_confirmed_at' => now()]);
+        $supplier = Organization::factory()->wholesaler()->create();
+        $original = SupplierImportProfile::factory()->for($supplier, 'supplier')->create();
+        $foreign = SupplierImportProfile::factory()->create();
+        $this->actingAs($admin);
+        $this->get(route('admin.supplier-import-profiles.index', $supplier))->assertOk()->assertSee('Создать профиль')->assertSee($original->name);
+
+        $this->post(route('admin.supplier-import-profiles.sample.store', ['supplier' => $supplier, 'profile' => 'new']), [
+            'sample' => UploadedFile::fake()->createWithContent('alternate.csv', "Name,Price\nSample,12\n"),
+        ])->assertRedirect();
+        $alternate = $supplier->importProfiles()->whereKeyNot($original->id)->sole();
+        $this->assertFalse($alternate->is_active);
+        $this->assertNull($original->fresh()->sample_metadata);
+        $this->getJson(route('admin.supplier-import-profiles.sample.preview', ['supplier' => $supplier, 'profile' => $foreign->id, 'worksheet' => 'Worksheet']))->assertNotFound();
+        $this->getJson(route('admin.supplier-import-profiles.sample.preview', ['supplier' => $supplier, 'profile' => $alternate->id, 'worksheet' => 'Worksheet']))->assertOk()->assertJsonPath('rows.1.cells.A', 'Sample');
+
+        $this->put(route('admin.supplier-import-profiles.update', ['supplier' => $supplier, 'profile' => $alternate->id]), $this->payload([
+            'column_mappings' => ['A' => 'name', 'B' => 'price'], 'is_active' => '1', 'manual_enabled' => '1', 'inbox_enabled' => '0',
+        ]))->assertRedirect()->assertSessionHasNoErrors();
+        $this->assertSame($original->id, $supplier->fresh()->manual_import_profile_id);
+
+        $manual = route('admin.supplier-import-profiles.channel.update', [$supplier, 'manual']);
+        $inbox = route('admin.supplier-import-profiles.channel.update', [$supplier, 'inbox']);
+        $this->putJson($manual, ['manual_import_profile_id' => $foreign->id])->assertUnprocessable()->assertJsonValidationErrors('manual_import_profile_id');
+        $this->putJson($inbox, ['inbox_import_profile_id' => $alternate->id])->assertUnprocessable()->assertJsonValidationErrors('inbox_import_profile_id');
+        $this->put($manual, ['manual_import_profile_id' => $alternate->id])->assertRedirect();
+        $this->assertSame($alternate->id, $supplier->fresh()->manual_import_profile_id);
+        $this->assertSame($original->id, $supplier->fresh()->inbox_import_profile_id);
+
+        $this->put(route('admin.supplier-import-profiles.channel.update', [$supplier, 'senders']), ['sender_emails' => 'test@example.com'])->assertRedirect();
+        $this->assertSame('test@example.com', $supplier->senderAddresses()->sole()->normalized_email);
+        $alternate->fresh()->update(['is_active' => false]);
+        $this->get(route('admin.supplier-import-profiles.index', $supplier))->assertOk()->assertSee('Назначенный профиль недоступен');
+        $this->put($inbox, ['inbox_import_profile_id' => null])->assertRedirect();
+        $this->assertNull($supplier->fresh()->inbox_import_profile_id);
+        $this->assertSame($alternate->id, $supplier->fresh()->manual_import_profile_id);
+    }
+
     private function payload(array $overrides = []): array
     {
         return array_replace([

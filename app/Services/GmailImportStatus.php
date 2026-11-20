@@ -95,7 +95,7 @@ class GmailImportStatus
             'ambiguous_supplier' => 'Подходят несколько поставщиков. Уточните адреса и фильтры файлов.',
             'multiple_candidates' => 'Несколько подходящих вложений для одного поставщика. Уточните фильтр имени файла.',
             'format_mismatch', 'no_candidates' => 'Тип файла не соответствует профилю.',
-            'missing_profile', 'inactive_profile', 'inactive_supplier', 'profile_changed' => 'Проверьте активность поставщика и профиль импорта.',
+            'missing_profile', 'inactive_profile', 'ineligible_profile', 'inactive_supplier', 'profile_changed' => 'Проверьте активность поставщика и профиль импорта.',
             'invalid_attachment' => 'Файл повреждён, имеет неподдерживаемый формат или превышает ограничения.',
             'attachment_unavailable', 'message_unavailable', 'not_in_inbox' => 'Письмо или вложение больше недоступно в Gmail.',
             'reconnect_required', 'mailbox_changed', 'permission_denied' => 'Проверьте подключение и доступ к настроенному ящику.',

@@ -5,8 +5,11 @@
     $savedMapping = array_flip($profile->configuration['mapping'] ?? []);
     $selectedDataRow = (int) old('data_row', $profile->configuration['data_row'] ?? 1);
 @endphp
-<x-ui.page-header :title="'Профиль импорта: '.$organization->name" description="Загрузите образец, затем укажите назначение столбцов и первую строку товаров." />
+<x-ui.page-header :title="$profile->exists ? $profile->name.' · '.$organization->name : 'Новый профиль · '.$organization->name" description="Загрузите образец, затем укажите назначение столбцов и первую строку товаров.">
+    <x-slot:actions><x-ui.button variant="secondary" :href="route('admin.supplier-import-profiles.index', $organization)">Профили поставщика</x-ui.button></x-slot:actions>
+</x-ui.page-header>
 @if($draft)
+@error('sample')<x-ui.alert type="danger" class="mt-6">{{ $message }}</x-ui.alert>@enderror
 <x-ui.alert type="warning" class="mt-6">Черновик из Gmail. Действующий профиль изменится только после сохранения. Черновик доступен 24 часа.</x-ui.alert>
 <x-ui.button variant="secondary" class="mt-3" :href="route('admin.gmail.show', $draft['message'])">Отменить и вернуться к письму</x-ui.button>
 @endif
@@ -15,7 +18,7 @@
     <p class="mt-1 text-sm text-muted">CSV, TSV, XLS или XLSX. Файл хранится приватно и используется только для настройки.</p>
     @if($profile->sample_metadata)<p class="mt-3 text-sm"><span class="font-semibold">Текущий файл:</span> {{ $profile->sample_metadata['filename'] }} ({{ number_format($profile->sample_metadata['size'] / 1024, 1, ',', ' ') }} КБ)</p>@endif
     @if(!$draft)
-    <form method="post" action="{{ route('admin.supplier-import-profiles.sample.store', $organization) }}" enctype="multipart/form-data" class="mt-4 flex flex-wrap items-end gap-3">
+    <form method="post" action="{{ route('admin.supplier-import-profiles.sample.store', $profileRoute) }}" enctype="multipart/form-data" class="mt-4 flex flex-wrap items-end gap-3">
         @csrf <x-mode-version />
         <x-ui.input name="sample" type="file" label="Файл-образец" accept=".csv,.tsv,.xls,.xlsx" required />
         <x-ui.button>{{ $profile->sample_metadata ? 'Заменить образец' : 'Загрузить образец' }}</x-ui.button>
@@ -23,16 +26,34 @@
     @endif
 </x-ui.card>
 @if($preview)
-<form id="profile-form" method="post" action="{{ route('admin.supplier-import-profiles.update', $organization) }}" class="mt-6 space-y-6" novalidate>
+<form id="profile-form" method="post" action="{{ route('admin.supplier-import-profiles.update', $profileRoute) }}" class="mt-6 space-y-6" novalidate>
     @csrf <x-mode-version /> @method('PUT')
+    @if(isset($profile->sample_metadata['checksum']))<input type="hidden" name="sample_checksum" value="{{ $profile->sample_metadata['checksum'] }}">@endif
     @if($draft)<input type="hidden" name="gmail_draft" value="{{ request('gmail_draft') }}">@endif
     <x-ui.card>
         <div class="grid gap-4 md:grid-cols-3">
             <x-ui.input name="name" label="Название профиля" :value="$profile->name" required />
             <x-ui.select name="file_type" label="Тип импортируемого файла">@foreach(['xlsx' => 'XLSX', 'xls' => 'XLS', 'csv' => 'CSV', 'tsv' => 'TSV'] as $value => $label)<option value="{{ $value }}" @selected(old('file_type', $profile->file_type?->value ?? $profile->file_type) === $value)>{{ $label }}</option>@endforeach</x-ui.select>
-            <x-ui.select name="worksheet" label="Лист" data-worksheet data-preview-url="{{ route('admin.supplier-import-profiles.sample.preview', ['supplier' => $organization, 'gmail_draft' => $draft ? request('gmail_draft') : null]) }}">@foreach($preview['worksheets'] as $worksheet)<option value="{{ $worksheet }}" @selected(old('worksheet', $preview['worksheet']) === $worksheet)>{{ $worksheet }}</option>@endforeach</x-ui.select>
+            <x-ui.select name="worksheet" label="Лист" data-worksheet data-preview-url="{{ route('admin.supplier-import-profiles.sample.preview', $profileRoute + ['gmail_draft' => $draft ? request('gmail_draft') : null]) }}">@foreach($preview['worksheets'] as $worksheet)<option value="{{ $worksheet }}" @selected(old('worksheet', $preview['worksheet']) === $worksheet)>{{ $worksheet }}</option>@endforeach</x-ui.select>
         </div>
-        <div class="mt-4 grid gap-4 md:grid-cols-2"><x-ui.textarea name="sender_emails" label="Email-адреса отправителей" :value="$senderEmails" hint="Один адрес на строку. Один адрес можно использовать для нескольких поставщиков с разными фильтрами файлов." /><x-ui.input name="attachment_filename_filter" label="Фильтр имени вложения" :value="$profile->attachment_filename_filter" maxlength="255" hint="Имя файла должно начинаться с указанного текста без учёта регистра и лишних пробелов. Пустое поле — любое имя файла. Если подходят несколько поставщиков, вложение пропускается." /></div>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">@if($draft)<p class="text-sm text-muted">Отправитель {{ $draft['sender'] }} будет добавлен в настройки входящей почты. Текущие адреса: {{ str_replace("\n", ', ', $senderEmails) }}.</p>@endif
+            <x-ui.input name="attachment_filename_filter" label="Фильтр имени вложения" :value="$profile->attachment_filename_filter" maxlength="255" hint="Имя файла должно начинаться с указанного текста без учёта регистра и лишних пробелов. Пустое поле — любое имя файла. Если подходят несколько поставщиков, вложение пропускается." /></div>
+        <div class="mt-4 grid gap-4 md:grid-cols-3">
+            @unless($draft)
+                <x-ui.select name="is_active" label="Состояние профиля">
+                    <option value="1" @selected(old('is_active', (int) $profile->is_active) == 1)>Активен</option>
+                    <option value="0" @selected(old('is_active', (int) $profile->is_active) == 0)>Неактивен</option>
+                </x-ui.select>
+                <x-ui.select name="inbox_enabled" label="Импорт из почты">
+                    <option value="1" @selected(old('inbox_enabled', (int) $profile->inbox_enabled) == 1)>Разрешён</option>
+                    <option value="0" @selected(old('inbox_enabled', (int) $profile->inbox_enabled) == 0)>Отключён</option>
+                </x-ui.select>
+            @endunless
+            <x-ui.select name="manual_enabled" label="Ручной импорт">
+                <option value="1" @selected(old('manual_enabled', (int) $profile->manual_enabled) == 1)>Разрешён</option>
+                <option value="0" @selected(old('manual_enabled', (int) $profile->manual_enabled) == 0)>Отключён</option>
+            </x-ui.select>
+        </div>
         <div class="mt-4 grid gap-4 md:grid-cols-3">
             <x-ui.input name="decimal_separator" label="Десятичный разделитель" :value="$profile->configuration['decimal_separator'] ?? '.'" required />
             <x-ui.select name="matching_strategy" label="Сопоставление" data-matching-strategy>@foreach(['name' => 'По нормализованному названию', 'sku' => 'Строго по SKU', 'sku_then_name' => 'SKU, затем название'] as $value => $label)<option value="{{ $value }}" @selected(old('matching_strategy', $profile->configuration['matching_strategy'] ?? 'name') === $value)>{{ $label }}</option>@endforeach</x-ui.select>

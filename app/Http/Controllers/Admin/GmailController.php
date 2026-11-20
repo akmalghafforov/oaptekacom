@@ -110,7 +110,7 @@ class GmailController extends Controller
                 $active = $status['active'];
             }
 
-            return view('admin.gmail.show', ['message' => $data, 'canImport' => $canImport, 'active' => $active, 'selectedPart' => $request->query('part_id'), 'suppliers' => $canImport ? Organization::where('type', OrganizationType::Wholesaler)->orderBy('name')->get(['id', 'name']) : collect()]);
+            return view('admin.gmail.show', ['message' => $data, 'canImport' => $canImport, 'active' => $active, 'selectedPart' => $request->query('part_id'), 'suppliers' => $canImport ? Organization::where('type', OrganizationType::Wholesaler)->orderBy('name')->get(['id', 'name', 'inbox_import_profile_id']) : collect()]);
         } catch (GmailException $exception) {
             return $this->failure($exception->getMessage());
         }

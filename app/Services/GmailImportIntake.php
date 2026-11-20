@@ -71,7 +71,7 @@ class GmailImportIntake
                 return [];
             }
             $supplier = $group['supplier'];
-            $profile = $supplier->importProfile;
+            $profile = $supplier->inboxImportProfile;
             $candidates = $group['candidates'];
             $receipt->update(['attachment_manifest' => $routing['manifest'], 'supplier_import_profile_id' => $profile?->id]);
             if (count($candidates) !== 1) {
@@ -117,7 +117,7 @@ class GmailImportIntake
                 return [];
             }
             $file = new StoredImportFile($disk, $path, $part->getFilename(), (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes), strlen($bytes), hash('sha256', $bytes));
-            $this->ingestor->ingestGmailReceipt($receipt, $file);
+            $this->ingestor->ingestGmailReceipt($receipt, $file, $profile);
 
             return [];
         });
@@ -197,7 +197,7 @@ class GmailImportIntake
                     $count = count($group['candidates']);
                     $child->update([
                         'sender_email' => $parent->sender_email, 'received_at' => $parent->received_at, 'attempts' => 0, 'next_attempt_at' => null,
-                        'supplier_import_profile_id' => $group['supplier']->importProfile?->id,
+                        'supplier_import_profile_id' => $group['supplier']->inboxImportProfile?->id,
                         'attachment_manifest' => $routing['manifest'], 'selected_part' => null,
                         'status' => $count === 1 ? 'pending' : 'skipped',
                         'reason' => $count === 1 ? null : ($count > 1 ? 'multiple_candidates' : $group['reason']),

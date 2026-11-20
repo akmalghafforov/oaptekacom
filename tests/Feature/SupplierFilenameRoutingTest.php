@@ -8,6 +8,7 @@ use App\Jobs\ProcessGmailImportReceipt;
 use App\Models\GmailConnection;
 use App\Models\GmailImportContentClaim;
 use App\Models\GmailImportReceipt;
+use App\Models\Organization;
 use App\Models\PriceListImport;
 use App\Models\SupplierImportProfile;
 use App\Models\SupplierSenderAddress;
@@ -22,6 +23,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
@@ -109,6 +111,65 @@ class SupplierFilenameRoutingTest extends TestCase
         $this->assertSame($matches ? [$profile->supplier_organization_id] : [], $resolver->matchingSuppliers(' SHARED@EXAMPLE.COM ', $filename)->modelKeys());
         $this->assertSame([], $resolver->matchingSuppliers('different@example.com', $filename)->modelKeys());
         $this->assertSame($filter, $profile->fresh()->attachment_filename_filter);
+    }
+
+    public function test_legacy_parent_and_child_jobs_use_the_backfilled_inbox_profiles(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        $migration = require database_path('migrations/2026_11_20_111219_separate_supplier_import_profile_defaults.php');
+        $migration->down();
+        $legacy = [];
+        foreach (['alpha' => true, 'beta' => true, 'alpha conflict' => false] as $prefix => $active) {
+            $supplier = Organization::factory()->wholesaler()->create();
+            $attributes = SupplierImportProfile::factory()->for($supplier, 'supplier')->raw([
+                'file_type' => 'csv', 'attachment_filename_filter' => $prefix, 'is_active' => $active,
+            ]);
+            $legacy[] = SupplierImportProfile::create(Arr::except($attributes, ['inbox_enabled', 'manual_enabled']));
+            SupplierSenderAddress::factory()->for($supplier, 'supplier')->create(['normalized_email' => 'shared@example.com']);
+        }
+        [$alpha, $beta, $inactive] = $legacy;
+        $unconfigured = Organization::factory()->wholesaler()->create();
+        $message = $this->message([$this->part('ALPHA.csv'), $this->part('beta.csv'), $this->part('alpha conflict.csv')]);
+        $parent = $this->mailbox([$message, $message, $message]);
+        $otherParent = GmailImportReceipt::factory()->create(['mailbox_email' => $parent->mailbox_email, 'gmail_message_id' => 'already-routed', 'status' => 'routed']);
+        $child = GmailImportReceipt::factory()->create([
+            'mailbox_email' => $otherParent->mailbox_email, 'gmail_message_id' => $otherParent->gmail_message_id,
+            'receipt_scope' => 'supplier:'.$beta->supplier_organization_id, 'parent_receipt_id' => $otherParent->id,
+            'supplier_organization_id' => $beta->supplier_organization_id, 'supplier_import_profile_id' => $beta->id,
+        ]);
+        $parentPayload = serialize(new ProcessGmailImportReceipt($parent->id));
+        $childPayload = serialize(new ProcessGmailImportReceipt($child->id));
+
+        $migration->up();
+
+        foreach ([$alpha, $beta] as $profile) {
+            $supplier = $profile->supplier()->firstOrFail();
+            $this->assertSame($profile->id, $supplier->inbox_import_profile_id);
+            $this->assertSame($profile->id, $supplier->manual_import_profile_id);
+            $this->assertTrue($profile->fresh()->inbox_enabled);
+            $this->assertTrue($profile->fresh()->manual_enabled);
+        }
+        $this->assertSame($inactive->id, $inactive->supplier->inbox_import_profile_id);
+        $this->assertNull($inactive->supplier->manual_import_profile_id);
+        $this->assertFalse($inactive->fresh()->inbox_enabled);
+        $this->assertNull($unconfigured->fresh()->inbox_import_profile_id);
+        $this->assertNull($unconfigured->fresh()->manual_import_profile_id);
+        SupplierImportProfile::factory()->for($alpha->supplier, 'supplier')->create(['file_type' => 'xlsx', 'attachment_filename_filter' => 'other']);
+        SupplierImportProfile::factory()->for($beta->supplier, 'supplier')->create(['file_type' => 'xlsx', 'attachment_filename_filter' => 'other']);
+        $resolver = app(SupplierAttachmentResolver::class);
+        $this->assertSame('inactive_profile', $resolver->eligibilityReason($inactive->supplier, 'alpha conflict.csv'));
+
+        unserialize($parentPayload)->handle(app(GmailImportIntake::class));
+        $manifest = collect($parent->fresh()->attachment_manifest)->keyBy('filename');
+        $this->assertSame('ambiguous_supplier', $manifest['alpha conflict.csv']['reason']);
+        $alphaChild = $parent->children()->where('supplier_organization_id', $alpha->supplier_organization_id)->sole();
+        (new ProcessGmailImportReceipt($alphaChild->id))->handle(app(GmailImportIntake::class));
+        unserialize($childPayload)->handle(app(GmailImportIntake::class));
+
+        $this->assertSame('accepted', $alphaChild->fresh()->status);
+        $this->assertSame('accepted', $child->fresh()->status);
+        $this->assertSame([$alpha->id, $beta->id], PriceListImport::orderBy('id')->pluck('supplier_import_profile_id')->all());
     }
 
     public function test_shared_sender_routes_nested_attachments_to_separate_supplier_receipts(): void

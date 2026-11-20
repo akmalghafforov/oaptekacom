@@ -389,18 +389,37 @@ class GmailImportIntakeTest extends TestCase
         Queue::assertNothingPushed();
     }
 
-    public function test_profile_changes_before_handoff_are_rechecked(): void
+    #[TestWith(['activity', 'inactive_profile'])]
+    #[TestWith(['eligibility', 'ineligible_profile'])]
+    #[TestWith(['mapping', 'profile_changed'])]
+    #[TestWith(['default', 'profile_changed'])]
+    #[TestWith(['cleared', 'missing_profile'])]
+    public function test_profile_changes_before_handoff_are_rechecked(string $change, string $reason): void
     {
         Storage::fake('local');
         $supplier = $this->supplier();
+        $validatedProfile = $supplier->inboxImportProfile()->firstOrFail();
         $receipt = $this->receipt();
-        $receipt->update(['supplier_organization_id' => $supplier->id, 'sender_email' => 'supplier@example.com', 'selected_part' => ['file_type' => 'csv']]);
+        $receipt->update([
+            'supplier_organization_id' => $supplier->id,
+            'supplier_import_profile_id' => $validatedProfile->id,
+            'sender_email' => 'supplier@example.com',
+            'selected_part' => ['file_type' => 'csv'],
+        ]);
+        match ($change) {
+            'activity' => $validatedProfile->newQuery()->whereKey($validatedProfile->id)->update(['is_active' => false]),
+            'eligibility' => $validatedProfile->newQuery()->whereKey($validatedProfile->id)->update(['inbox_enabled' => false]),
+            'mapping' => $validatedProfile->fresh()->update(['configuration' => array_replace($validatedProfile->configuration, ['mapping' => ['name' => 'B', 'price' => 'A']])]),
+            'default' => $supplier->update(['inbox_import_profile_id' => SupplierImportProfile::factory()->for($supplier, 'supplier')->create(['file_type' => 'csv'])->id]),
+            'cleared' => $supplier->update(['inbox_import_profile_id' => null]),
+        };
         Storage::disk('local')->put('new.csv', 'content');
-        $supplier->importProfile()->update(['is_active' => false]);
         $file = new StoredImportFile('local', 'new.csv', 'prices.csv', 'text/csv', 7, hash('sha256', 'content'));
-        $result = app(SupplierPriceListIngestor::class)->ingestGmailReceipt($receipt, $file);
+
+        $result = app(SupplierPriceListIngestor::class)->ingestGmailReceipt($receipt, $file, $validatedProfile);
+
         $this->assertSame('skipped', $result['outcome']);
-        $this->assertSame('inactive_profile', $this->outcome($receipt)->reason);
+        $this->assertSame($reason, $this->outcome($receipt)->reason);
         Storage::disk('local')->assertMissing('new.csv');
         $this->assertSame(0, PriceListImport::count());
     }
