@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { defineConfig, loadEnv } from 'vite';
 import laravel from 'laravel-vite-plugin';
-import { bunny } from 'laravel-vite-plugin/fonts';
+import { local } from 'laravel-vite-plugin/fonts';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig(({ mode }) => {
@@ -18,8 +18,12 @@ export default defineConfig(({ mode }) => {
                 input: ['resources/css/app.css', 'resources/js/app.js'],
                 refresh: true,
                 fonts: [
-                    bunny('Instrument Sans', {
-                        weights: [400, 500, 600],
+                    local('Instrument Sans', {
+                        variants: [
+                            { src: 'resources/fonts/instrument-sans/instrument-sans-400.woff2', weight: 400 },
+                            { src: 'resources/fonts/instrument-sans/instrument-sans-500.woff2', weight: 500 },
+                            { src: 'resources/fonts/instrument-sans/instrument-sans-600.woff2', weight: 600 },
+                        ],
                     }),
                 ],
             }),
